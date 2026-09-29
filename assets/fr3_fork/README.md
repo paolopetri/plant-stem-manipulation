@@ -1,0 +1,54 @@
+# FR3 + fork asset
+
+Builds the FR3 robot with our fork end-effector for Isaac Lab.
+The Franka URDF is never edited by hand; the fork lives in its own config.
+
+```
+fr3_fork/
+├── base/fr3.urdf          FR3 without end-effector (generated, not edited)
+├── fork/
+│   ├── fork.yaml          all fork parameters (frame, mass, inertia, tool tip)
+│   ├── fork_visual.stl
+│   └── fork_collision.stl
+├── build_asset.py         base + fork -> build/fr3_fork.urdf
+├── convert_to_usd.sh      build/fr3_fork.urdf -> build/fr3_fork.usd
+├── fr3_fork_cfg.py        Isaac Lab ArticulationCfg
+└── build/                 generated output (git-ignored)
+```
+
+## Setup (once)
+
+1. Check the arm type in Desk → Settings → Dashboard (Arm3R = `fr3`, Arm3Rv2 = `fr3v2`, ...).
+2. Generate the arm without end-effector in `franka_description`:
+   ```bash
+   ./scripts/create_urdf.sh fr3 --no-ee
+   ```
+3. Copy the generated URDF to `base/fr3.urdf`.
+4. Put `fork_visual.stl` and `fork_collision.stl` into `fork/`.
+
+## Build
+
+```bash
+uv run build_asset.py --franka-description ~/path/to/franka_description
+uv run --with yourdfpy yourdfpy build/fr3_fork.urdf      # visual check
+ISAACLAB_DIR=~/IsaacLab ./convert_to_usd.sh
+```
+
+`--franka-description` is only needed if the base URDF uses `package://` mesh paths.
+You can also set `FRANKA_DESCRIPTION` once in your shell.
+
+## Changing the fork
+
+1. Re-export the STLs from Onshape (origin = `fr3_link8`, meters) into `fork/`.
+2. Update `fork/fork.yaml` (mass properties, tool tip).
+3. Rerun the build and conversion.
+
+After weighing the printed part, set `inertial.measured_mass`. The inertia is scaled automatically.
+
+A different tool: copy `fork/` to e.g. `pusher/`, adapt the yaml, run `uv run build_asset.py --tool pusher/pusher.yaml`.
+
+## Frame conventions
+
+- All fork values are in `fr3_link8`: origin at the center of the flange face, z out of the robot.
+- `tool_tip` is the frame to use in tasks (observations, rewards, IK). It currently sits on the higher-z
+  edge at the base of the fork; revisit if it causes trouble in training.
