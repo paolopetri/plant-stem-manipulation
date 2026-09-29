@@ -2,7 +2,6 @@
 # All values are in the fr3_link8 (flange) frame, SI units (m, kg, kg·m²).
 # Source: Onshape Part Studio, origin = fr3_link8 (see docs/notes/2026-09-28.md).
 
-name: fork
 parent_link: fr3_link8
 
 # Onshape export is already in the fr3_link8 frame -> identity mount.
@@ -31,6 +30,5 @@ inertial:
 #       flange pointing down). Revisit if it causes trouble in training.
 # Orientation: x out along the fork, z = fr3_link8 z.
 tool_tip:
-  name: tool_tip
   xyz: [0.032881, -0.032880, 0.017746]
   rpy: [0, 0, -0.785398]   # -45° about z: x along the fork axis (out), z = flange axis

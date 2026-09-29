@@ -5,19 +5,21 @@
 # ///
 """Sanity check of the built URDF: print the tool values, then show the robot in the browser.
 
-Prints the tool_tip pose and the fork inertial as they ended up in the URDF (compare with fork.yaml),
+Prints the tool_tip pose and the end-effector inertial as they ended up in the URDF (compare with
+end_effectors/<ee>/<ee>.yaml),
 then serves a viewer at http://localhost:8080 with joint sliders, visual/collision toggles and
 axes for fr3_link8 and tool_tip (red = x, green = y, blue = z).
 
 Usage:
-  uv run view_urdf.py
-  uv run view_urdf.py build/fr3_fork.urdf --port 8080
+  uv run view_urdf.py --ee fork
+  uv run view_urdf.py --ee fork --port 8081
 """
 
 from __future__ import annotations
 
 import argparse
 import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import numpy as np
@@ -29,26 +31,33 @@ ROOT = Path(__file__).resolve().parent
 FRAMES = ("fr3_link8", "tool_tip")
 
 
-def print_check(urdf: yourdfpy.URDF) -> None:
+def print_check(urdf: yourdfpy.URDF, ee: str) -> None:
     np.set_printoptions(formatter={"float": lambda v: f"{v: .6g}"})
     T = urdf.get_transform("tool_tip", "fr3_link8")
     print(f"tool_tip xyz in fr3_link8: {T[:3, 3]}")
     print(f"tool_tip x axis: {T[:3, 0]}  z axis: {T[:3, 2]}")
-    fork = urdf.link_map["fork"].inertial
-    print(f"fork mass: {fork.mass}  com: {fork.origin[:3, 3]}")
-    print(f"fork inertia:\n{fork.inertia}")
+    inertial = urdf.link_map[ee].inertial
+    print(f"{ee} mass: {inertial.mass}  com: {inertial.origin[:3, 3]}")
+    print(f"{ee} inertia:\n{inertial.inertia}")
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("urdf", type=Path, nargs="?", default=ROOT / "build" / "fr3_fork.urdf")
+    ap.add_argument("--ee", required=True, help="end-effector name (e.g. fork); shows build/fr3_<ee>.urdf")
     ap.add_argument("--port", type=int, default=8080)
     args = ap.parse_args()
 
-    # mesh paths in the URDF are relative to its folder
-    urdf = yourdfpy.URDF.load(str(args.urdf), mesh_dir=str(args.urdf.parent),
+    path = ROOT / "build" / f"fr3_{args.ee}.urdf"
+    if not path.is_file():
+        raise SystemExit(f"missing {path} -> run: uv run build_asset.py --ee {args.ee}")
+    # mesh paths in the URDF are relative to its folder; yourdfpy only warns about missing ones
+    missing = [m.get("filename") for m in ET.parse(path).iter("mesh")
+               if not (path.parent / m.get("filename")).is_file()]
+    if missing:
+        raise SystemExit(f"missing meshes {missing} -> run: uv run build_asset.py --ee {args.ee}")
+    urdf = yourdfpy.URDF.load(str(path), mesh_dir=str(path.parent),
                               build_collision_scene_graph=True, load_collision_meshes=True)
-    print_check(urdf)
+    print_check(urdf, args.ee)
 
     server = viser.ViserServer(port=args.port)
     robot = ViserUrdf(server, urdf, load_collision_meshes=True)
