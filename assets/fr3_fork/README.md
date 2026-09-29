@@ -50,5 +50,6 @@ A different tool: copy `fork/` to e.g. `pusher/`, adapt the yaml, run `uv run bu
 ## Frame conventions
 
 - All fork values are in `fr3_link8`: origin at the center of the flange face, z out of the robot.
-- `tool_tip` is the frame to use in tasks (observations, rewards, IK). It currently sits on the higher-z
-  edge at the base of the fork; revisit if it causes trouble in training.
+- `tool_tip` is the frame to use in tasks (observations, rewards, IK). It sits on the lower-z edge of the
+  fork in `fr3_link8` (the top of the fork in world with the flange pointing down); x points out along the
+  fork, z = `fr3_link8` z. Revisit if it causes trouble in training.
