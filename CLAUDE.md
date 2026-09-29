@@ -67,6 +67,7 @@ Much of this code is simulation and RL, where unit tests don't cover everything.
 - Merge via a pull request (squash-merge), then delete the branch.
 - `exp/` branches may stay unmerged.
 - Tag milestones, e.g. `v0.1-position-control`.
+- No `Co-Authored-By` trailer or other AI attribution in commit messages or PR descriptions.
 
 ## Conventions
 
