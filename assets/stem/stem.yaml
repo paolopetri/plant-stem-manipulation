@@ -1,0 +1,20 @@
+# Nominal stem, model v1: Newton cable (chain of capsule segments with cable joints, VBD solver).
+# Read by src/stem_manip/assets/stem.py. Values are chosen in M1 (see docs/TODO.md); null = not set yet.
+# Units: SI (m, kg/m^3, Pa, 1/m).
+
+geometry:
+  length: null            # [m] base to tip
+  num_segments: null      # number of capsule segments (control points = num_segments + 1)
+  diameter: null          # [m] -> CableMaterialCfg.thickness
+  base_position: null     # [x, y, z] in the env frame [m]
+
+material:
+  density: null           # [kg/m^3]
+  stretch_modulus: null   # [Pa] -> CableMaterialCfg.stretch_stiffness
+  bend_modulus: null      # [Pa] -> CableMaterialCfg.bend_stiffness
+  twist_modulus: null     # [Pa] -> CableMaterialCfg.twist_stiffness (null = solver fallback to bend)
+
+damage:                   # hard limits, used for termination and penalty (see docs/architecture.md)
+  max_curvature: null     # [1/m] bending (= 1 / minimum bending radius); stage 1 starts with this one
+  max_twist_rate: null    # [rad/m] torsion
+  max_axial_strain: null  # [-] tension from pulling / dragging along the stem (tearing)

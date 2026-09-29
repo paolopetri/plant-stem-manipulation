@@ -1,12 +1,11 @@
-"""Isaac Lab articulation config for the FR3 with any end-effector from end_effectors/.
+"""Isaac Lab articulation config for the FR3 with any end-effector from assets/fr3/end_effectors/.
 
-Uses the USD produced by convert_to_usd.sh (build/fr3_<ee>_usd/fr3_<ee>/fr3_<ee>.usda).
+Uses the USD produced by assets/fr3/convert_to_usd.sh (assets/fr3/build/fr3_<ee>_usd/fr3_<ee>/fr3_<ee>.usda).
 Joint position limits come from the URDF (FR3 values from franka_description).
 Written against the Isaac Lab 3.0 API (backend-specific schemas, joint_effort_limit).
 """
 
 import math
-from pathlib import Path
 
 import yaml
 
@@ -16,8 +15,10 @@ import isaaclab.sim as sim_utils
 from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets.articulation import ArticulationCfg
 
-BUILD_DIR = Path(__file__).resolve().parent / "build"
-EE_DIR = Path(__file__).resolve().parent / "end_effectors"
+from stem_manip.assets import REPO_ASSETS_DIR
+
+BUILD_DIR = REPO_ASSETS_DIR / "fr3" / "build"
+EE_DIR = REPO_ASSETS_DIR / "fr3" / "end_effectors"
 
 # Bodies for tasks: the end-effector body has the end-effector's name (e.g. "fork").
 # tool_tip and fr3_link8 are plain frames in the USD, not bodies (the converter turns massless links

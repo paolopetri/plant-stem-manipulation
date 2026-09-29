@@ -45,19 +45,24 @@ Much of this code is simulation and RL, where unit tests don't cover everything.
 
 ## Repo layout
 
-<!-- TODO: fill in once the structure settles, e.g.:
-- `assets/`: USD files (stem, tool, robot)
-- `source/`: Isaac Lab extension (envs, MDP terms, configs)
-- `scripts/`: train / play / eval entry points
-- `docs/`: notes and project proposal
--->
+Installable uv package `stem_manip` (Isaac Lab 3 external-project layout). Details: `docs/architecture.md`.
+- `assets/`: source data and build pipelines (`fr3/` URDF -> USD, `stem/stem.yaml`). No Isaac Lab cfgs here.
+- `src/stem_manip/assets/`: Isaac Lab configs pointing to `assets/` (`fr3.py`, `stem.py`).
+- `src/stem_manip/tasks/<task>/`: one package per task (env cfg, `mdp/`, `agents/`), registered via the `isaaclab.tasks` entry point.
+- `src/stem_manip/utils/`: simulator-free helpers (e.g. stem curvature).
+- `scripts/`: sanity checks (`check_*.py`). `tests/`: unit tests without the simulator.
+- `docs/`: `architecture.md`, `TODO.md`, `notes/`.
+
+Skeleton modules contain only a spec docstring (requirements, how to verify, TODO milestone) until implemented.
 
 ## Commands
 
-<!-- TODO: add the exact commands, e.g.
-- Train: `./isaaclab.sh -p scripts/train.py --task <TaskName> --headless`
-- Play:  `./isaaclab.sh -p scripts/play.py --task <TaskName>`
--->
+Isaac Lab 3 source checkout expected at `../IsaacLab`.
+- Setup: `uv sync --extra isaacsim --extra rsl-rl`
+- List tasks: `uv run isaaclab list_envs`
+- Unit tests: `uv run pytest`
+- Simulation checks (headless by default, no `--headless` flag in Isaac Lab 3): `uv run --extra isaacsim python scripts/check_<name>.py`, e.g. `check_fr3.py`
+- Train / play: added once the first task is registered (docs/TODO.md, M5).
 
 ## Git workflow
 

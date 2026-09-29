@@ -14,7 +14,6 @@ fr3/
 ├── build_asset.py              base + <ee> -> build/fr3_<ee>.urdf
 ├── view_urdf.py                sanity check of build/fr3_<ee>.urdf (printout + browser viewer)
 ├── convert_to_usd.sh           build/fr3_<ee>.urdf -> build/fr3_<ee>_usd/ (USD stage + payloads)
-├── fr3_cfg.py                  Isaac Lab ArticulationCfg: fr3_cfg("<ee>")
 └── build/                      generated output (git-ignored)
 ```
 
@@ -47,12 +46,12 @@ the URDF (compare with the yaml). It then serves a browser viewer with joint sli
 toggles and axes for `fr3_link8` and `tool_tip` (red = x, green = y, blue = z). Stop it with Ctrl+C.
 It runs in the browser because the yourdfpy/pyglet window only shows white on Wayland.
 
-In Isaac Lab, use `fr3_cfg("fork")` from `fr3_cfg.py`. The articulation's bodies are `fr3_link0` … `fr3_link7`
+In Isaac Lab, use `fr3_cfg("fork")` from `stem_manip.assets.fr3` (`src/stem_manip/assets/fr3.py`). The articulation's bodies are `fr3_link0` … `fr3_link7`
 and the end-effector (`fork`). `tool_tip` and `fr3_link8` are **not** bodies: the converter turns massless links
 without geometry into plain frames. For the task frame, use the end-effector body plus the offset from the yaml:
 
 ```python
-from fr3_cfg import fr3_cfg, tool_tip_offset
+from stem_manip.assets.fr3 import fr3_cfg, tool_tip_offset
 pos, rot = tool_tip_offset("fork")   # rot as quaternion (x, y, z, w), the Isaac Lab 3.0 order
 # e.g. body_name="fork", body_offset=OffsetCfg(pos=pos, rot=rot) in the IK action, or in a FrameTransformer
 ```
