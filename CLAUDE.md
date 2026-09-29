@@ -61,6 +61,7 @@ Isaac Lab 3 source checkout expected at `../IsaacLab`.
 - Setup: `uv sync --extra isaacsim --extra rsl-rl`
 - List tasks: `uv run isaaclab list_envs`
 - Unit tests: `uv run pytest`
+- Simulation checks (headless by default, no `--headless` flag in Isaac Lab 3): `uv run --extra isaacsim python scripts/check_<name>.py`, e.g. `check_fr3.py`
 - Train / play: added once the first task is registered (docs/TODO.md, M5).
 
 ## Git workflow
