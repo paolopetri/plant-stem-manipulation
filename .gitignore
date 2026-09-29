@@ -1,0 +1,18 @@
+# Python / tooling
+.venv/
+.pytest_cache/
+.ruff_cache/
+**/__pycache__/
+**/*.egg-info/
+*.py[cod]
+dist/
+pyrightconfig.json
+
+# Training output (never committed, see CLAUDE.md)
+logs/
+outputs/
+videos/
+wandb/
+*.pt
+*.pth
+*.onnx
