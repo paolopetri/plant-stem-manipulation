@@ -40,12 +40,43 @@ The repo is an installable uv package (`stem_manip`), following Isaac Lab 3's ex
 
 The **stem point of interest** is given by a segment index + an offset along that segment (task cfg).
 
+## Stem interface (keeps the stem model swappable)
+
+The stem model may change (Newton cable now; possibly a rigid-segment articulation, another backend or a
+Cosserat co-simulation later). To keep that change local, **the rest of the code reads the stem only through
+one accessor**:
+
+```
+stem_segment_poses(env) -> (num_envs, num_segments, 7)   # position + quaternion (x, y, z, w), world frame
+```
+
+- MDP terms (observations, rewards, terminations, commands) and `stem_manip.utils.stem_geometry` use only
+  this accessor (plus segment rest lengths). They never call `CableObject` or any backend API directly.
+- Switching the stem model then means changing two things: the asset cfg (`stem_manip.assets.stem`) and the
+  accessor implementation. Task logic, rewards and training setup stay unchanged.
+- Writing stem state (resets, randomization in `mdp/events.py`) is inherently model-specific; keep it in
+  one place next to the accessor as well.
+
 ## No-damage constraint
 
-Curvature per cable joint from adjacent segment orientations:
-kappa_i = angle(q_i^-1 * q_(i+1)) / L_dual, with L_dual = 0.5 * (L_i + L_(i+1)).
-Implemented once in `stem_manip.utils.stem_geometry`, used by the reward (penalty) and the termination
-(hard limit `damage.max_curvature` in `assets/stem/stem.yaml`).
+A stem can be damaged in several ways. Each needs its own measure:
+
+| Damage mode | Cause | Measure | Available now? |
+|---|---|---|---|
+| Bending (kink / break) | pushing sideways too far | bending curvature per joint | yes, from segment poses |
+| Torsion | twisting the stem | twist rate per joint | yes, from segment poses |
+| Tearing / pulling out | fork drags along the stem with high friction, pulls the stem axially | axial strain per joint (-> tension ≈ EA · strain) | yes, from segment positions (small values, check noise) |
+| Crushing / abrasion | high contact force or sliding under friction at the fork | contact normal / friction force | no: contact forces not readable in coupled scenes (see TODO open questions) |
+
+Per joint i, with relative rotation q_rel = q_i^-1 * q_(i+1) and dual length L_dual = 0.5 * (L_i + L_(i+1)):
+- q_rel is split into a **bending** part (rotation about an axis perpendicular to the stem tangent) and a
+  **twist** part (rotation about the tangent), a swing-twist decomposition. The total angle of q_rel mixes both.
+- bending curvature kappa_i = bend_angle_i / L_dual; twist rate tau_i = twist_angle_i / L_dual.
+- axial strain eps_i = (distance between neighbouring segment centres) / L_dual - 1.
+
+All measures are implemented once in `stem_manip.utils.stem_geometry` and used by rewards (penalties) and
+terminations (hard limits from `damage` in `assets/stem/stem.yaml`). Stage 1 starts with the bending limit;
+the other limits are added once realistic thresholds are known.
 
 ## Where future work goes
 
@@ -62,6 +93,6 @@ Implemented once in `stem_manip.utils.stem_geometry`, used by the reward (penalt
 
 Listed under "Open questions" in `docs/TODO.md`. The main ones for the cable model:
 - the base can only be pinned (ball joint), not clamped;
-- no damping parameter is exposed;
-- per-env randomization of the material is unclear;
+- no damping parameter is exposed in Isaac Lab (Newton supports rod damping, default 0);
+- per-env randomization: candidate path via Newton's per-joint `joint_target_ke` / `joint_target_kd`, unverified;
 - Newton contact sensors are not supported in coupled scenes.

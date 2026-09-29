@@ -14,5 +14,7 @@ material:
   bend_modulus: null      # [Pa] -> CableMaterialCfg.bend_stiffness
   twist_modulus: null     # [Pa] -> CableMaterialCfg.twist_stiffness (null = solver fallback to bend)
 
-damage:
-  max_curvature: null     # [1/m] hard limit (= 1 / minimum bending radius), used for termination and penalty
+damage:                   # hard limits, used for termination and penalty (see docs/architecture.md)
+  max_curvature: null     # [1/m] bending (= 1 / minimum bending radius); stage 1 starts with this one
+  max_twist_rate: null    # [rad/m] torsion
+  max_axial_strain: null  # [-] tension from pulling / dragging along the stem (tearing)
