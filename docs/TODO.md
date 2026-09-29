@@ -5,7 +5,6 @@ Single source for what comes next. When an item is done, delete it here and log 
 ## Next
 - Convert URDF → USD (`assets/fr3_fork/convert_to_usd.sh`). Check the converter flags for the installed Isaac Lab version and make sure fixed joints are not merged (`fork` and `tool_tip` must exist as bodies).
 - Load `FR3_FORK_CFG` in Isaac Lab: short headless run, check body names and the initial pose.
-- Visual check of the URDF with `uv run assets/fr3_fork/view_urdf.py` (browser): fork seating on the flange, `tool_tip` position and orientation. Once confirmed, replace the yourdfpy command in `assets/fr3_fork/README.md`.
 
 ## Blocked / waiting
 - Weigh the printed fork → set `inertial.measured_mass` in `fork.yaml`.
