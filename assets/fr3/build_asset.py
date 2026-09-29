@@ -6,16 +6,15 @@
 """Build a self-contained FR3 + end-effector URDF.
 
 Inputs (never edited by this script):
-  base/fr3.urdf           FR3 arm without end-effector, generated with franka_description
-  <tool>/<tool>.yaml      end-effector description (meshes, inertia, mount, tool tip)
+  base/fr3.urdf                     FR3 arm without end-effector, generated with franka_description
+  end_effectors/<ee>/<ee>.yaml      end-effector description (meshes, inertia, mount, tool tip)
 
 Output:
-  build/fr3_<tool>.urdf   merged URDF with relative mesh paths
+  build/fr3_<ee>.urdf     merged URDF with relative mesh paths
   build/meshes/...        every mesh it references
 
 Usage:
-  uv run build_asset.py --franka-description ~/franka_description
-  uv run build_asset.py --tool fork/fork.yaml --franka-description ~/franka_description
+  uv run build_asset.py --ee fork --franka-description ~/franka_description
 """
 
 from __future__ import annotations
@@ -30,6 +29,8 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parent
+EE_DIR = ROOT / "end_effectors"
+TOOL_TIP = "tool_tip"  # fixed frame name, so tasks use the same body for every end-effector
 
 
 def fail(msg: str) -> None:
@@ -94,16 +95,36 @@ def check_inertia(i: dict) -> None:
         fail(f"inertia tensor is not positive definite: {i}")
 
 
-def add_tool(robot: ET.Element, cfg: dict, tool_dir: Path, mesh_out: Path) -> None:
-    name = cfg["name"]
+REQUIRED_KEYS = [
+    "parent_link", "mount.xyz", "mount.rpy", "meshes.visual", "meshes.collision",
+    "inertial.cad_mass", "inertial.com",
+    *(f"inertial.inertia.{k}" for k in ("ixx", "ixy", "ixz", "iyy", "iyz", "izz")),
+    "tool_tip.xyz", "tool_tip.rpy",
+]
+
+
+def check_config(cfg: dict, path: Path) -> None:
+    """Fail with the list of missing keys (see README for the yaml format)."""
+    missing = []
+    for key in REQUIRED_KEYS:
+        node = cfg
+        for part in key.split("."):
+            node = node.get(part) if isinstance(node, dict) else None
+        if node is None:
+            missing.append(key)
+    if missing:
+        fail(f"{path}: missing keys {missing}")
+
+
+def add_tool(robot: ET.Element, name: str, cfg: dict, tool_dir: Path, mesh_out: Path) -> None:
     parent = cfg["parent_link"]
-    tip = cfg.get("tool_tip")
+    tip = cfg["tool_tip"]
 
     links = {l.get("name") for l in robot.findall("link")}
     joints = {j.get("name") for j in robot.findall("joint")}
     if parent not in links:
         fail(f"parent link '{parent}' not in base URDF. Available: {sorted(links)}")
-    for new in [name] + ([tip["name"]] if tip else []):
+    for new in (name, TOOL_TIP):
         if new in links:
             fail(f"link '{new}' already exists in base URDF (generated with an end-effector?)")
     if f"{name}_mount" in joints:
@@ -149,12 +170,11 @@ def add_tool(robot: ET.Element, cfg: dict, tool_dir: Path, mesh_out: Path) -> No
     add_origin(joint, cfg["mount"]["xyz"], cfg["mount"]["rpy"])
 
     # tool tip (massless frame)
-    if tip:
-        ET.SubElement(robot, "link", name=tip["name"])
-        tj = ET.SubElement(robot, "joint", name=f"{tip['name']}_joint", type="fixed")
-        ET.SubElement(tj, "parent", link=name)
-        ET.SubElement(tj, "child", link=tip["name"])
-        add_origin(tj, tip["xyz"], tip.get("rpy", (0, 0, 0)))
+    ET.SubElement(robot, "link", name=TOOL_TIP)
+    tj = ET.SubElement(robot, "joint", name=f"{TOOL_TIP}_joint", type="fixed")
+    ET.SubElement(tj, "parent", link=name)
+    ET.SubElement(tj, "child", link=TOOL_TIP)
+    add_origin(tj, tip["xyz"], tip["rpy"])
 
 
 # --------------------------------------------------------------------------- main
@@ -162,7 +182,7 @@ def add_tool(robot: ET.Element, cfg: dict, tool_dir: Path, mesh_out: Path) -> No
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--tool", type=Path, default=ROOT / "fork" / "fork.yaml", help="tool config (yaml)")
+    ap.add_argument("--ee", required=True, help="end-effector name = folder in end_effectors/ (e.g. fork)")
     ap.add_argument("--base", type=Path, default=ROOT / "base" / "fr3.urdf", help="FR3 URDF without end-effector")
     ap.add_argument("--franka-description", type=Path, default=os.environ.get("FRANKA_DESCRIPTION"),
                     help="franka_description repo (needed if the base URDF uses package:// paths); "
@@ -172,25 +192,29 @@ def main() -> None:
 
     if not args.base.is_file():
         fail(f"base URDF not found: {args.base}")
-    if not args.tool.is_file():
-        fail(f"tool config not found: {args.tool}")
+    tool_cfg = EE_DIR / args.ee / f"{args.ee}.yaml"
+    if not tool_cfg.is_file():
+        available = sorted(p.name for p in EE_DIR.iterdir() if p.is_dir())
+        fail(f"end-effector config not found: {tool_cfg}. Available: {available}")
     franka_root = Path(args.franka_description).expanduser() if args.franka_description else None
 
-    cfg = yaml.safe_load(args.tool.read_text())
+    cfg = yaml.safe_load(tool_cfg.read_text()) or {}
+    check_config(cfg, tool_cfg)
     tree = ET.parse(args.base)
     robot = tree.getroot()
 
-    # fresh mesh folder so no stale files survive a rebuild
+    # fresh mesh folders so no stale files survive a rebuild; other end-effectors' meshes are kept
     mesh_out = args.out / "meshes"
-    if mesh_out.exists():
-        shutil.rmtree(mesh_out)
-    mesh_out.mkdir(parents=True)
+    for sub in ("franka", args.ee):
+        if (mesh_out / sub).exists():
+            shutil.rmtree(mesh_out / sub)
+    mesh_out.mkdir(parents=True, exist_ok=True)
 
     n = localize_base_meshes(robot, args.base.parent, franka_root, mesh_out)
-    add_tool(robot, cfg, args.tool.parent, mesh_out)
+    add_tool(robot, args.ee, cfg, tool_cfg.parent, mesh_out)
 
-    robot.set("name", f"fr3_{cfg['name']}")
-    out_urdf = args.out / f"fr3_{cfg['name']}.urdf"
+    robot.set("name", f"fr3_{args.ee}")
+    out_urdf = args.out / f"fr3_{args.ee}.urdf"
     ET.indent(tree, space="  ")
     tree.write(out_urdf, encoding="utf-8", xml_declaration=True)
 
