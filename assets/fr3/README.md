@@ -13,7 +13,7 @@ fr3/
 │       └── fork_collision.stl
 ├── build_asset.py              base + <ee> -> build/fr3_<ee>.urdf
 ├── view_urdf.py                sanity check of build/fr3_<ee>.urdf (printout + browser viewer)
-├── convert_to_usd.sh           build/fr3_<ee>.urdf -> build/fr3_<ee>.usd
+├── convert_to_usd.sh           build/fr3_<ee>.urdf -> build/fr3_<ee>_usd/ (USD stage + payloads)
 ├── fr3_cfg.py                  Isaac Lab ArticulationCfg: fr3_cfg("<ee>")
 └── build/                      generated output (git-ignored)
 ```
@@ -39,7 +39,7 @@ Replace `fork` with the end-effector you want. All commands run from this folder
 ```bash
 uv run build_asset.py --ee fork                     # -> build/fr3_fork.urdf
 uv run view_urdf.py --ee fork                       # sanity check, open http://localhost:8080
-ISAACLAB_DIR=~/IsaacLab ./convert_to_usd.sh fork    # -> build/fr3_fork.usd
+ISAACLAB_DIR=~/IsaacLab ./convert_to_usd.sh fork    # -> build/fr3_fork_usd/fr3_fork/fr3_fork.usda
 ```
 
 `view_urdf.py` prints the `tool_tip` pose and the end-effector's mass, CoM and inertia as they ended up in
@@ -47,7 +47,15 @@ the URDF (compare with the yaml). It then serves a browser viewer with joint sli
 toggles and axes for `fr3_link8` and `tool_tip` (red = x, green = y, blue = z). Stop it with Ctrl+C.
 It runs in the browser because the yourdfpy/pyglet window only shows white on Wayland.
 
-In Isaac Lab, use `fr3_cfg("fork")` from `fr3_cfg.py`. The task frame is always the body `tool_tip`.
+In Isaac Lab, use `fr3_cfg("fork")` from `fr3_cfg.py`. The articulation's bodies are `fr3_link0` … `fr3_link7`
+and the end-effector (`fork`). `tool_tip` and `fr3_link8` are **not** bodies: the converter turns massless links
+without geometry into plain frames. For the task frame, use the end-effector body plus the offset from the yaml:
+
+```python
+from fr3_cfg import fr3_cfg, tool_tip_offset
+pos, rot = tool_tip_offset("fork")   # rot as quaternion (x, y, z, w), the Isaac Lab 3.0 order
+# e.g. body_name="fork", body_offset=OffsetCfg(pos=pos, rot=rot) in the IK action, or in a FrameTransformer
+```
 
 ## Adding an end-effector
 
@@ -113,7 +121,8 @@ After weighing the printed part, set `inertial.measured_mass`. The inertia is sc
 
 - `fr3_link8`: origin at the center of the flange face, z out of the robot.
 - `tool_tip` is the frame to use in tasks (observations, rewards, IK). It has the same name for every
-  end-effector, so tasks work unchanged when the end-effector is swapped.
+  end-effector, so tasks work unchanged when the end-effector is swapped. In Isaac Lab it is reached as
+  end-effector body + `tool_tip_offset(ee)` (see above).
 - Fork: `tool_tip` sits on the lower-z edge of the fork in `fr3_link8` (the top of the fork in world with the
   flange pointing down); x points out along the fork, z = `fr3_link8` z. Revisit if it causes trouble in
   training.
