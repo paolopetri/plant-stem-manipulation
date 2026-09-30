@@ -14,6 +14,7 @@ Where things go: `docs/architecture.md`. Spec of each skeleton file: its module 
 - Quantitative check in `check_stem.py`: clamp the stem horizontally and compare the simulated tip sag under self-weight with the cantilever formula δ = qL⁴/(8EI), q = ρAg, I = πd⁴/64.
 
 ## M2 FR3 on Newton
+- Decide which fork M2 and M3 use: `fork` or `fork_v2` (longer prongs, 221 g). The items below say `fork`.
 - `fr3_cfg("fork")` loads and holds its pose under Newton / MuJoCo-Warp (currently PhysX-only schemas).
 - Decide the gravity question (see Open questions) and apply it.
 - Test the `tool_tip` offset in practice: IK with body `fork` + `tool_tip_offset("fork")` moves the `tool_tip` to the target, and a `FrameTransformer` with the same offset reports the `tool_tip` pose. So far only the offset values and a manual combination with the fork pose are checked.
@@ -57,10 +58,10 @@ Where things go: `docs/architecture.md`. Spec of each skeleton file: its module 
 - float32 world positions vs. axial strain: all envs share one world and sit on a grid (e.g. 4096 envs at 2 m spacing reach ~60 m from the origin). float32 has ~7 significant digits, so the position step grows with the distance: 0.06 µm at 0.5 m, 3.8 µm at 58 m. `joint_axial_strain` (gap / 2 cm) then has a round-off of ~1e-6 at the origin, ~5e-5 at 10 m, ~2e-4 at 50 m (0.02 N / 1.2 N / 4.7 N with EA = 25 kN). Curvature and twist come from orientations and are not affected. Is that precise enough for the tensile-stress limit, and does the solver itself show stretch jitter far from the origin (untested)? Possible remedies: smaller env spacing, zero spacing if Newton worlds don't collide with each other (unchecked), or a solver-side joint force.
 - Gravity compensation: with `disable_gravity=False` and stiffness 400, the arm sags ~0.05 rad at joints 2 and 4 in the start pose. Disable gravity on the robot (as Isaac Lab's Franka high-PD config does), add gravity compensation, or raise the gains?
   - Leaning: do it like Isaac Lab's Franka. `FRANKA_PANDA_HIGH_PD_CFG` (`isaaclab_assets/robots/franka.py`) uses the same gains (400/80) plus `disable_gravity=True`, "useful for task-space control using differential IK". Isaac Lab's OSC how-to and gear-assembly deployment docs do the same ("Robot is mounted, no gravity"). The real Franka controller also compensates gravity itself (from memory, check in the libfranka docs).
-  - Side effect: the end-effector then also has no gravity in sim. Negligible for the ~50 g fork, but worth knowing.
+  - Side effect: the end-effector then also has no gravity in sim. Negligible for the ~50 g `fork`, less so for the 221 g `fork_v2` (CoM 74 mm from the flange axis, about 0.16 N·m); worth knowing.
 
 ## Blocked / waiting
-- Weigh the printed fork → set `inertial.measured_mass` in `fork.yaml`.
+- Weigh the printed forks → set `inertial.measured_mass` in `fork.yaml` and `fork_v2.yaml`.
 
 ## Repo
 - Add `docs/project-proposal.md` (referenced in CLAUDE.md).

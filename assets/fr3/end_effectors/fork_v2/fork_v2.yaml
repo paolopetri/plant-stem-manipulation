@@ -1,0 +1,33 @@
+# Fork v2 end-effector for the FR3.
+# All values are in the fr3_link8 (flange) frame, SI units (m, kg, kg·m²).
+# Source: Onshape Part Studio, origin = fr3_link8.
+
+parent_link: fr3_link8
+
+# Onshape export is already in the fr3_link8 frame -> identity mount.
+mount:
+  xyz: [0, 0, 0]
+  rpy: [0, 0, 0]
+
+meshes:
+  visual: fork_v2_visual.stl        # Onshape STL export, binary, meter, fine
+  collision: fork_v2_collision.stl  # Onshape STL export, binary, meter, coarse
+
+inertial:
+  cad_mass: 0.221021       # solid PLA from Onshape (V = 1.77e-4 m³ -> ~1250 kg/m³)
+  measured_mass: null      # set after weighing the print -> inertia is scaled by measured/cad
+  com: [0.052338, -0.052338, 0.016678]
+  inertia:                 # about the CoM, axes aligned with fr3_link8
+    ixx: 4.72e-4
+    iyy: 4.72e-4
+    izz: 9.11e-4
+    ixy: 4.06e-4
+    ixz: -3.0e-5           # low precision in Onshape display (1 sig. fig.)
+    iyz: 3.0e-5            # low precision in Onshape display (1 sig. fig.)
+
+# Massless frame at the contact point of the fork.
+# Position = Onshape measure tool_mount -> tool_tip (tool_mount = fr3_link8 origin).
+# Orientation: x out along the fork, z = fr3_link8 z.
+tool_tip:
+  xyz: [0.039952, -0.039952, 0.012500]
+  rpy: [0, 0, -0.785398]   # -45° about z: x along the fork axis (out), z = flange axis

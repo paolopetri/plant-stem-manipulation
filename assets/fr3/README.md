@@ -11,6 +11,7 @@ fr3/
 │       ├── fork.yaml           all parameters (mount, mass, inertia, tool tip)
 │       ├── fork_visual.stl
 │       └── fork_collision.stl
+│   (end-effectors so far: fork, fork_v2 = longer prongs)
 ├── build_asset.py              base + <ee> -> build/fr3_<ee>.urdf
 ├── view_urdf.py                sanity check of build/fr3_<ee>.urdf (printout + browser viewer)
 ├── convert_to_usd.sh           build/fr3_<ee>.urdf -> build/fr3_<ee>_usd/ (USD stage + payloads)
