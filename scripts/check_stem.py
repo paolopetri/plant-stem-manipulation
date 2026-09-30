@@ -6,9 +6,11 @@ arrive in the simulator:
 - total mass against rho * A * L;
 - per-joint stretch / bend / twist stiffness in the Newton model against E A / l, E I / l (l = segment length);
 - per-joint damping in the Newton model against damping_time * stiffness.
-Then steps the simulation and reports the tip height and the maximum curvature (must stay finite).
+Then clamps the base (`fix_stem_base`), gives the stem a sideways velocity and steps the simulation:
+- the base segment keeps its start pose;
+- the stem deflects (tip moves sideways) and all poses stay finite.
 
-Not yet (docs/TODO.md -> M1): base fixed; stem stands and sags plausibly, springs back,
+Not yet (docs/TODO.md -> M1): stem stands and sags plausibly, springs back,
 deflects when pushed; oscillation decays as set by the damping; cantilever sag against delta = q L^4 / (8 E I); axial-strain noise.
 
 Usage (from the repo root; headless unless a visualizer is requested, e.g. `--viz newton_gl`):
@@ -38,7 +40,7 @@ from isaaclab.sim import SimulationContext
 from isaaclab.utils import configclass
 from isaaclab.utils.math import quat_apply
 
-from stem_manip.assets.stem import stem_cfg, stem_params
+from stem_manip.assets.stem import fix_stem_base, stem_cfg, stem_params
 from stem_manip.utils import stem_geometry
 
 SIM_DT = 0.01  # [s]
@@ -47,6 +49,8 @@ VBD_ITERATIONS = 20
 ENV_SPACING = 1.0  # [m]
 POS_TOL = 1e-4  # [m]
 REL_TOL = 1e-3
+KICK_TIP_SPEED = 1.0  # [m/s] sideways start velocity of the tip (linear profile, zero at the base)
+MIN_TIP_DEFLECTION = 0.01  # [m]
 
 
 @configclass
@@ -133,19 +137,40 @@ def main() -> None:
         expected_kd = {f"tau * {name}": damping_time * value for name, value in expected_ke.items()}
         results["joint damping"] = _compare_gains(model.joint_target_kd.numpy(), expected_kd)
 
-        # -- step
+        # -- clamp the base, kick the stem sideways, step
+        fix_stem_base(stem)
+        start_poses = stem.data.segment_pose_w.torch.clone()
+        velocity = torch.zeros(args_cli.num_envs, num_segments, 6, device=sim.device)
+        velocity[:, 1:, 0] = KICK_TIP_SPEED * torch.arange(1, num_segments, device=sim.device) / (num_segments - 1)
+        stem.write_segment_velocity_to_sim_index(segment_velocity=velocity)
+
+        base_error = torch.zeros(args_cli.num_envs, device=sim.device)
+        tip_deflection = torch.zeros(args_cli.num_envs, device=sim.device)
+        max_curvature = 0.0
+        finite = True
         for _ in range(args_cli.steps):
             sim.step(render=False)
             scene.update(SIM_DT)
             if sim.is_rendering:
                 sim.render()
-        poses = stem.data.segment_pose_w.torch
-        curvature = stem_geometry.joint_curvature(poses, segment_lengths)
-        tip_height = stem_geometry.point_pose(poses, num_segments - 1, 0.5 * segment_length)[:, 2]
-        results[f"finite after {args_cli.steps} steps"] = (
-            bool(torch.isfinite(poses).all()),
-            f"tip height {[round(float(z), 4) for z in tip_height]} m, max curvature {float(curvature.max()):.3f} 1/m",
+            poses = stem.data.segment_pose_w.torch
+            finite = finite and bool(torch.isfinite(poses).all())
+            base_error = torch.maximum(base_error, (poses[:, 0] - start_poses[:, 0]).abs().max(dim=-1).values)
+            tip_deflection = torch.maximum(tip_deflection, (poses[:, -1, :2] - start_poses[:, -1, :2]).norm(dim=-1))
+            max_curvature = max(max_curvature, float(stem_geometry.joint_curvature(poses, segment_lengths).max()))
+
+        results["base fixed"] = (
+            float(base_error.max()) < 1e-6,
+            f"max change of the base segment pose {float(base_error.max()):.1e} (position [m] / quaternion)",
         )
+        results["deflects when kicked"] = (
+            finite and float(tip_deflection.min()) > MIN_TIP_DEFLECTION,
+            f"max tip deflection {[round(float(d), 4) for d in tip_deflection]} m, "
+            f"max curvature {max_curvature:.2f} 1/m, all finite: {finite}",
+        )
+        tip_offset = (poses[:, -1, :2] - start_poses[:, -1, :2]).norm(dim=-1)
+        print(f"[INFO] tip offset from the start pose after {args_cli.steps} steps: "
+              f"{[round(float(d), 4) for d in tip_offset]} m")
 
         print(f"\n=== check_stem ({args_cli.num_envs} envs) ===")
         for name, (ok, info) in results.items():

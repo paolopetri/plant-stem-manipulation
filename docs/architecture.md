@@ -95,7 +95,8 @@ once a threshold is chosen, the tensile-stress limit; the twist limit follows wh
 ## Open modelling questions
 
 Listed under "Open questions" in `docs/TODO.md`. The main ones for the cable model:
-- the base can only be pinned (ball joint), not clamped;
+- the base is clamped by making the root segment a kinematic body in the Newton model (`fix_stem_base`), since
+  Isaac Lab only offers pins (ball joints);
 - no damping parameter is exposed in Isaac Lab; we author Newton's rod damping attributes through `StemMaterialCfg`;
 - the VBD solver needs many iterations for the stiff stretch direction (see TODO, solver settings);
 - per-env randomization: candidate path via Newton's per-joint `joint_target_ke` / `joint_target_kd`, unverified;

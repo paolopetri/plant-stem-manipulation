@@ -9,9 +9,12 @@ material prim (`newton:curves{Stretch,Shear,Bend,Twist}Damping`, schema `NewtonC
 `StemMaterialCfg` adds them. They are structural values, set stiffness-proportional from one time constant:
 damping = `material.damping_time` * structural stiffness (E A for stretch and shear, E I for bend, G J for twist).
 
-Not done yet (docs/TODO.md -> M1):
-- The stem base is not held fixed: the root segment is free-floating. Pinning only gives a ball joint, so try
-  pinning the first two control points. Document the chosen workaround here.
+Fixed base: the cable's root segment is free-floating, and Isaac Lab only offers pins (ball joints), which do
+not clamp. `fix_stem_base()` instead marks the root segment as a kinematic body in the Newton model: the solver
+skips it, so it keeps its pose, and the second segment is tied to it by the normal cable joint (bend, twist,
+stretch). This is a full clamp; the lowest segment no longer deforms, so the flexible length is
+`length * (1 - 1 / num_segments)`. Call it after the simulation is built (the flag lives in the Newton model,
+not in the cfg).
 
 Verify: `scripts/check_stem.py`.
 """
@@ -21,8 +24,11 @@ from typing import ClassVar
 
 import yaml
 
+from isaaclab_newton.physics import NewtonManager
+from newton import BodyFlags, ModelFlags
+
 import isaaclab.sim as sim_utils
-from isaaclab.assets import CableObjectCfg
+from isaaclab.assets import CableObject, CableObjectCfg
 from isaaclab.utils import configclass
 
 from stem_manip.assets import REPO_ASSETS_DIR
@@ -97,3 +103,16 @@ def stem_cfg() -> CableObjectCfg:
         ),
         init_state=CableObjectCfg.InitialStateCfg(pos=tuple(geometry["base_position"])),
     )
+
+
+def fix_stem_base(stem: CableObject) -> None:
+    """Clamp the stem base: make the root segment of every env a kinematic body (see the module docstring).
+
+    Call after `sim.reset()` / scene creation, and again if the Newton model is rebuilt.
+    """
+    model = NewtonManager.get_model()
+    root_body_ids = stem.root_view.get_attribute("joint_parent", model).numpy()[:, 0, 0]
+    body_flags = model.body_flags.numpy()
+    body_flags[root_body_ids] = int(BodyFlags.KINEMATIC)
+    model.body_flags.assign(body_flags)
+    NewtonManager.add_model_change(ModelFlags.BODY_PROPERTIES)
