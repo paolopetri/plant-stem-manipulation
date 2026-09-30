@@ -14,8 +14,13 @@ Tests:
 
 `cost` = substeps x iterations per simulation step. Results and trade-offs: docs/notes/2026-09-30.md.
 
-Usage (from the repo root; headless unless a visualizer is requested, e.g. `--viz newton_gl`):
+With a viewer (`--viz newton_gl`) the test is paced to real time (`--slow_motion 5` = five times slower) and,
+after the RESULT line, replayed from the start until the window is closed. The viewer's left panel has a
+"Pause Simulation" / "Resume Simulation" button. Timing (`ms_per_step`) excludes rendering and pacing.
+
+Usage (from the repo root; headless unless a visualizer is requested):
     uv run --extra isaacsim python scripts/sweep_stem_solver.py --test sag
+    uv run --extra isaacsim python scripts/sweep_stem_solver.py --test kick --viz newton_gl --slow_motion 5
     uv run --extra isaacsim python scripts/sweep_stem_solver.py --test kick --substeps 8 --iterations 20
     for r in 1 0.1 0.01 0.001; do
         uv run --extra isaacsim python scripts/sweep_stem_solver.py --test sag --shear_ratio $r | grep RESULT
@@ -40,6 +45,9 @@ parser.add_argument(
 )
 parser.add_argument("--steps", type=int, default=600, help="Simulation steps to run.")
 parser.add_argument("--num_envs", type=int, default=1, help="Number of environments (for timing).")
+parser.add_argument(
+    "--slow_motion", type=float, default=1.0, help="With a viewer: play this many times slower than real time."
+)
 add_launcher_args(parser)
 args_cli = parser.parse_args()
 
@@ -140,27 +148,37 @@ def main() -> None:
         sim.reset()
         stem = scene["stem"]
         fix_stem_base(stem)
-        if args_cli.test == "kick":
+
+        def start_test() -> None:
+            """Put the stem into its start state and, for the kick test, give it the sideways velocity."""
+            stem.write_segment_pose_to_sim_index(segment_pose=stem.data.default_segment_pose_w)
             velocity = torch.zeros(args_cli.num_envs, num_segments, 6, device=sim.device)
-            profile = torch.arange(1, num_segments, device=sim.device) / (num_segments - 1)
-            velocity[:, 1:, 0] = KICK_TIP_SPEED * profile
+            if args_cli.test == "kick":
+                profile = torch.arange(1, num_segments, device=sim.device) / (num_segments - 1)
+                velocity[:, 1:, 0] = KICK_TIP_SPEED * profile
             stem.write_segment_velocity_to_sim_index(segment_velocity=velocity)
 
-        tip_x, tip_z = [], []
-        start_time = 0.0
-        for step in range(args_cli.steps):
-            if step == WARMUP_STEPS:
-                torch.cuda.synchronize()
-                start_time = time.perf_counter()
+        def step() -> tuple[float, float, float]:
+            """One simulation step. Returns the tip x (relative to the env) and z [m] and the solve time [s]."""
+            step_start = time.perf_counter()
             sim.step(render=False)
             scene.update(sim_dt)
+            tip = stem_geometry.point_pose(stem.data.segment_pose_w.torch, num_segments - 1, 0.5 * segment_length)[0]
+            tip_x, tip_z = float(tip[0] - scene.env_origins[0, 0]), float(tip[2])
+            solve_time = time.perf_counter() - step_start
             if sim.is_rendering:
                 sim.render()
-            tip = stem_geometry.point_pose(stem.data.segment_pose_w.torch, num_segments - 1, 0.5 * segment_length)[0]
-            tip_x.append(float(tip[0] - scene.env_origins[0, 0]))
-            tip_z.append(float(tip[2]))
-        torch.cuda.synchronize()
-        ms_per_step = (time.perf_counter() - start_time) / (args_cli.steps - WARMUP_STEPS) * 1e3
+                time.sleep(max(0.0, args_cli.slow_motion * sim_dt - (time.perf_counter() - step_start)))
+            return tip_x, tip_z, solve_time
+
+        start_test()
+        tip_x, tip_z, solve_times = [], [], []
+        for _ in range(args_cli.steps):
+            x, z, solve_time = step()
+            tip_x.append(x)
+            tip_z.append(z)
+            solve_times.append(solve_time)
+        ms_per_step = sum(solve_times[WARMUP_STEPS:]) / (args_cli.steps - WARMUP_STEPS) * 1e3
 
         stretch_ratio = cfg.spawn.physics_material.stretch_stiffness / material["bend_modulus"]
         setting = (
@@ -189,6 +207,15 @@ def main() -> None:
                 f" final_offset_mm={tip_x[-1] * 1e3:.2f}"
             )
         print(f"RESULT {setting} {outcome} ms_per_step={ms_per_step:.2f} (num_envs={args_cli.num_envs})")
+
+        if sim.is_rendering:
+            print("[INFO] Replaying until the viewer window is closed.")
+            while sim.is_running():
+                start_test()
+                for _ in range(args_cli.steps):
+                    if not sim.is_running():
+                        break
+                    step()
 
 
 if __name__ == "__main__":
