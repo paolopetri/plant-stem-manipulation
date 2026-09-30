@@ -7,8 +7,9 @@ Where things go: `docs/architecture.md`. Spec of each skeleton file: its module 
 ## M1 Stem model v1 (Newton cable)
 - Replace the placeholder values in `assets/stem/stem.yaml` once a reference plant is fixed (cantilever test on the artificial plant gives EI directly).
 - Damping, part 2 (after the base is fixed): deflect and release the tip in `check_stem.py`, with and without damping (`--viz` + plot of the tip position); measured damping ratio of the first bending mode against the target 0.05 (`damping_time` 3.2 ms).
-- Solver settings for the stem (time step, substeps, VBD iterations, stretch modulus). With the current values (8 substeps x 20 iterations, stretch modulus = bend modulus) the solver is far from converged: the clamped stem falls over after a small kick and lies on the ground, and a horizontal stem sags 150-340 mm where ~14 mm is expected. Cause: the stretch/shear springs are very stiff compared with the bending springs (1.26e6 N/m vs. 5 N·m/rad per joint), which makes bending converge extremely slowly. With the stretch modulus lowered 1000x the horizontal sag is 16.5 mm (20 iterations) and 15.7 mm (100 iterations); the converged discrete model predicts 15.66 mm (14.17 mm bending + 1.49 mm shear). Compliant ALM mode (`rigid_compliant_alm=True`) made no difference. To do: sweep stretch modulus x substeps x iterations on the horizontal cantilever, choose values that are accurate and affordable, set them in the yaml / a shared physics cfg, then add the checks "springs back" and "cantilever sag" to `check_stem.py`. Open choices: how soft the stretch direction may be (1000x lower means 1 N of pull stretches the stem by 16 mm), separate `shear_stiffness`, damping on bend/twist only.
-- `scripts/check_stem.py` (done: spawn, parameter read-back, base fixed, deflects when kicked) also passes: stem stands and sags plausibly, springs back, deflects when pushed.
+- Add to `check_stem.py`: measured damping ratio and cantilever sag (against the discrete-chain value, bending + shear), as `scripts/sweep_stem_solver.py` measures them; deflects when pushed.
+- Decide whether to raise `bend_modulus` by about 10 % to compensate the extra deflection from the soft shear spring (only meaningful once real stem values replace the placeholders).
+- `scripts/check_stem.py` (done: spawn, parameter read-back, base fixed, deflects when kicked, springs back): stem sags plausibly.
 - Axial-strain noise in `check_stem.py`: with several envs, compare `joint_axial_strain` of the stem at rest with the expected strain, and look for jitter in envs far from the world origin (see Open questions, float32 positions).
 - Quantitative check in `check_stem.py`: clamp the stem horizontally and compare the simulated tip sag under self-weight with the cantilever formula δ = qL⁴/(8EI), q = ρAg, I = πd⁴/64.
 
@@ -21,6 +22,7 @@ Where things go: `docs/architecture.md`. Spec of each skeleton file: its module 
 ## M3 Coupled scene
 - Contact settings for the fork-stem contact: `NewtonShapeCfg` (ke, kd, mu); Isaac Lab's cable task uses ke=2.5e3, kd=100, mu=10.
 - Robot + stem + ground with `CouplerProxyCfg` (robot in MuJoCo-Warp, stem in VBD, fork as proxy collider).
+- Re-run the stem accuracy tests (`scripts/sweep_stem_solver.py`) with the solver settings of the coupled scene; the stem values in `stem.yaml` (`solver`) were checked for the stem alone.
 - `scripts/check_scene.py`: scripted push, stem deflects and springs back, no instabilities; report max curvature.
 
 ## M4 Stage-1 environment (`tasks/push_position`)
@@ -37,7 +39,7 @@ Where things go: `docs/architecture.md`. Spec of each skeleton file: its module 
 - Tag `v0.1-position-control`; add train/play commands to README and CLAUDE.md.
 
 ## Later
-- Domain randomization of stem parameters (stiffness, length, diameter, damping), after the per-env randomization question is answered.
+- Domain randomization of stem parameters (stiffness, length, diameter, damping), after the per-env randomization question is answered. Re-check the solver settings over the randomization range (the stretch/shear-to-bend ratio that converges depends on segment length / diameter).
 - Stage 2: full pose control (`tasks/push_pose`).
 - Model-based baseline (nominal vs. oracle parameters) in `src/stem_manip/baselines/`.
 - Real-robot validation on an artificial plant; distillation into a vision-based policy.
@@ -46,6 +48,7 @@ Where things go: `docs/architecture.md`. Spec of each skeleton file: its module 
 ## Open questions (supervisors / deformables expert)
 - Stem model: is the Newton cable (discrete elastic rod, VBD) good enough, or a self-built rigid-segment articulation / Cosserat co-simulation? PhysX (Isaac Lab's standard engine) has no cable; a self-built chain of rigid segments with spring joints (stiffness ≈ EI/L) would run fully in PhysX, without coupling, with a clamped base and damping built in.
 - Could the robot also run in VBD (Newton), avoiding the coupling? VBD supports rigid bodies and revolute joints with drives, but treats joints as stiff springs; Isaac Lab's cable task couples MuJoCo-Warp + VBD instead. Untested.
+- Stretch and shear stiffness of the cable: with physical values (stretch and shear modulus of the order of the bend modulus) the VBD solver does not converge in bending (stem 23 times too soft at 8 substeps x 20 iterations, still 15 times at 800 iterations per step). What matters is a ratio fixed by the geometry, roughly (shear modulus / bend modulus) x (segment length / diameter)^2 (own estimate, tested on one geometry), so rescaling all moduli or changing units does not help, and physical shear stiffness would need segments of about 1 mm. For now we soften them (stretch 0.1 x, shear 0.001 x the bend modulus, damping on bend and twist only; trade-offs in docs/notes/2026-09-30.md): the stem stretches 0.16 mm per N and is about 10 % softer in bending. Questions for the expert: is softening shear the accepted practice for the Newton cable? Is there a solver setting that handles the stiff directions (compliant ALM made no difference)? Or is a chain of rigid segments with bend/twist joints only (no stretch or shear by construction, same solver as the robot, no coupling) the better model for a stiff, thin stem?
 - Cable base: Isaac Lab only offers pins (ball joints). We clamp the base by marking the root segment as a kinematic body in the Newton model (`fix_stem_base`). Is that the intended way, or is there a cfg-level option?
 - Cable damping: Isaac Lab's `CableMaterialCfg` does not expose it. We author Newton's `newton:curves{Stretch,Shear,Bend,Twist}Damping` on the material prim through a subclass (`StemMaterialCfg`); the values arrive in `model.joint_target_kd` (checked). Is that the intended way?
 - Per-env randomization of stiffness and damping: Newton stores rod stiffness/damping per joint in `model.joint_target_ke` / `joint_target_kd` (all envs in one array); after editing, call `solver.notify_model_changed(JOINT_DOF_PROPERTIES)`. Candidate path, unverified; confirm with the expert.

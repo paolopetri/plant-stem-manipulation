@@ -1,0 +1,195 @@
+"""Accuracy of the stem model for one solver / stiffness setting (stem alone on Newton VBD, base clamped).
+
+Runs one setting and prints one `RESULT` line; loop over settings in the shell to get a table. Defaults are the
+values of `assets/stem/stem.yaml`, so without options it measures the setting the project uses.
+
+Tests:
+- `sag`: stem clamped horizontally, tip sag under its own weight after `--steps`, against the converged
+  discrete chain: bending q l / (2 E I) * sum_k (l k)^3 plus shear q l * sum_k k / k_shear, k = 1 .. n - 1
+  (q = rho A g, l = segment length, k_shear = G A / l). `ratio` = simulated / expected.
+- `kick`: stem upright, tip kicked sideways with 1 m/s (linear velocity profile). Reports the first peak of the
+  tip deflection, the oscillation frequency (zero crossings), the damping ratio (log decrement of the first two
+  peaks on the same side) and the tip offset at the end. For the placeholder stem expect roughly 35 mm, 5 Hz,
+  a damping ratio of 0.05 (`damping_time` 3.2 ms) and a final offset near zero.
+
+`cost` = substeps x iterations per simulation step. Results and trade-offs: docs/notes/2026-09-30.md.
+
+Usage (from the repo root; headless unless a visualizer is requested, e.g. `--viz newton_gl`):
+    uv run --extra isaacsim python scripts/sweep_stem_solver.py --test sag
+    uv run --extra isaacsim python scripts/sweep_stem_solver.py --test kick --substeps 8 --iterations 20
+    for r in 1 0.1 0.01 0.001; do
+        uv run --extra isaacsim python scripts/sweep_stem_solver.py --test sag --shear_ratio $r | grep RESULT
+    done
+"""
+
+import argparse
+
+from isaaclab.app import add_launcher_args, launch_simulation
+
+parser = argparse.ArgumentParser(description="Stem accuracy for one solver / stiffness setting.")
+parser.add_argument("--test", choices=["sag", "kick"], default="sag", help="Which test to run.")
+parser.add_argument("--substeps", type=int, default=None, help="Solver substeps per step (default: yaml).")
+parser.add_argument("--iterations", type=int, default=None, help="VBD iterations per substep (default: yaml).")
+parser.add_argument("--stretch_ratio", type=float, default=None, help="Stretch / bend modulus (default: yaml).")
+parser.add_argument("--shear_ratio", type=float, default=None, help="Shear / bend modulus (default: yaml).")
+parser.add_argument(
+    "--damping",
+    choices=["bend_twist", "all", "none"],
+    default="bend_twist",
+    help="Damped modes: bend and twist (as stem_cfg), all four (stretch and shear with tau * E A), or none.",
+)
+parser.add_argument("--steps", type=int, default=600, help="Simulation steps to run.")
+parser.add_argument("--num_envs", type=int, default=1, help="Number of environments (for timing).")
+add_launcher_args(parser)
+args_cli = parser.parse_args()
+
+import math
+import time
+
+import torch
+from isaaclab_newton.physics import NewtonCfg, VBDSolverCfg
+
+import isaaclab.sim as sim_utils
+from isaaclab.assets import CableObjectCfg
+from isaaclab.scene import InteractiveScene, InteractiveSceneCfg
+from isaaclab.sim import SimulationContext
+from isaaclab.utils import configclass
+
+from stem_manip.assets.stem import fix_stem_base, stem_cfg, stem_params
+from stem_manip.utils import stem_geometry
+
+BASE_HEIGHT = 1.0  # [m] no ground plane in this scene
+KICK_TIP_SPEED = 1.0  # [m/s]
+WARMUP_STEPS = 20  # steps excluded from the timing
+GRAVITY = 9.81  # [m/s^2]
+
+
+def _stem_cfg(params: dict) -> tuple[CableObjectCfg, float]:
+    """Stem cfg with the command-line overrides applied. Returns the cfg and the shear modulus used [Pa]."""
+    geometry, material = params["geometry"], params["material"]
+    bend_modulus = material["bend_modulus"]
+    area = math.pi * geometry["diameter"] ** 2 / 4
+    segment_length = geometry["length"] / geometry["num_segments"]
+
+    cfg = stem_cfg().replace(prim_path="{ENV_REGEX_NS}/Stem")
+    cfg.init_state.pos = (0.0, 0.0, BASE_HEIGHT)
+    if args_cli.test == "sag":
+        cfg.spawn.positions = [(index * segment_length, 0.0, 0.0) for index in range(geometry["num_segments"] + 1)]
+
+    physics_material = cfg.spawn.physics_material
+    if args_cli.stretch_ratio is not None:
+        physics_material.stretch_stiffness = args_cli.stretch_ratio * bend_modulus
+    if args_cli.shear_ratio is not None:
+        physics_material.shear_stiffness = args_cli.shear_ratio * bend_modulus
+    if physics_material.shear_stiffness is None:  # Newton would fall back to the stretch stiffness
+        physics_material.shear_stiffness = physics_material.stretch_stiffness
+
+    if args_cli.damping == "none":
+        physics_material.curves_bend_damping = None
+        physics_material.curves_twist_damping = None
+    elif args_cli.damping == "all":
+        damping_time = material["damping_time"]
+        physics_material.curves_stretch_damping = damping_time * physics_material.stretch_stiffness * area
+        physics_material.curves_shear_damping = damping_time * physics_material.shear_stiffness * area
+    return cfg, physics_material.shear_stiffness
+
+
+def _oscillation(tip_x: list[float], dt: float) -> tuple[float, float, float]:
+    """First peak [m], frequency [Hz] and damping ratio of a decaying oscillation around zero (nan if not found)."""
+    peaks = [
+        tip_x[i]
+        for i in range(1, len(tip_x) - 1)
+        if tip_x[i] > 0.0 and tip_x[i] > tip_x[i - 1] and tip_x[i] >= tip_x[i + 1]
+    ]
+    crossings = [i for i in range(1, len(tip_x)) if tip_x[i - 1] * tip_x[i] < 0.0]
+    frequency = 1.0 / (2.0 * (crossings[1] - crossings[0]) * dt) if len(crossings) > 1 else math.nan
+    damping_ratio = math.nan
+    if len(peaks) > 1:
+        decrement = math.log(peaks[0] / peaks[1])
+        damping_ratio = decrement / math.sqrt(4.0 * math.pi**2 + decrement**2)
+    return (peaks[0] if peaks else math.nan), frequency, damping_ratio
+
+
+def main() -> None:
+    """Run one setting and print its RESULT line."""
+    params = stem_params()
+    geometry, material, solver = params["geometry"], params["material"], params["solver"]
+    num_segments = geometry["num_segments"]
+    segment_length = geometry["length"] / num_segments
+    area = math.pi * geometry["diameter"] ** 2 / 4
+    area_moment = math.pi * geometry["diameter"] ** 4 / 64
+    sim_dt = solver["sim_dt"]
+    substeps = solver["num_substeps"] if args_cli.substeps is None else args_cli.substeps
+    iterations = solver["vbd_iterations"] if args_cli.iterations is None else args_cli.iterations
+
+    cfg, shear_modulus = _stem_cfg(params)
+
+    @configclass
+    class SceneCfg(InteractiveSceneCfg):
+        stem: CableObjectCfg = cfg
+
+    sim_cfg = sim_utils.SimulationCfg(
+        dt=sim_dt,
+        device=args_cli.device,
+        physics=NewtonCfg(solver_cfg=VBDSolverCfg(iterations=iterations), num_substeps=substeps),
+    )
+    with launch_simulation(sim_cfg, args_cli):
+        sim = SimulationContext(sim_cfg)
+        sim.set_camera_view(eye=(1.2, 1.2, BASE_HEIGHT + 0.4), target=(0.1, 0.0, BASE_HEIGHT + 0.1))
+        scene = InteractiveScene(SceneCfg(num_envs=args_cli.num_envs, env_spacing=1.0))
+        sim.reset()
+        stem = scene["stem"]
+        fix_stem_base(stem)
+        if args_cli.test == "kick":
+            velocity = torch.zeros(args_cli.num_envs, num_segments, 6, device=sim.device)
+            profile = torch.arange(1, num_segments, device=sim.device) / (num_segments - 1)
+            velocity[:, 1:, 0] = KICK_TIP_SPEED * profile
+            stem.write_segment_velocity_to_sim_index(segment_velocity=velocity)
+
+        tip_x, tip_z = [], []
+        start_time = 0.0
+        for step in range(args_cli.steps):
+            if step == WARMUP_STEPS:
+                torch.cuda.synchronize()
+                start_time = time.perf_counter()
+            sim.step(render=False)
+            scene.update(sim_dt)
+            if sim.is_rendering:
+                sim.render()
+            tip = stem_geometry.point_pose(stem.data.segment_pose_w.torch, num_segments - 1, 0.5 * segment_length)[0]
+            tip_x.append(float(tip[0] - scene.env_origins[0, 0]))
+            tip_z.append(float(tip[2]))
+        torch.cuda.synchronize()
+        ms_per_step = (time.perf_counter() - start_time) / (args_cli.steps - WARMUP_STEPS) * 1e3
+
+        stretch_ratio = cfg.spawn.physics_material.stretch_stiffness / material["bend_modulus"]
+        setting = (
+            f"test={args_cli.test} stretch_ratio={stretch_ratio:g} shear_ratio={shear_modulus / material['bend_modulus']:g}"
+            f" damping={args_cli.damping} substeps={substeps} iterations={iterations} cost={substeps * iterations}"
+        )
+        if args_cli.test == "sag":
+            load = material["density"] * area * GRAVITY
+            joints = range(1, num_segments)
+            sag_bend = (
+                load * segment_length / (2.0 * material["bend_modulus"] * area_moment)
+                * sum((segment_length * k) ** 3 for k in joints)
+            )
+            sag_shear = load * segment_length * sum(joints) / (shear_modulus * area / segment_length)
+            sag = BASE_HEIGHT - tip_z[-1]
+            drift = tip_z[-101] - tip_z[-1] if len(tip_z) > 100 else math.nan
+            outcome = (
+                f"sag_mm={sag * 1e3:.2f} expected_mm={(sag_bend + sag_shear) * 1e3:.2f}"
+                f" (bend {sag_bend * 1e3:.2f} + shear {sag_shear * 1e3:.2f}) ratio={sag / (sag_bend + sag_shear):.3f}"
+                f" drift_last_100_steps_mm={drift * 1e3:.3f}"
+            )
+        else:
+            peak, frequency, damping_ratio = _oscillation(tip_x, sim_dt)
+            outcome = (
+                f"first_peak_mm={peak * 1e3:.1f} frequency_hz={frequency:.2f} damping_ratio={damping_ratio:.3f}"
+                f" final_offset_mm={tip_x[-1] * 1e3:.2f}"
+            )
+        print(f"RESULT {setting} {outcome} ms_per_step={ms_per_step:.2f} (num_envs={args_cli.num_envs})")
+
+
+if __name__ == "__main__":
+    main()

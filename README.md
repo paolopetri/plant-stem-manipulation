@@ -24,6 +24,10 @@ This creates `.venv/` with Isaac Lab (editable, from `../IsaacLab`) and this pac
 uv run isaaclab list_envs          # lists registered tasks, including this project's
 uv run pytest                      # unit tests (no simulator)
 uv run --extra isaacsim python scripts/check_fr3.py   # FR3 + fork sanity check in simulation (headless)
+uv run --extra isaacsim python scripts/check_stem.py  # stem sanity check in simulation (headless)
+uv run --extra isaacsim python scripts/sweep_stem_solver.py --test kick   # stem accuracy for one solver setting (or --test sag)
 ```
+
+Add `--viz newton_gl` to a simulation script to watch it in a viewer window.
 
 Training commands are added once the first task is registered (docs/TODO.md, M4/M5).

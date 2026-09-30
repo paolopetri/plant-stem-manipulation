@@ -4,14 +4,17 @@ Spawns `stem_cfg()` in a few envs on a ground plane, and checks that the values 
 arrive in the simulator:
 - number of segments; start poses (segment centres on a vertical line above the base, tangent = local +Z up);
 - total mass against rho * A * L;
-- per-joint stretch / bend / twist stiffness in the Newton model against E A / l, E I / l (l = segment length);
-- per-joint damping in the Newton model against damping_time * stiffness.
+- per-joint stretch / shear / bend / twist stiffness in the Newton model against E A / l, E I / l
+  (l = segment length);
+- per-joint damping in the Newton model against damping_time * stiffness (bend and twist only).
 Then clamps the base (`fix_stem_base`), gives the stem a sideways velocity and steps the simulation:
 - the base segment keeps its start pose;
-- the stem deflects (tip moves sideways) and all poses stay finite.
+- the stem deflects (tip moves sideways) and all poses stay finite;
+- the stem springs back (tip returns to its start position).
+Solver settings come from `solver` in the yaml.
 
-Not yet (docs/TODO.md -> M1): stem stands and sags plausibly, springs back,
-deflects when pushed; oscillation decays as set by the damping; cantilever sag against delta = q L^4 / (8 E I); axial-strain noise.
+Not yet (docs/TODO.md -> M1): deflects when pushed; measured damping ratio; cantilever sag; axial-strain noise
+(the sag and the damping ratio can be measured with `scripts/sweep_stem_solver.py`).
 
 Usage (from the repo root; headless unless a visualizer is requested, e.g. `--viz newton_gl`):
     uv run --extra isaacsim python scripts/check_stem.py
@@ -23,7 +26,7 @@ from isaaclab.app import add_launcher_args, launch_simulation
 
 parser = argparse.ArgumentParser(description="Sanity check of the stem model.")
 parser.add_argument("--num_envs", type=int, default=2, help="Number of environments.")
-parser.add_argument("--steps", type=int, default=200, help="Simulation steps to run.")
+parser.add_argument("--steps", type=int, default=400, help="Simulation steps to run after the kick.")
 add_launcher_args(parser)
 args_cli = parser.parse_args()
 
@@ -43,14 +46,12 @@ from isaaclab.utils.math import quat_apply
 from stem_manip.assets.stem import fix_stem_base, stem_cfg, stem_params
 from stem_manip.utils import stem_geometry
 
-SIM_DT = 0.01  # [s]
-NUM_SUBSTEPS = 8
-VBD_ITERATIONS = 20
 ENV_SPACING = 1.0  # [m]
 POS_TOL = 1e-4  # [m]
 REL_TOL = 1e-3
 KICK_TIP_SPEED = 1.0  # [m/s] sideways start velocity of the tip (linear profile, zero at the base)
 MIN_TIP_DEFLECTION = 0.01  # [m]
+MAX_TIP_REST_OFFSET = 1e-3  # [m] allowed distance of the tip from its start position at the end
 
 
 @configclass
@@ -79,16 +80,18 @@ def _compare_gains(model_values, expected: dict[str, float]) -> tuple[bool, str]
 def main() -> None:
     """Spawn the stem, compare the simulator state with the yaml and print a pass/fail summary."""
     params = stem_params()
-    geometry, material = params["geometry"], params["material"]
+    geometry, material, solver = params["geometry"], params["material"], params["solver"]
     num_segments = geometry["num_segments"]
     segment_length = geometry["length"] / num_segments
     area = math.pi * geometry["diameter"] ** 2 / 4
     area_moment = math.pi * geometry["diameter"] ** 4 / 64
 
     sim_cfg = sim_utils.SimulationCfg(
-        dt=SIM_DT,
+        dt=solver["sim_dt"],
         device=args_cli.device,
-        physics=NewtonCfg(solver_cfg=VBDSolverCfg(iterations=VBD_ITERATIONS), num_substeps=NUM_SUBSTEPS),
+        physics=NewtonCfg(
+            solver_cfg=VBDSolverCfg(iterations=solver["vbd_iterations"]), num_substeps=solver["num_substeps"]
+        ),
     )
     with launch_simulation(sim_cfg, args_cli):
         sim = SimulationContext(sim_cfg)
@@ -121,20 +124,21 @@ def main() -> None:
         expected_mass = material["density"] * area * geometry["length"]
         results["mass"] = (_close(mass, expected_mass), f"{mass * 1e3:.3f} g (rho A L = {expected_mass * 1e3:.3f} g)")
 
-        twist_modulus = material["twist_modulus"]  # null -> Newton uses the bend stiffness for twist
+        # null moduli: Newton uses the stretch stiffness for shear and the bend stiffness for twist
+        shear_modulus = material["stretch_modulus"] if material["shear_modulus"] is None else material["shear_modulus"]
+        bend_ke = material["bend_modulus"] * area_moment / segment_length
+        twist_modulus = material["twist_modulus"]
+        twist_ke = bend_ke if twist_modulus is None else twist_modulus * 2.0 * area_moment / segment_length
         expected_ke = {
             "stretch E A / l": material["stretch_modulus"] * area / segment_length,
-            "bend E I / l": material["bend_modulus"] * area_moment / segment_length,
-            "twist G J / l": (
-                material["bend_modulus"] * area_moment / segment_length
-                if twist_modulus is None
-                else twist_modulus * 2.0 * area_moment / segment_length
-            ),
+            "shear G A / l": shear_modulus * area / segment_length,
+            "bend E I / l": bend_ke,
+            "twist G J / l": twist_ke,
         }
         results["joint stiffness"] = _compare_gains(model.joint_target_ke.numpy(), expected_ke)
 
         damping_time = material["damping_time"] or 0.0  # null -> no damping
-        expected_kd = {f"tau * {name}": damping_time * value for name, value in expected_ke.items()}
+        expected_kd = {"stretch, shear": 0.0, "tau * bend": damping_time * bend_ke, "tau * twist": damping_time * twist_ke}
         results["joint damping"] = _compare_gains(model.joint_target_kd.numpy(), expected_kd)
 
         # -- clamp the base, kick the stem sideways, step
@@ -150,7 +154,7 @@ def main() -> None:
         finite = True
         for _ in range(args_cli.steps):
             sim.step(render=False)
-            scene.update(SIM_DT)
+            scene.update(solver["sim_dt"])
             if sim.is_rendering:
                 sim.render()
             poses = stem.data.segment_pose_w.torch
@@ -168,9 +172,12 @@ def main() -> None:
             f"max tip deflection {[round(float(d), 4) for d in tip_deflection]} m, "
             f"max curvature {max_curvature:.2f} 1/m, all finite: {finite}",
         )
-        tip_offset = (poses[:, -1, :2] - start_poses[:, -1, :2]).norm(dim=-1)
-        print(f"[INFO] tip offset from the start pose after {args_cli.steps} steps: "
-              f"{[round(float(d), 4) for d in tip_offset]} m")
+        tip_offset = (poses[:, -1, :3] - start_poses[:, -1, :3]).norm(dim=-1)
+        results["springs back"] = (
+            float(tip_offset.max()) < MAX_TIP_REST_OFFSET,
+            f"tip offset from the start position after {args_cli.steps} steps "
+            f"{[round(float(d) * 1e3, 3) for d in tip_offset]} mm",
+        )
 
         print(f"\n=== check_stem ({args_cli.num_envs} envs) ===")
         for name, (ok, info) in results.items():

@@ -7,7 +7,8 @@ Newton only (VBD solver): the scene must use a Newton physics cfg.
 Damping: Isaac Lab's `CableMaterialCfg` has no damping fields, but Newton reads four per-mode values from the
 material prim (`newton:curves{Stretch,Shear,Bend,Twist}Damping`, schema `NewtonCurvesDeformableMaterialAPI`).
 `StemMaterialCfg` adds them. They are structural values, set stiffness-proportional from one time constant:
-damping = `material.damping_time` * structural stiffness (E A for stretch and shear, E I for bend, G J for twist).
+damping = `material.damping_time` * structural stiffness (E I for bend, G J for twist). Stretch and shear are not
+damped: their damping slows the solver's convergence and makes affordable solver settings unstable.
 
 Fixed base: the cable's root segment is free-floating, and Isaac Lab only offers pins (ball joints), which do
 not clamp. `fix_stem_base()` instead marks the root segment as a kinematic body in the Newton model: the solver
@@ -71,10 +72,8 @@ def stem_cfg() -> CableObjectCfg:
     geometry, material = params["geometry"], params["material"]
     segment_length = geometry["length"] / geometry["num_segments"]
 
-    # structural stiffnesses as Newton derives them from the moduli (shear = stretch, twist = bend if not set)
-    area = math.pi * geometry["diameter"] ** 2 / 4
+    # structural bend and twist stiffness as Newton derives them from the moduli (twist = bend if not set)
     area_moment = math.pi * geometry["diameter"] ** 4 / 64
-    stretch_stiffness = material["stretch_modulus"] * area
     bend_stiffness = material["bend_modulus"] * area_moment
     twist_modulus = material["twist_modulus"]
     twist_stiffness = bend_stiffness if twist_modulus is None else twist_modulus * 2.0 * area_moment
@@ -82,8 +81,6 @@ def stem_cfg() -> CableObjectCfg:
     damping = {}
     if damping_time is not None:
         damping = {
-            "curves_stretch_damping": damping_time * stretch_stiffness,
-            "curves_shear_damping": damping_time * stretch_stiffness,
             "curves_bend_damping": damping_time * bend_stiffness,
             "curves_twist_damping": damping_time * twist_stiffness,
         }
@@ -95,6 +92,7 @@ def stem_cfg() -> CableObjectCfg:
                 thickness=geometry["diameter"],
                 density=material["density"],
                 stretch_stiffness=material["stretch_modulus"],
+                shear_stiffness=material["shear_modulus"],
                 bend_stiffness=material["bend_modulus"],
                 twist_stiffness=twist_modulus,
                 **damping,
