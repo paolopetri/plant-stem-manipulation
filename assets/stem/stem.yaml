@@ -11,11 +11,19 @@ geometry:
 
 material:
   density: 1000.0         # [kg/m^3]
-  stretch_modulus: 5.0e+8 # [Pa] -> CableMaterialCfg.stretch_stiffness
+  # Stretch and shear are softer than a real stem (0.1 x and 0.001 x the bend modulus): the VBD solver does not
+  # converge in bending with the physical ratios. Trade-offs: docs/notes/2026-09-30.md, docs/TODO.md (open questions).
+  stretch_modulus: 5.0e+7 # [Pa] -> CableMaterialCfg.stretch_stiffness
+  shear_modulus: 5.0e+5   # [Pa] -> CableMaterialCfg.shear_stiffness (null = solver fallback to stretch)
   bend_modulus: 5.0e+8    # [Pa] -> CableMaterialCfg.bend_stiffness
   twist_modulus: null     # [Pa] -> CableMaterialCfg.twist_stiffness (null = solver fallback to bend)
-  damping_time: null      # [s] stiffness-proportional damping: damping = damping_time * stiffness, per mode
-                          # (bend: tau*E*I, stretch: tau*E*A, twist: tau*G*J); null = no damping
+  damping_time: 0.0032    # [s] stiffness-proportional damping of bend and twist: damping = damping_time * stiffness
+                          # (bend: tau*E*I, twist: tau*G*J); stretch and shear are not damped; null = no damping
+
+solver:                   # Newton VBD settings the values above were checked with (scripts/sweep_stem_solver.py)
+  sim_dt: 0.01            # [s] simulation step
+  num_substeps: 8         # solver substeps per simulation step
+  vbd_iterations: 10      # VBD iterations per substep
 
 damage:                   # hard limits, used for termination and penalty (see docs/architecture.md)
   max_curvature: 5.0      # [1/m] bending (= 1 / minimum bending radius); stage 1 starts with this one
