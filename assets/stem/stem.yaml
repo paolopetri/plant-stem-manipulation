@@ -14,7 +14,7 @@ material:
   stretch_modulus: 5.0e+8 # [Pa] -> CableMaterialCfg.stretch_stiffness
   bend_modulus: 5.0e+8    # [Pa] -> CableMaterialCfg.bend_stiffness
   twist_modulus: null     # [Pa] -> CableMaterialCfg.twist_stiffness (null = solver fallback to bend)
-  damping_time: null      # [s] stiffness-proportional damping: damping = damping_time * stiffness, per mode
+  damping_time: 0.0032    # [s] stiffness-proportional damping: damping = damping_time * stiffness, per mode
                           # (bend: tau*E*I, stretch: tau*E*A, twist: tau*G*J); null = no damping
 
 damage:                   # hard limits, used for termination and penalty (see docs/architecture.md)

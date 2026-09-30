@@ -4,11 +4,12 @@ Spawns `stem_cfg()` in a few envs on a ground plane, and checks that the values 
 arrive in the simulator:
 - number of segments; start poses (segment centres on a vertical line above the base, tangent = local +Z up);
 - total mass against rho * A * L;
-- per-joint stretch / bend / twist stiffness in the Newton model against E A / l, E I / l (l = segment length).
+- per-joint stretch / bend / twist stiffness in the Newton model against E A / l, E I / l (l = segment length);
+- per-joint damping in the Newton model against damping_time * stiffness.
 Then steps the simulation and reports the tip height and the maximum curvature (must stay finite).
 
-Not yet (docs/TODO.md -> M1): damping read-back; base fixed; stem stands and sags plausibly, springs back,
-deflects when pushed; cantilever sag against delta = q L^4 / (8 E I); axial-strain noise.
+Not yet (docs/TODO.md -> M1): base fixed; stem stands and sags plausibly, springs back,
+deflects when pushed; oscillation decays as set by the damping; cantilever sag against delta = q L^4 / (8 E I); axial-strain noise.
 
 Usage (from the repo root; headless unless a visualizer is requested, e.g. `--viz newton_gl`):
     uv run --extra isaacsim python scripts/check_stem.py
@@ -58,6 +59,17 @@ class StemSceneCfg(InteractiveSceneCfg):
 
 def _close(actual: float, expected: float) -> bool:
     return abs(actual - expected) <= REL_TOL * abs(expected)
+
+
+def _compare_gains(model_values, expected: dict[str, float]) -> tuple[bool, str]:
+    """Check that the set of per-joint gains in the model equals the set of expected values."""
+    model_values = {float(v) for v in model_values}
+    ok = all(any(_close(v, e) for v in model_values) for e in expected.values()) and all(
+        any(_close(v, e) for e in expected.values()) for v in model_values
+    )
+    model_info = sorted({f"{v:.4g}" for v in model_values}, key=float)
+    expected_info = ", ".join(f"{name} = {value:.4g}" for name, value in expected.items())
+    return ok, f"model {model_info}; expected {expected_info}"
 
 
 def main() -> None:
@@ -115,13 +127,11 @@ def main() -> None:
                 else twist_modulus * 2.0 * area_moment / segment_length
             ),
         }
-        model_ke = sorted({float(v) for v in model.joint_target_ke.numpy()})
-        ke_ok = all(any(_close(v, e) for v in model_ke) for e in expected_ke.values()) and all(
-            any(_close(v, e) for e in expected_ke.values()) for v in model_ke
-        )
-        expected_info = ", ".join(f"{name} = {value:.4g}" for name, value in expected_ke.items())
-        model_info = sorted({f"{v:.4g}" for v in model_ke}, key=float)
-        results["joint stiffness"] = (ke_ok, f"model {model_info}; expected {expected_info}")
+        results["joint stiffness"] = _compare_gains(model.joint_target_ke.numpy(), expected_ke)
+
+        damping_time = material["damping_time"] or 0.0  # null -> no damping
+        expected_kd = {f"tau * {name}": damping_time * value for name, value in expected_ke.items()}
+        results["joint damping"] = _compare_gains(model.joint_target_kd.numpy(), expected_kd)
 
         # -- step
         for _ in range(args_cli.steps):

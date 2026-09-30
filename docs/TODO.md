@@ -6,7 +6,8 @@ Where things go: `docs/architecture.md`. Spec of each skeleton file: its module 
 
 ## M1 Stem model v1 (Newton cable)
 - Replace the placeholder values in `assets/stem/stem.yaml` once a reference plant is fixed (cantilever test on the artificial plant gives EI directly).
-- Damping in `stem_cfg()`: subclass of `CableMaterialCfg` that authors `newton:curves{Stretch,Shear,Bend,Twist}Damping` (schema `NewtonCurvesDeformableMaterialAPI`) from `damping_time`. In `check_stem.py`: read back `model.joint_target_kd`, oscillation decays after release; then choose `damping_time`.
+- Damping, part 2 (after the base is fixed): deflect and release the tip in `check_stem.py`, with and without damping (`--viz` + plot of the tip position); measured damping ratio of the first bending mode against the target 0.05 (`damping_time` 3.2 ms).
+- Solver settings for the stem (time step, substeps, VBD iterations): with 8 substeps x 20 iterations the free-standing stem is not converged (rests 7.6 mm inside the ground, axial strain -1e-3 where -7.8e-6 is expected; with damping 23.6 mm and -3.8e-3). 400 iterations give the correct state without damping (base at +4.0 mm = capsule radius, strain -7.5e-6) and are still 9x off in strain with damping. Find settings that are accurate enough for bending (cantilever check) and affordable for training. Options to test: lower `stretch_modulus` than `bend_modulus` (better conditioning, the stem hardly stretches), damping on bend/twist only, more substeps vs. more iterations.
 - Hold the stem base fixed. Try pinning the first two control points (a single pin is only a ball joint); fall back to other workarounds, document the choice.
 - `scripts/check_stem.py` (spawn and parameter read-back done) also passes: base fixed, stem stands and sags plausibly, springs back, deflects when pushed.
 - Axial-strain noise in `check_stem.py`: with several envs, compare `joint_axial_strain` of the stem at rest with the expected strain, and look for jitter in envs far from the world origin (see Open questions, float32 positions).
@@ -19,7 +20,7 @@ Where things go: `docs/architecture.md`. Spec of each skeleton file: its module 
 - `scripts/check_fr3_newton.py` covers all of the above.
 
 ## M3 Coupled scene
-- Contact stiffness: with Newton's default shape settings the free stem (0.2 N) rests about 8 mm below its start height on the ground plane. Set `NewtonShapeCfg` (ke, kd, mu) for the fork-stem contact; Isaac Lab's cable task uses ke=2.5e3, kd=100, mu=10.
+- Contact settings for the fork-stem contact: `NewtonShapeCfg` (ke, kd, mu); Isaac Lab's cable task uses ke=2.5e3, kd=100, mu=10.
 - Robot + stem + ground with `CouplerProxyCfg` (robot in MuJoCo-Warp, stem in VBD, fork as proxy collider).
 - `scripts/check_scene.py`: scripted push, stem deflects and springs back, no instabilities; report max curvature.
 
@@ -46,7 +47,7 @@ Where things go: `docs/architecture.md`. Spec of each skeleton file: its module 
 - Stem model: is the Newton cable (discrete elastic rod, VBD) good enough, or a self-built rigid-segment articulation / Cosserat co-simulation? PhysX (Isaac Lab's standard engine) has no cable; a self-built chain of rigid segments with spring joints (stiffness ≈ EI/L) would run fully in PhysX, without coupling, with a clamped base and damping built in.
 - Could the robot also run in VBD (Newton), avoiding the coupling? VBD supports rigid bodies and revolute joints with drives, but treats joints as stiff springs; Isaac Lab's cable task couples MuJoCo-Warp + VBD instead. Untested.
 - Cable base can only be pinned (ball joint), not clamped. Recommended way to clamp it?
-- Cable damping is not exposed in Isaac Lab's `CableMaterialCfg`, and Newton's default rod damping is 0. Path confirmed in the Newton source, not yet run in simulation: `newton:curves{Stretch,Shear,Bend,Twist}Damping` on the cable material prim with `NewtonCurvesDeformableMaterialAPI` applied; the importer divides by the joint rest length and stores `joint_target_kd`. Is that the intended way?
+- Cable damping: Isaac Lab's `CableMaterialCfg` does not expose it. We author Newton's `newton:curves{Stretch,Shear,Bend,Twist}Damping` on the material prim through a subclass (`StemMaterialCfg`); the values arrive in `model.joint_target_kd` (checked). Is that the intended way?
 - Per-env randomization of stiffness and damping: Newton stores rod stiffness/damping per joint in `model.joint_target_ke` / `joint_target_kd` (all envs in one array); after editing, call `solver.notify_model_changed(JOINT_DOF_PROPERTIES)`. Candidate path, unverified; confirm with the expert.
 - Contact forces between fork and stem: Isaac Lab's contact sensor is not supported with coupled solvers (contacts live in per-solver buffers, `isaaclab_contrib/coupling/coupler.py`). Candidate (unverified): the proxy-coupled solver's `get_proxy_contacts(source, destination)`. Needed only for force-based limits/rewards; stage 1 uses curvature.
 - Damage criteria beyond bending: realistic limits for torsion and for tearing (axial tension when the fork drags along the stem with friction)? Crushing / abrasion needs contact forces (see above). Literature values or measurements on the artificial plant?
