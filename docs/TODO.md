@@ -5,8 +5,9 @@ Roadmap to the first training run (stage 1, position control). Milestones in ord
 Where things go: `docs/architecture.md`. Spec of each skeleton file: its module docstring.
 
 ## M1 Stem model v1 (Newton cable)
-- Fill `assets/stem/stem.yaml` with nominal values (length, segments, diameter, density, moduli, curvature limit).
+- Replace the placeholder values in `assets/stem/stem.yaml` once a reference plant is fixed (cantilever test on the artificial plant gives EI directly).
 - `stem_cfg()` in `src/stem_manip/assets/stem.py` builds a `CableObjectCfg` from the yaml.
+- Damping in `stem_cfg()`: subclass of `CableMaterialCfg` that authors `newton:curves{Stretch,Shear,Bend,Twist}Damping` (schema `NewtonCurvesDeformableMaterialAPI`) from `damping_time`. In `check_stem.py`: read back `model.joint_target_kd`, oscillation decays after release; then choose `damping_time`.
 - Hold the stem base fixed. Try pinning the first two control points (a single pin is only a ball joint); fall back to other workarounds, document the choice.
 - `stem_manip.utils.stem_geometry`: per-joint bending curvature, twist rate and axial strain (swing-twist split of the relative rotation), point-of-interest pose; `tests/test_stem_geometry.py` passes.
 - `scripts/check_stem.py` passes: base fixed, stem stands and sags plausibly, springs back, deflects when pushed.
@@ -44,7 +45,7 @@ Where things go: `docs/architecture.md`. Spec of each skeleton file: its module 
 - Stem model: is the Newton cable (discrete elastic rod, VBD) good enough, or a self-built rigid-segment articulation / Cosserat co-simulation? PhysX (Isaac Lab's standard engine) has no cable; a self-built chain of rigid segments with spring joints (stiffness ≈ EI/L) would run fully in PhysX, without coupling, with a clamped base and damping built in.
 - Could the robot also run in VBD (Newton), avoiding the coupling? VBD supports rigid bodies and revolute joints with drives, but treats joints as stiff springs; Isaac Lab's cable task couples MuJoCo-Warp + VBD instead. Untested.
 - Cable base can only be pinned (ball joint), not clamped. Recommended way to clamp it?
-- Cable damping is not exposed in Isaac Lab's `CableMaterialCfg`, and Newton's default rod damping is 0. Candidate paths (unverified): author Newton's `curves{Stretch,Shear,Bend,Twist}Damping` attributes on the cable material prim, or write `model.joint_target_kd` directly. Is that the intended way?
+- Cable damping is not exposed in Isaac Lab's `CableMaterialCfg`, and Newton's default rod damping is 0. Path confirmed in the Newton source, not yet run in simulation: `newton:curves{Stretch,Shear,Bend,Twist}Damping` on the cable material prim with `NewtonCurvesDeformableMaterialAPI` applied; the importer divides by the joint rest length and stores `joint_target_kd`. Is that the intended way?
 - Per-env randomization of stiffness and damping: Newton stores rod stiffness/damping per joint in `model.joint_target_ke` / `joint_target_kd` (all envs in one array); after editing, call `solver.notify_model_changed(JOINT_DOF_PROPERTIES)`. Candidate path, unverified; confirm with the expert.
 - Contact forces between fork and stem: Isaac Lab's contact sensor is not supported with coupled solvers (contacts live in per-solver buffers, `isaaclab_contrib/coupling/coupler.py`). Candidate (unverified): the proxy-coupled solver's `get_proxy_contacts(source, destination)`. Needed only for force-based limits/rewards; stage 1 uses curvature.
 - Damage criteria beyond bending: realistic limits for torsion and for tearing (axial tension when the fork drags along the stem with friction)? Crushing / abrasion needs contact forces (see above). Literature values or measurements on the artificial plant?
