@@ -6,10 +6,9 @@ Where things go: `docs/architecture.md`. Spec of each skeleton file: its module 
 
 ## M1 Stem model v1 (Newton cable)
 - Replace the placeholder values in `assets/stem/stem.yaml` once a reference plant is fixed (cantilever test on the artificial plant gives EI directly).
-- `stem_cfg()` in `src/stem_manip/assets/stem.py` builds a `CableObjectCfg` from the yaml.
 - Damping in `stem_cfg()`: subclass of `CableMaterialCfg` that authors `newton:curves{Stretch,Shear,Bend,Twist}Damping` (schema `NewtonCurvesDeformableMaterialAPI`) from `damping_time`. In `check_stem.py`: read back `model.joint_target_kd`, oscillation decays after release; then choose `damping_time`.
 - Hold the stem base fixed. Try pinning the first two control points (a single pin is only a ball joint); fall back to other workarounds, document the choice.
-- `scripts/check_stem.py` passes: base fixed, stem stands and sags plausibly, springs back, deflects when pushed.
+- `scripts/check_stem.py` (spawn and parameter read-back done) also passes: base fixed, stem stands and sags plausibly, springs back, deflects when pushed.
 - Axial-strain noise in `check_stem.py`: with several envs, compare `joint_axial_strain` of the stem at rest with the expected strain, and look for jitter in envs far from the world origin (see Open questions, float32 positions).
 - Quantitative check in `check_stem.py`: clamp the stem horizontally and compare the simulated tip sag under self-weight with the cantilever formula δ = qL⁴/(8EI), q = ρAg, I = πd⁴/64.
 
@@ -20,6 +19,7 @@ Where things go: `docs/architecture.md`. Spec of each skeleton file: its module 
 - `scripts/check_fr3_newton.py` covers all of the above.
 
 ## M3 Coupled scene
+- Contact stiffness: with Newton's default shape settings the free stem (0.2 N) rests about 8 mm below its start height on the ground plane. Set `NewtonShapeCfg` (ke, kd, mu) for the fork-stem contact; Isaac Lab's cable task uses ke=2.5e3, kd=100, mu=10.
 - Robot + stem + ground with `CouplerProxyCfg` (robot in MuJoCo-Warp, stem in VBD, fork as proxy collider).
 - `scripts/check_scene.py`: scripted push, stem deflects and springs back, no instabilities; report max curvature.
 
