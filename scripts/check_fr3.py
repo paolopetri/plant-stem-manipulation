@@ -1,21 +1,22 @@
-"""Sanity check of the FR3 + fork asset in simulation (PhysX, the current backend of `fr3_cfg`).
+"""Sanity check of the FR3 + end-effector asset in simulation (PhysX, the current backend of `fr3_cfg`).
 
-Loads `fr3_cfg("fork")`, holds the start pose for a few hundred physics steps and checks:
-- the articulation has the bodies fr3_link0..fr3_link7 + fork;
-- the fork stays rigidly at 107 mm along z of fr3_link7 (flange offset);
+Loads `fr3_cfg(<ee>)` (default `fork_v2`), holds the start pose for a few hundred physics steps and checks:
+- the articulation has the bodies fr3_link0..fr3_link7 + the end-effector;
+- the end-effector stays rigidly at 107 mm along z of fr3_link7 (flange offset);
 - the start pose is held (reports the per-joint deviation; known ~0.05 rad sag at joints 2 and 4 without
   gravity compensation, see the gravity question in docs/TODO.md).
 
 Usage (from the repo root; runs headless unless a visualizer is requested):
     uv run --extra isaacsim python scripts/check_fr3.py
+    uv run --extra isaacsim python scripts/check_fr3.py --ee fork
 """
 
 import argparse
 
 from isaaclab.app import add_launcher_args, launch_simulation
 
-parser = argparse.ArgumentParser(description="Sanity check of the FR3 + fork asset.")
-parser.add_argument("--ee", default="fork", help="End-effector folder name in assets/fr3/end_effectors/.")
+parser = argparse.ArgumentParser(description="Sanity check of the FR3 + end-effector asset.")
+parser.add_argument("--ee", default="fork_v2", help="End-effector folder name in assets/fr3/end_effectors/.")
 parser.add_argument("--steps", type=int, default=200, help="Physics steps to hold the start pose.")
 parser.add_argument("--max_joint_dev", type=float, default=0.1, help="Allowed start-pose deviation [rad].")
 add_launcher_args(parser)

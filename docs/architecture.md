@@ -22,7 +22,7 @@ The repo is an installable uv package (`stem_manip`), following Isaac Lab 3's ex
 
 - **Stem:** Isaac Lab `CableObject`, a chain of capsule segments joined by cable joints (stretch, shear,
   bend, twist), solved by Newton's VBD solver. Parameters in `assets/stem/stem.yaml`.
-- **Robot:** FR3 + fork in MuJoCo-Warp (Newton).
+- **Robot:** FR3 + fork (end-effector `fork_v2`) in MuJoCo-Warp (Newton).
 - **Coupling:** `CouplerProxyCfg`. The fork appears as a proxy collider in the VBD solve.
   Template: IsaacLab `isaaclab_tasks/core/lift/config/franka_soft/franka_cable_env_cfg.py`.
 - The cable is Newton-only, so the whole scene runs on Newton. This is a first version: the stem model may
@@ -31,7 +31,7 @@ The repo is an installable uv package (`stem_manip`), following Isaac Lab 3's ex
 ## Data flow per step (stage 1)
 
 1. **Action:** relative end-effector position, turned into joint targets by differential IK on the body
-   `fork` with `tool_tip_offset("fork")`.
+   `fork_v2` with `tool_tip_offset("fork_v2")`.
 2. **Simulation:** Newton steps robot and stem together (proxy coupling, a few substeps).
 3. **Observation** (privileged state): tool_tip pose, stem segment poses, position of the stem point of
    interest, target position, last action.

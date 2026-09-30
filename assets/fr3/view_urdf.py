@@ -11,8 +11,8 @@ then serves a viewer at http://localhost:8080 with joint sliders, visual/collisi
 axes for fr3_link8 and tool_tip (red = x, green = y, blue = z).
 
 Usage:
-  uv run view_urdf.py --ee fork
-  uv run view_urdf.py --ee fork --port 8081
+  uv run view_urdf.py --ee fork_v2
+  uv run view_urdf.py --ee fork_v2 --port 8081
 """
 
 from __future__ import annotations

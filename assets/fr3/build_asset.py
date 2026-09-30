@@ -14,7 +14,7 @@ Output:
   build/meshes/...        every mesh it references
 
 Usage:
-  uv run build_asset.py --ee fork --franka-description ~/franka_description
+  uv run build_asset.py --ee fork_v2 --franka-description ~/franka_description
 """
 
 from __future__ import annotations

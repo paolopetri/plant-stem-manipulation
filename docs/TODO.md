@@ -14,10 +14,9 @@ Where things go: `docs/architecture.md`. Spec of each skeleton file: its module 
 - Quantitative check in `check_stem.py`: clamp the stem horizontally and compare the simulated tip sag under self-weight with the cantilever formula δ = qL⁴/(8EI), q = ρAg, I = πd⁴/64.
 
 ## M2 FR3 on Newton
-- Decide which fork M2 and M3 use: `fork` or `fork_v2` (longer prongs, 221 g). The items below say `fork`.
-- `fr3_cfg("fork")` loads and holds its pose under Newton / MuJoCo-Warp (currently PhysX-only schemas).
+- `fr3_cfg("fork_v2")` loads and holds its pose under Newton / MuJoCo-Warp (currently PhysX-only schemas).
 - Decide the gravity question (see Open questions) and apply it.
-- Test the `tool_tip` offset in practice: IK with body `fork` + `tool_tip_offset("fork")` moves the `tool_tip` to the target, and a `FrameTransformer` with the same offset reports the `tool_tip` pose. So far only the offset values and a manual combination with the fork pose are checked.
+- Test the `tool_tip` offset in practice: IK with body `fork_v2` + `tool_tip_offset("fork_v2")` moves the `tool_tip` to the target, and a `FrameTransformer` with the same offset reports the `tool_tip` pose. So far only the offset values and a manual combination with the fork pose are checked.
 - `scripts/check_fr3_newton.py` covers all of the above.
 
 ## M3 Coupled scene
