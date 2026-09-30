@@ -4,12 +4,11 @@ Runs one setting and prints one `RESULT` line; loop over settings in the shell t
 values of `assets/stem/stem.yaml`, so without options it measures the setting the project uses.
 
 Tests:
-- `sag`: stem clamped horizontally, tip sag under its own weight after `--steps`, against the converged
-  discrete chain: bending q l / (2 E I) * sum_k (l k)^3 plus shear q l * sum_k k / k_shear, k = 1 .. n - 1
-  (q = rho A g, l = segment length, k_shear = G A / l). `ratio` = simulated / expected.
+- `sag`: stem clamped horizontally, tip sag under its own weight after `--steps`, against the value computed
+  by hand for the segment chain (bending + shear, `stem_reference.chain_tip_sag`). `ratio` = simulated / expected.
 - `kick`: stem upright, tip kicked sideways with 1 m/s (linear velocity profile). Reports the first peak of the
-  tip deflection, the oscillation frequency (zero crossings), the damping ratio (log decrement of the first two
-  peaks on the same side) and the tip offset at the end. For the placeholder stem expect roughly 35 mm, 5 Hz,
+  tip deflection, the oscillation frequency, the damping ratio (`stem_reference.analyze_oscillation`) and the tip
+  offset at the end. For the placeholder stem expect roughly 35 mm, 5 Hz,
   a damping ratio of 0.05 (`damping_time` 3.2 ms) and a final offset near zero.
 
 `cost` = substeps x iterations per simulation step. Results and trade-offs: docs/notes/2026-09-30.md.
@@ -64,12 +63,11 @@ from isaaclab.sim import SimulationContext
 from isaaclab.utils import configclass
 
 from stem_manip.assets.stem import fix_stem_base, stem_cfg, stem_params
-from stem_manip.utils import stem_geometry
+from stem_manip.utils import stem_geometry, stem_reference
 
 BASE_HEIGHT = 1.0  # [m] no ground plane in this scene
 KICK_TIP_SPEED = 1.0  # [m/s]
 WARMUP_STEPS = 20  # steps excluded from the timing
-GRAVITY = 9.81  # [m/s^2]
 
 
 def _stem_cfg(params: dict) -> tuple[CableObjectCfg, float]:
@@ -102,30 +100,12 @@ def _stem_cfg(params: dict) -> tuple[CableObjectCfg, float]:
     return cfg, physics_material.shear_stiffness
 
 
-def _oscillation(tip_x: list[float], dt: float) -> tuple[float, float, float]:
-    """First peak [m], frequency [Hz] and damping ratio of a decaying oscillation around zero (nan if not found)."""
-    peaks = [
-        tip_x[i]
-        for i in range(1, len(tip_x) - 1)
-        if tip_x[i] > 0.0 and tip_x[i] > tip_x[i - 1] and tip_x[i] >= tip_x[i + 1]
-    ]
-    crossings = [i for i in range(1, len(tip_x)) if tip_x[i - 1] * tip_x[i] < 0.0]
-    frequency = 1.0 / (2.0 * (crossings[1] - crossings[0]) * dt) if len(crossings) > 1 else math.nan
-    damping_ratio = math.nan
-    if len(peaks) > 1:
-        decrement = math.log(peaks[0] / peaks[1])
-        damping_ratio = decrement / math.sqrt(4.0 * math.pi**2 + decrement**2)
-    return (peaks[0] if peaks else math.nan), frequency, damping_ratio
-
-
 def main() -> None:
     """Run one setting and print its RESULT line."""
     params = stem_params()
     geometry, material, solver = params["geometry"], params["material"], params["solver"]
     num_segments = geometry["num_segments"]
     segment_length = geometry["length"] / num_segments
-    area = math.pi * geometry["diameter"] ** 2 / 4
-    area_moment = math.pi * geometry["diameter"] ** 4 / 64
     sim_dt = solver["sim_dt"]
     substeps = solver["num_substeps"] if args_cli.substeps is None else args_cli.substeps
     iterations = solver["vbd_iterations"] if args_cli.iterations is None else args_cli.iterations
@@ -186,13 +166,14 @@ def main() -> None:
             f" damping={args_cli.damping} substeps={substeps} iterations={iterations} cost={substeps * iterations}"
         )
         if args_cli.test == "sag":
-            load = material["density"] * area * GRAVITY
-            joints = range(1, num_segments)
-            sag_bend = (
-                load * segment_length / (2.0 * material["bend_modulus"] * area_moment)
-                * sum((segment_length * k) ** 3 for k in joints)
+            sag_bend, sag_shear = stem_reference.chain_tip_sag(
+                geometry["length"],
+                num_segments,
+                geometry["diameter"],
+                material["density"],
+                material["bend_modulus"],
+                shear_modulus,
             )
-            sag_shear = load * segment_length * sum(joints) / (shear_modulus * area / segment_length)
             sag = BASE_HEIGHT - tip_z[-1]
             drift = tip_z[-101] - tip_z[-1] if len(tip_z) > 100 else math.nan
             outcome = (
@@ -201,7 +182,7 @@ def main() -> None:
                 f" drift_last_100_steps_mm={drift * 1e3:.3f}"
             )
         else:
-            peak, frequency, damping_ratio = _oscillation(tip_x, sim_dt)
+            peak, frequency, damping_ratio = stem_reference.analyze_oscillation(tip_x, sim_dt)
             outcome = (
                 f"first_peak_mm={peak * 1e3:.1f} frequency_hz={frequency:.2f} damping_ratio={damping_ratio:.3f}"
                 f" final_offset_mm={tip_x[-1] * 1e3:.2f}"

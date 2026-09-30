@@ -6,12 +6,9 @@ Where things go: `docs/architecture.md`. Spec of each skeleton file: its module 
 
 ## M1 Stem model v1 (Newton cable)
 - Replace the placeholder values in `assets/stem/stem.yaml` once a reference plant is fixed (cantilever test on the artificial plant gives EI directly).
-- Damping, part 2 (after the base is fixed): deflect and release the tip in `check_stem.py`, with and without damping (`--viz` + plot of the tip position); measured damping ratio of the first bending mode against the target 0.05 (`damping_time` 3.2 ms).
-- Add to `check_stem.py`: measured damping ratio and cantilever sag (against the discrete-chain value, bending + shear), as `scripts/sweep_stem_solver.py` measures them; deflects when pushed.
+- Add to `check_stem.py`: deflects when pushed (a force, not a start velocity).
 - Decide whether to raise `bend_modulus` by about 10 % to compensate the extra deflection from the soft shear spring (only meaningful once real stem values replace the placeholders).
-- `scripts/check_stem.py` (done: spawn, parameter read-back, base fixed, deflects when kicked, springs back): stem sags plausibly.
 - Axial-strain noise in `check_stem.py`: with several envs, compare `joint_axial_strain` of the stem at rest with the expected strain, and look for jitter in envs far from the world origin (see Open questions, float32 positions).
-- Quantitative check in `check_stem.py`: clamp the stem horizontally and compare the simulated tip sag under self-weight with the cantilever formula δ = qL⁴/(8EI), q = ρAg, I = πd⁴/64.
 
 ## M2 FR3 on Newton
 - `fr3_cfg("fork_v2")` loads and holds its pose under Newton / MuJoCo-Warp (currently PhysX-only schemas).

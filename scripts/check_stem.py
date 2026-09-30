@@ -7,14 +7,19 @@ arrive in the simulator:
 - per-joint stretch / shear / bend / twist stiffness in the Newton model against E A / l, E I / l
   (l = segment length);
 - per-joint damping in the Newton model against damping_time * stiffness (bend and twist only).
-Then clamps the base (`fix_stem_base`), gives the stem a sideways velocity and steps the simulation:
+Then clamps the base (`fix_stem_base`), gives the upright stem a sideways velocity and steps the simulation:
 - the base segment keeps its start pose;
 - the stem deflects (tip moves sideways) and all poses stay finite;
-- the stem springs back (tip returns to its start position).
+- the stem springs back (tip returns to its start position);
+- swing frequency: within 15 % of the first bending frequency of a clamped beam of the free length
+  (the segment chain with its soft shear spring is a little softer than the ideal beam);
+- damping ratio: within 0.02 of damping_time * pi * frequency (the solver adds about 0.01-0.02 of its own).
+A second stem per env is clamped horizontally and sags under its own weight:
+- cantilever sag: tip drop at the end within 5 % of the value computed by hand for the segment chain
+  (bending + shear, `stem_reference.chain_tip_sag`).
 Solver settings come from `solver` in the yaml.
 
-Not yet (docs/TODO.md -> M1): deflects when pushed; measured damping ratio; cantilever sag; axial-strain noise
-(the sag and the damping ratio can be measured with `scripts/sweep_stem_solver.py`).
+Not yet (docs/TODO.md -> M1): deflects when pushed; axial-strain noise.
 
 Usage (from the repo root; headless unless a visualizer is requested, e.g. `--viz newton_gl`):
     uv run --extra isaacsim python scripts/check_stem.py
@@ -44,7 +49,7 @@ from isaaclab.utils import configclass
 from isaaclab.utils.math import quat_apply
 
 from stem_manip.assets.stem import fix_stem_base, stem_cfg, stem_params
-from stem_manip.utils import stem_geometry
+from stem_manip.utils import stem_geometry, stem_reference
 
 ENV_SPACING = 1.0  # [m]
 POS_TOL = 1e-4  # [m]
@@ -52,14 +57,23 @@ REL_TOL = 1e-3
 KICK_TIP_SPEED = 1.0  # [m/s] sideways start velocity of the tip (linear profile, zero at the base)
 MIN_TIP_DEFLECTION = 0.01  # [m]
 MAX_TIP_REST_OFFSET = 1e-3  # [m] allowed distance of the tip from its start position at the end
+FREQUENCY_REL_TOL = 0.15
+DAMPING_RATIO_TOL = 0.02
+SAG_REL_TOL = 0.05
+HORIZONTAL_BASE = (0.3, 0.3, 0.5)  # [m] clamped end of the horizontal stem in the env frame
+HORIZONTAL_ROT = (0.0, math.sqrt(0.5), 0.0, math.sqrt(0.5))  # (x, y, z, w): +90 deg about y, stem along +x
 
 
 @configclass
 class StemSceneCfg(InteractiveSceneCfg):
-    """Ground plane and one stem per env."""
+    """Ground plane, one upright and one horizontal stem per env."""
 
     ground = AssetBaseCfg(prim_path="/World/ground", spawn=sim_utils.GroundPlaneCfg())
     stem: CableObjectCfg = stem_cfg().replace(prim_path="{ENV_REGEX_NS}/Stem")
+    stem_horizontal: CableObjectCfg = stem_cfg().replace(
+        prim_path="{ENV_REGEX_NS}/StemHorizontal",
+        init_state=CableObjectCfg.InitialStateCfg(pos=HORIZONTAL_BASE, rot=HORIZONTAL_ROT),
+    )
 
 
 def _close(actual: float, expected: float) -> bool:
@@ -98,7 +112,7 @@ def main() -> None:
         sim.set_camera_view(eye=(1.5, 1.5, 0.8), target=(0.5, 0.0, 0.2))
         scene = InteractiveScene(StemSceneCfg(num_envs=args_cli.num_envs, env_spacing=ENV_SPACING))
         sim.reset()
-        stem = scene["stem"]
+        stem, stem_horizontal = scene["stem"], scene["stem_horizontal"]
         model = SimulationManager.get_model()
         segment_lengths = torch.full((num_segments,), segment_length, device=sim.device)
         results = {}
@@ -120,7 +134,7 @@ def main() -> None:
         )
 
         # -- parameters in the Newton model (the stems are the only bodies and joints in the scene)
-        mass = float(model.body_mass.numpy().sum()) / args_cli.num_envs
+        mass = float(model.body_mass.numpy().sum()) / (2 * args_cli.num_envs)  # two stems per env
         expected_mass = material["density"] * area * geometry["length"]
         results["mass"] = (_close(mass, expected_mass), f"{mass * 1e3:.3f} g (rho A L = {expected_mass * 1e3:.3f} g)")
 
@@ -141,8 +155,10 @@ def main() -> None:
         expected_kd = {"stretch, shear": 0.0, "tau * bend": damping_time * bend_ke, "tau * twist": damping_time * twist_ke}
         results["joint damping"] = _compare_gains(model.joint_target_kd.numpy(), expected_kd)
 
-        # -- clamp the base, kick the stem sideways, step
+        # -- clamp the bases, kick the upright stem sideways, step
         fix_stem_base(stem)
+        fix_stem_base(stem_horizontal)
+        horizontal_start_poses = stem_horizontal.data.segment_pose_w.torch.clone()
         start_poses = stem.data.segment_pose_w.torch.clone()
         velocity = torch.zeros(args_cli.num_envs, num_segments, 6, device=sim.device)
         velocity[:, 1:, 0] = KICK_TIP_SPEED * torch.arange(1, num_segments, device=sim.device) / (num_segments - 1)
@@ -152,6 +168,7 @@ def main() -> None:
         tip_deflection = torch.zeros(args_cli.num_envs, device=sim.device)
         max_curvature = 0.0
         finite = True
+        tip_x = []  # sideways tip position of the upright stem relative to its start, per step
         for _ in range(args_cli.steps):
             sim.step(render=False)
             scene.update(solver["sim_dt"])
@@ -161,6 +178,7 @@ def main() -> None:
             finite = finite and bool(torch.isfinite(poses).all())
             base_error = torch.maximum(base_error, (poses[:, 0] - start_poses[:, 0]).abs().max(dim=-1).values)
             tip_deflection = torch.maximum(tip_deflection, (poses[:, -1, :2] - start_poses[:, -1, :2]).norm(dim=-1))
+            tip_x.append((poses[:, -1, 0] - start_poses[:, -1, 0]).cpu())
             max_curvature = max(max_curvature, float(stem_geometry.joint_curvature(poses, segment_lengths).max()))
 
         results["base fixed"] = (
@@ -177,6 +195,47 @@ def main() -> None:
             float(tip_offset.max()) < MAX_TIP_REST_OFFSET,
             f"tip offset from the start position after {args_cli.steps} steps "
             f"{[round(float(d) * 1e3, 3) for d in tip_offset]} mm",
+        )
+
+        # -- swing of the upright stem: frequency and damping ratio, per env
+        free_length = geometry["length"] - segment_length  # the clamped segment does not bend
+        expected_frequency = stem_reference.beam_first_frequency(
+            free_length, geometry["diameter"], material["density"], material["bend_modulus"]
+        )
+        swings = [stem_reference.analyze_oscillation(x.tolist(), solver["sim_dt"]) for x in torch.stack(tip_x).T]
+        frequencies = [frequency for _, frequency, _ in swings]
+        damping_ratios = [damping_ratio for _, _, damping_ratio in swings]
+        results["swing frequency"] = (
+            all(abs(f - expected_frequency) <= FREQUENCY_REL_TOL * expected_frequency for f in frequencies),
+            f"{[round(f, 2) for f in frequencies]} Hz (clamped beam of {free_length:.2f} m: {expected_frequency:.2f} Hz)",
+        )
+        expected_damping = [damping_time * math.pi * f for f in frequencies]
+        results["damping ratio"] = (
+            all(abs(z - e) <= DAMPING_RATIO_TOL for z, e in zip(damping_ratios, expected_damping)),
+            f"{[round(z, 3) for z in damping_ratios]} (damping_time * pi * frequency = "
+            f"{[round(e, 3) for e in expected_damping]})",
+        )
+
+        # -- horizontal stem: tip sag under its own weight
+        horizontal_poses = stem_horizontal.data.segment_pose_w.torch
+        tip_offset_in_segment = 0.5 * segment_length
+        sag = (
+            stem_geometry.point_pose(horizontal_start_poses, num_segments - 1, tip_offset_in_segment)[:, 2]
+            - stem_geometry.point_pose(horizontal_poses, num_segments - 1, tip_offset_in_segment)[:, 2]
+        )
+        bend_sag, shear_sag = stem_reference.chain_tip_sag(
+            geometry["length"],
+            num_segments,
+            geometry["diameter"],
+            material["density"],
+            material["bend_modulus"],
+            shear_modulus,
+        )
+        expected_sag = bend_sag + shear_sag
+        results["cantilever sag"] = (
+            bool(((sag - expected_sag).abs() <= SAG_REL_TOL * expected_sag).all()),
+            f"{[round(float(d) * 1e3, 2) for d in sag]} mm (by hand: {expected_sag * 1e3:.2f} mm = "
+            f"bending {bend_sag * 1e3:.2f} + shear {shear_sag * 1e3:.2f})",
         )
 
         print(f"\n=== check_stem ({args_cli.num_envs} envs) ===")

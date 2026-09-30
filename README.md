@@ -43,13 +43,25 @@ The stem parameters and solver settings are in `assets/stem/stem.yaml`. Two scri
 uv run --extra isaacsim python scripts/check_stem.py
 ```
 
-Spawns the stem from the yaml, clamps its base, kicks the tip sideways and prints one `[PASS]` / `[FAIL]` line
-per check: number of segments, start poses, mass, joint stiffness and damping in the solver, base fixed,
-deflects when kicked, springs back. Run it after every change to the stem or the yaml.
+Spawns two stems per environment from the yaml, both clamped at the base: one upright, whose tip is kicked
+sideways, and one horizontal, which sags under its own weight. Prints one `[PASS]` / `[FAIL]` line per check:
+
+| Check | Passes if |
+|---|---|
+| segments, start poses, mass | the simulated stem has the yaml's segment count, shape and mass |
+| joint stiffness, joint damping | the solver's per-joint values equal those computed from the yaml |
+| base fixed | the clamped segment does not move at all |
+| deflects when kicked | the tip moves by more than 1 cm and all values stay finite |
+| springs back | the tip is back within 1 mm of upright at the end |
+| swing frequency | within 15 % of the first bending frequency of a clamped beam |
+| damping ratio | within 0.02 of the value set by `damping_time` |
+| cantilever sag | the horizontal stem's tip drop is within 5 % of the value computed by hand |
+
+Run it after every change to the stem or the yaml.
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--num_envs N` | 2 | number of stems simulated side by side |
+| `--num_envs N` | 2 | number of environments (each has one upright and one horizontal stem) |
 | `--steps N` | 400 | simulation steps after the kick (one step = `solver.sim_dt` = 10 ms) |
 | `--viz newton_gl` | off | open a viewer window (runs once at full speed; use the script below to watch) |
 
