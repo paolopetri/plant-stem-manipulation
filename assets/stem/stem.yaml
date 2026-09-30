@@ -20,4 +20,4 @@ material:
 damage:                   # hard limits, used for termination and penalty (see docs/architecture.md)
   max_curvature: 5.0      # [1/m] bending (= 1 / minimum bending radius); stage 1 starts with this one
   max_twist_rate: null    # [rad/m] torsion
-  max_axial_strain: null  # [-] tension from pulling / dragging along the stem (tearing)
+  max_tensile_stress: null  # [Pa] tension from pulling / dragging along the stem (tearing); stress = stretch_modulus * axial strain

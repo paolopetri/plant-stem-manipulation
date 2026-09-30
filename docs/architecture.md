@@ -65,18 +65,21 @@ A stem can be damaged in several ways. Each needs its own measure:
 |---|---|---|---|
 | Bending (kink / break) | pushing sideways too far | bending curvature per joint | yes, from segment poses |
 | Torsion | twisting the stem | twist rate per joint | yes, from segment poses |
-| Tearing / pulling out | fork drags along the stem with high friction, pulls the stem axially | axial strain per joint (-> tension ≈ EA · strain) | yes, from segment positions (small values, check noise) |
+| Tearing / pulling out | fork drags along the stem with high friction, pulls the stem axially | tensile stress per joint = E · axial strain | yes, from segment poses (limited by float32 positions, see TODO) |
 | Crushing / abrasion | high contact force or sliding under friction at the fork | contact normal / friction force | no: contact forces not readable in coupled scenes (see TODO open questions) |
 
 Per joint i, with relative rotation q_rel = q_i^-1 * q_(i+1) and dual length L_dual = 0.5 * (L_i + L_(i+1)):
 - q_rel is split into a **bending** part (rotation about an axis perpendicular to the stem tangent) and a
   **twist** part (rotation about the tangent), a swing-twist decomposition. The total angle of q_rel mixes both.
 - bending curvature kappa_i = bend_angle_i / L_dual; twist rate tau_i = twist_angle_i / L_dual.
-- axial strain eps_i = (distance between neighbouring segment centres) / L_dual - 1.
+- axial strain eps_i = (gap between the end of segment i and the start of segment i+1, along the tangent) / L_dual.
+  Pure bending gives zero (the distance between segment centres would cut the corner and report a false
+  compression of about -angle²/8). Tensile stress sigma_i = E · eps_i, limit on tension only.
 
 All measures are implemented once in `stem_manip.utils.stem_geometry` and used by rewards (penalties) and
-terminations (hard limits from `damage` in `assets/stem/stem.yaml`). Stage 1 starts with the bending limit;
-the other limits are added once realistic thresholds are known.
+terminations (hard limits from `damage` in `assets/stem/stem.yaml`). `stem_geometry` is geometry only;
+material properties (stress = E · strain) enter in the MDP terms. Stage 1 enforces the bending limit and,
+once a threshold is chosen, the tensile-stress limit; the twist limit follows when a realistic value is known.
 
 ## Where future work goes
 
