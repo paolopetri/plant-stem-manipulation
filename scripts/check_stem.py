@@ -11,15 +11,20 @@ Then clamps the base (`fix_stem_base`), gives the upright stem a sideways veloci
 - the base segment keeps its start pose;
 - the stem deflects (tip moves sideways) and all poses stay finite;
 - the stem springs back (tip returns to its start position);
-- swing frequency: within 15 % of the first bending frequency of a clamped beam of the free length
-  (the segment chain with its soft shear spring is a little softer than the ideal beam);
+- swing frequency: within 15 % of the first bending frequency of a clamped beam. Its free length is the stem
+  length minus half a segment: the first joint stands for the stem half a segment to either side of it. The
+  simulated stem swings a little slower than this ideal beam (soft shear spring, its own weight);
 - damping ratio: within 0.02 of damping_time * pi * frequency (the solver adds about 0.01-0.02 of its own).
+After the swing has died out, the last segment of the upright stem is pushed sideways with a constant force:
+- deflects when pushed: deflection of the pushed point at rest within 10 % of the value computed by hand
+  (`stem_reference.chain_push_deflection`; the formula ignores gravity, which adds about 4 %);
+- returns after the push: the point is back within 1 mm after the force is removed.
 A second stem per env is clamped horizontally and sags under its own weight:
 - cantilever sag: tip drop at the end within 5 % of the value computed by hand for the segment chain
   (bending + shear, `stem_reference.chain_tip_sag`).
 Solver settings come from `solver` in the yaml.
 
-Not yet (docs/TODO.md -> M1): deflects when pushed; axial-strain noise.
+Not yet (docs/TODO.md -> M1): axial-strain noise.
 
 Usage (from the repo root; headless unless a visualizer is requested, e.g. `--viz newton_gl`):
     uv run --extra isaacsim python scripts/check_stem.py
@@ -37,6 +42,7 @@ args_cli = parser.parse_args()
 
 import math
 
+import numpy as np
 import torch
 from isaaclab_newton.physics import NewtonCfg, VBDSolverCfg
 from isaaclab_newton.physics import NewtonManager as SimulationManager
@@ -48,7 +54,7 @@ from isaaclab.sim import SimulationContext
 from isaaclab.utils import configclass
 from isaaclab.utils.math import quat_apply
 
-from stem_manip.assets.stem import fix_stem_base, stem_cfg, stem_params
+from stem_manip.assets.stem import fix_stem_base, register_body_forces, stem_cfg, stem_params
 from stem_manip.utils import stem_geometry, stem_reference
 
 ENV_SPACING = 1.0  # [m]
@@ -57,6 +63,9 @@ REL_TOL = 1e-3
 KICK_TIP_SPEED = 1.0  # [m/s] sideways start velocity of the tip (linear profile, zero at the base)
 MIN_TIP_DEFLECTION = 0.01  # [m]
 MAX_TIP_REST_OFFSET = 1e-3  # [m] allowed distance of the tip from its start position at the end
+PUSH_FORCE = 0.05  # [N] sideways force on the last segment of the upright stem
+PUSH_STEPS = 300  # simulation steps with the force, and again after releasing it
+PUSH_REL_TOL = 0.10
 FREQUENCY_REL_TOL = 0.15
 DAMPING_RATIO_TOL = 0.02
 SAG_REL_TOL = 0.05
@@ -159,6 +168,15 @@ def main() -> None:
         fix_stem_base(stem)
         fix_stem_base(stem_horizontal)
         horizontal_start_poses = stem_horizontal.data.segment_pose_w.torch.clone()
+
+        push_forces = register_body_forces()  # must be registered before the first step
+
+        def step_simulation() -> None:
+            sim.step(render=False)
+            scene.update(solver["sim_dt"])
+            if sim.is_rendering:
+                sim.render()
+
         start_poses = stem.data.segment_pose_w.torch.clone()
         velocity = torch.zeros(args_cli.num_envs, num_segments, 6, device=sim.device)
         velocity[:, 1:, 0] = KICK_TIP_SPEED * torch.arange(1, num_segments, device=sim.device) / (num_segments - 1)
@@ -170,10 +188,7 @@ def main() -> None:
         finite = True
         tip_x = []  # sideways tip position of the upright stem relative to its start, per step
         for _ in range(args_cli.steps):
-            sim.step(render=False)
-            scene.update(solver["sim_dt"])
-            if sim.is_rendering:
-                sim.render()
+            step_simulation()
             poses = stem.data.segment_pose_w.torch
             finite = finite and bool(torch.isfinite(poses).all())
             base_error = torch.maximum(base_error, (poses[:, 0] - start_poses[:, 0]).abs().max(dim=-1).values)
@@ -198,7 +213,7 @@ def main() -> None:
         )
 
         # -- swing of the upright stem: frequency and damping ratio, per env
-        free_length = geometry["length"] - segment_length  # the clamped segment does not bend
+        free_length = geometry["length"] - 0.5 * segment_length  # see the module docstring
         expected_frequency = stem_reference.beam_first_frequency(
             free_length, geometry["diameter"], material["density"], material["bend_modulus"]
         )
@@ -214,6 +229,34 @@ def main() -> None:
             all(abs(z - e) <= DAMPING_RATIO_TOL for z, e in zip(damping_ratios, expected_damping)),
             f"{[round(z, 3) for z in damping_ratios]} (damping_time * pi * frequency = "
             f"{[round(e, 3) for e in expected_damping]})",
+        )
+
+        # -- push the last segment of the upright stem sideways (+x) with a constant force, then release it
+        tip_body_ids = stem.root_view.get_attribute("joint_child", model).numpy()[:, 0, -1]
+        forces = np.zeros((model.body_count, 6), dtype=np.float32)  # per body: force (x, y, z), torque (x, y, z)
+        forces[tip_body_ids, 0] = PUSH_FORCE
+        tip_before_push = stem.data.segment_pose_w.torch[:, -1, :3].clone()
+        push_forces.assign(forces)
+        for _ in range(PUSH_STEPS):
+            step_simulation()
+        push_deflection = stem.data.segment_pose_w.torch[:, -1, 0] - tip_before_push[:, 0]
+        push_forces.zero_()
+        for _ in range(PUSH_STEPS):
+            step_simulation()
+        push_rest_offset = (stem.data.segment_pose_w.torch[:, -1, :3] - tip_before_push).norm(dim=-1)
+
+        bend_deflection, shear_deflection = stem_reference.chain_push_deflection(
+            PUSH_FORCE, geometry["length"], num_segments, geometry["diameter"], material["bend_modulus"], shear_modulus
+        )
+        expected_deflection = bend_deflection + shear_deflection
+        results["deflects when pushed"] = (
+            bool(((push_deflection - expected_deflection).abs() <= PUSH_REL_TOL * expected_deflection).all()),
+            f"{[round(float(d) * 1e3, 2) for d in push_deflection]} mm with {PUSH_FORCE} N (by hand, without gravity: "
+            f"{expected_deflection * 1e3:.2f} mm = bending {bend_deflection * 1e3:.2f} + shear {shear_deflection * 1e3:.2f})",
+        )
+        results["returns after the push"] = (
+            float(push_rest_offset.max()) < MAX_TIP_REST_OFFSET,
+            f"offset {[round(float(d) * 1e3, 3) for d in push_rest_offset]} mm after releasing the force",
         )
 
         # -- horizontal stem: tip sag under its own weight

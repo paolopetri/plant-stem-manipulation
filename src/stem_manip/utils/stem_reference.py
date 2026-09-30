@@ -49,6 +49,43 @@ def chain_tip_sag(
     return bend_sag, shear_sag
 
 
+def chain_push_deflection(
+    force: float,
+    length: float,
+    num_segments: int,
+    diameter: float,
+    bend_modulus: float,
+    shear_modulus: float,
+) -> tuple[float, float]:
+    """Sideways deflection of the clamped stem model under a sideways force on its last segment.
+
+    The force acts at the centre of the last segment, and the deflection is that of the same point. Small
+    deflections, no gravity. Same chain as in `chain_tip_sag`; the joint with m segments beyond it is
+    (m - 1/2) l away from the force point:
+    - bending: moment F (m - 1/2) l, joint angle = moment / (E I / l), deflection = angle * (m - 1/2) l;
+    - shear: every joint carries the force F, deflection = F / (G A / l) per joint.
+
+    Args:
+        force: Sideways force [N].
+        length: Stem length [m].
+        num_segments: Number of segments, including the clamped one.
+        diameter: Stem diameter [m].
+        bend_modulus: Bend modulus E [Pa].
+        shear_modulus: Shear modulus G [Pa].
+
+    Returns:
+        The bending part and the shear part of the deflection [m]. Their sum is the expected deflection.
+    """
+    segment_length = length / num_segments
+    area = math.pi * diameter**2 / 4
+    area_moment = math.pi * diameter**4 / 64
+    joint_bend_stiffness = bend_modulus * area_moment / segment_length
+    levers = [(m - 0.5) * segment_length for m in range(1, num_segments)]
+    bend_deflection = force / joint_bend_stiffness * sum(lever**2 for lever in levers)
+    shear_deflection = force * len(levers) / (shear_modulus * area / segment_length)
+    return bend_deflection, shear_deflection
+
+
 def beam_first_frequency(length: float, diameter: float, density: float, bend_modulus: float) -> float:
     """First bending frequency [Hz] of a uniform round beam clamped at one end (Euler-Bernoulli, no shear).
 

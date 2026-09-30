@@ -1,0 +1,256 @@
+% Open question on the stem model, written for the supervisors (standalone explanation).
+% Source of the numbers: docs/TODO.md (open questions) and docs/notes/2026-09-30.md.
+%
+% This file compiles on its own. To use it inside another document, copy everything between
+% "BEGIN CONTENT" and "END CONTENT". The content needs the packages amsmath and booktabs.
+\documentclass[11pt,a4paper]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath}
+\usepackage{booktabs}
+
+\begin{document}
+
+% ======================================= BEGIN CONTENT =======================================
+\section{Open question: stiffness of the simulated stem}
+
+\subsection{Summary}
+
+The simulated stem cannot have all three of the following at once: stretch and shear stiffness as high as
+in a real stem, correct bending behaviour, and a simulation cheap enough for reinforcement learning. With
+physically realistic stiffness values the solver does not resolve the bending within the available
+computing budget, and the stem ends up about 23 times too soft and falls over. For now I make the stem
+artificially softer against stretching and shearing, which restores correct bending at the cost of a stem
+that can stretch slightly. The question for discussion is whether this workaround is acceptable, or whether
+the stem should be modelled differently.
+
+\subsection{How the stem is simulated}
+
+The stem is modelled with the ``cable'' of the physics engine Newton, which is what Isaac Lab offers for
+deformable linear objects. The cable is a chain of rigid segments (here 20 segments of 2\,cm for a stem of
+0.4\,m). Neighbouring segments are connected by a joint with four springs, one for each way the stem can
+deform:
+\begin{itemize}
+  \item \textbf{bending}, stiffness $EI/l$ per joint,
+  \item \textbf{twisting} about the stem axis, stiffness $GJ/l$,
+  \item \textbf{stretching} along the stem axis, stiffness $EA/l$,
+  \item \textbf{shearing}, where neighbouring cross-sections slide sideways against each other, stiffness
+        $GA/l$.
+\end{itemize}
+Here $l$ is the segment length, $A$ the cross-section area, $I$ and $J$ its area moments, and $E$, $G$ the
+moduli. A real thin stem bends easily, but it practically does not stretch or shear. In the model this
+means that the stretch and shear springs are far stiffer than the bending springs.
+
+The solver (Vertex Block Descent, VBD) does not solve the equations of motion exactly. At every time step
+it starts from a guess and improves it a fixed number of times. In each improvement pass it moves one
+segment at a time, while the neighbours of that segment are held fixed. The computing effort per time step
+is the number of substeps times the number of passes per substep; I call this product the \emph{cost}.
+
+\subsection{The problem}
+
+In the exact solution the two kinds of springs do not conflict. The stiff springs decide what the stem
+cannot do (stretch, shear), and the soft bending springs decide what it does within those rules. The
+difficulty is reaching that solution.
+
+The error that the solver reduces can be pictured as a long, narrow valley. Its walls are steep, because
+stretching or shearing the stem costs a lot of energy. Its floor is almost flat, because bending costs
+little. The solver drops down the steep walls within a few passes and then creeps along the flat floor.
+When it is stopped after a fixed number of passes, stretch and shear are satisfied, but the bending is
+not.
+
+The mechanical reason is the one-segment-at-a-time update. To bend the stem at one joint, everything beyond
+that joint has to swing together. A single segment that turns on its own moves its two ends sideways
+against its fixed neighbours, which the stiff shear springs resist immediately. Each segment may therefore
+turn only by a tiny amount per pass, and a bend is passed along the chain in small steps.
+
+The resulting error is not random noise. It appears as a wrong bending stiffness, and it can go in either
+direction: the stem is too soft where it should hold itself up (it has not caught up with its own restoring
+force), and too stiff where it should yield to a push (it has not moved far enough yet).
+
+\subsection{Why it cannot be tuned away}
+
+What matters is not the size of the stiffness values but the ratio between shear (or stretch) stiffness
+and bending stiffness. For a round stem this ratio is roughly
+\begin{equation*}
+  \frac{\text{shear stiffness}}{\text{bending stiffness}} \;\propto\;
+  \frac{G}{E}\left(\frac{l}{d}\right)^{2},
+\end{equation*}
+with segment length $l$ and stem diameter $d$. This is my own estimate; it agrees with the measurements
+below, but it was tested on one geometry only. Two consequences follow. First, scaling all moduli by the
+same factor, or changing units, changes nothing. Second, for a physical material $G/E$ is fixed, so the
+only remaining parameter is the segment length relative to the diameter. With physical moduli the segments
+would have to be about 1\,mm long, which means several hundred segments per stem.
+
+Solving bending and shear in two separate steps does not help either. They are not separate unknowns: the
+unknowns are the position and orientation of every segment, and both springs depend on them. A bending
+step followed by a shear step would partly undo each other, and the alternation converges as slowly as
+before.
+
+\subsection{Measurements}
+
+All measurements use the stem alone, clamped at its base, with a time step of 10\,ms. The stem has
+placeholder values: length 0.4\,m, diameter 8\,mm, 20 segments, density 1000\,kg/m$^3$, bend modulus
+$5\cdot10^{8}$\,Pa. Stretch and shear moduli are given as multiples of the bend modulus; a value of 1 is
+the physical order of magnitude. Three tests are used, each compared with a value computed by hand for the
+same chain of segments:
+\begin{itemize}
+  \item \textbf{Sag:} the stem is clamped horizontally and sags under its own weight. Reported is the tip
+        sag divided by the hand value, so 1 is correct. (For many segments the hand value approaches the
+        beam formula $qL^{4}/(8EI)$.)
+  \item \textbf{Kick:} the stem stands upright and its tip is kicked sideways with 1\,m/s. It should swing
+        and return to upright.
+  \item \textbf{Push:} the stem stands upright and its last segment is pushed sideways with a constant
+        force of 0.05\,N. The expected deflection is about 10.2\,mm: 9.85\,mm by hand without gravity
+        (approaching $FL^{3}/(3EI)$ for many segments), plus about 4\,\% because the stem's own weight
+        makes it lean further.
+\end{itemize}
+
+\begin{table}[h]
+  \centering
+  \caption{Sag divided by the hand value when stretch and shear are lowered together (1 is correct).}
+  \label{tab:stem-together}
+  \begin{tabular}{lccc}
+    \toprule
+    Stretch = shear modulus & Cost 80 & Cost 160 & Cost 800 \\
+    \midrule
+    1 (physical)  & not run      & 23 (stem falls over when kicked) & 15, still moving \\
+    0.1           & not run      & 22   & 7     \\
+    0.01          & not run      & 3.7  & 1.28  \\
+    0.001         & 1.30 to 1.44 & 1.06 & 1.003 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[h]
+  \centering
+  \caption{Effect of the stretch modulus alone. Sag ratio = sag divided by the hand value. Shear modulus 0.001, cost 80 (8 substeps, 10 passes).
+           The push deflection should be about 10.2\,mm.}
+  \label{tab:stem-stretch}
+  \begin{tabular}{lcllc}
+    \toprule
+    Stretch modulus & Sag ratio & Kick & Push deflection & Stretch per N \\
+    \midrule
+    1               & 1.05    & blows up          & not run                     & 0.016\,mm \\
+    0.1             & 1.012   & returns, 5.05\,Hz & 8.56\,mm (16\,\% too stiff) & 0.16\,mm  \\
+    0.03            & 1.009   & returns, 4.75\,Hz & 9.91\,mm (3\,\% too stiff)  & 0.5\,mm   \\
+    0.01 (in use)   & 1.008   & returns, 4.67\,Hz & 10.27\,mm (1\,\% too soft)  & 1.6\,mm   \\
+    0.001           & not run & not run           & 10.38\,mm (2\,\% too soft)  & 16\,mm    \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[h]
+  \centering
+  \caption{More solver work instead of softer stretch (stretch 0.1, shear 0.001). Push deflection,
+           expected about 10.2\,mm.}
+  \label{tab:stem-solver-work}
+  \begin{tabular}{lcc}
+    \toprule
+    Substeps $\times$ passes & Cost & Push deflection \\
+    \midrule
+    $8 \times 10$  & 80  & 8.56\,mm \\
+    $16 \times 5$  & 80  & 9.40\,mm \\
+    $8 \times 15$  & 120 & 9.11\,mm \\
+    $12 \times 10$ & 120 & 9.49\,mm \\
+    $8 \times 20$  & 160 & 9.39\,mm \\
+    $16 \times 10$ & 160 & 9.87\,mm \\
+    $8 \times 40$  & 320 & 9.86\,mm \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The tables show three things.
+\begin{itemize}
+  \item With physical values the stem is far too soft, and more solver work alone does not fix it within
+        any affordable budget (Table~\ref{tab:stem-together}).
+  \item The main cause is the shear spring. Lowering only the shear modulus to 0.001 already gives the
+        correct sag (first row of Table~\ref{tab:stem-stretch}). The stretch spring must be lowered as well: at full stretch
+        stiffness the kick test becomes unstable.
+  \item Which test is run decides what is seen. With a stretch modulus of 0.1 the sag test looks correct,
+        but the push on the upright stem is 16\,\% too stiff. In the upright stem gravity acts along the
+        stem and loads the stiff stretch springs; in the horizontal sag test it does not. Without gravity
+        the same setting gives 10.06\,mm in the push test.
+\end{itemize}
+
+One further observation concerns damping. Damping the stretch and shear springs slows the solver down: with
+all four springs damped, the kick test is fine at cost 160, but the stem no longer returns to upright at
+cost 80 and the simulation becomes unstable at cost 40. With damping on bending and twisting only, the
+test passes at cost 80. For reference, the computing time with 1024 stems in parallel is 8.6\,ms per
+10\,ms time step at cost 80 and 16.8\,ms at cost 160.
+
+\subsection{Current workaround and what it costs}
+
+The setting in use is: stretch modulus 0.01 and shear modulus 0.001 times the bend modulus, damping on
+bending and twisting only, 8 substeps with 10 passes each (cost 80). With this setting the sag and the push
+are within 1\,\% of the expected values, and after a kick the stem swings at 4.67\,Hz with a damping ratio
+of 0.06 and returns to upright.
+
+The price is the following.
+\begin{itemize}
+  \item \textbf{The stem can stretch.} It elongates by 1.6\,mm per newton of pull along its axis. A real
+        stem practically does not stretch.
+  \item \textbf{The stem is about 10\,\% softer in bending} than its bending stiffness alone implies,
+        because the soft shear spring adds deflection of its own (8\,\% for a force at the tip). This
+        could be compensated by a 10\,\% higher bend modulus.
+  \item \textbf{Stretch and shear vibrations are not damped} by the material model, only by the small
+        numerical damping of the solver (damping ratio 0.01 to 0.02).
+\end{itemize}
+
+The argument for accepting this is that a thin stem hardly stretches or shears in reality, so the exact
+stiffness in these directions has little influence on how it moves, as long as it is high enough. The task
+(moving a point on the stem to a target) and the damage limit (maximum curvature) both depend on bending.
+
+\subsection{Limits of these results}
+
+The measurements were made with one stem geometry and placeholder material values, without contact and
+without the robot. An accuracy statement holds only for the load cases that were tested (sag, kick, push);
+the push test revealed an error that the other two had not shown. The usable stiffness ratios depend on
+segment length and diameter, so they must be checked again when the stem parameters change, when they are
+randomized for training, and in the coupled simulation with the robot.
+
+\subsection{Options}
+
+\begin{table}[h]
+  \centering
+  \caption{Options. Bending error is given for the sag and the push test.}
+  \label{tab:stem-options}
+  \begin{tabular}{llclll}
+    \toprule
+     & Change & Cost & Bending error & Stretch per N & Price \\
+    \midrule
+    (a) & stretch 0.01 (in use) & 80  & 1\,\% / 1\,\%  & 1.6\,mm  & stretchy stem \\
+    (b) & stretch 0.03          & 80  & 1\,\% / 3\,\%  & 0.5\,mm  & compromise \\
+    (c) & stretch 0.1, $16 \times 10$ passes & 160 & 1\,\% / 3\,\% & 0.16\,mm & half the speed \\
+    (d) & different stem model          & unknown & none by construction & none & new model \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Option (d) replaces the cable by a chain of rigid segments connected by joints that can only bend and
+twist, each with a rotational spring of stiffness $EI/l$. Such a chain is described by its joint angles. It
+cannot stretch or shear by construction, which is exactly the assumption of thin-rod theory, so the stiff
+springs that cause the problem do not exist. This model would run in the same solver as the robot arm, so
+the coupling of two solvers would no longer be needed, and clamping the base and joint damping are
+standard features there. The price is that the model has to be built and validated.
+
+More generally, the difficulty comes from the combination of this stem description (every segment is free
+and held to its neighbours by stiff springs) with this kind of solver (one segment at a time). Changing
+either one removes it: describing the stem by joint angles, as in (d), or solving all segments of the chain
+at once with a direct solver for rods, which Newton's VBD solver does not offer. Softening the springs only
+makes the problem mild enough for the solver at hand.
+
+\subsection{Questions for discussion}
+
+\begin{enumerate}
+  \item Is softening the stretch and shear stiffness an accepted practice for this kind of rod model, and
+        how soft is acceptable for a plant stem?
+  \item Is there a solver setting or formulation that handles the stiff directions? (The solver's
+        ``compliant'' constraint mode made no difference in my tests.)
+  \item Is the rigid-segment chain (d) the better model for a stiff, thin stem? Domain randomization of
+        stem stiffness and diameter will change the stiffness ratio from plant to plant, which makes a
+        single softened setting harder to justify.
+\end{enumerate}
+% ======================================== END CONTENT ========================================
+
+\end{document}

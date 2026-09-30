@@ -35,6 +35,31 @@ def test_chain_tip_sag_scales_with_the_moduli():
     assert stiffer_shear_sag == pytest.approx(shear_sag / 4)
 
 
+PUSH = {key: STEM[key] for key in ("length", "num_segments", "diameter", "bend_modulus", "shear_modulus")}
+
+
+def test_chain_push_deflection_of_the_placeholder_stem():
+    bend_deflection, shear_deflection = stem_reference.chain_push_deflection(force=0.05, **PUSH)
+    assert bend_deflection == pytest.approx(9.09e-3, abs=0.005e-3)
+    assert shear_deflection == pytest.approx(0.76e-3, abs=0.005e-3)
+
+
+def test_chain_push_deflection_approaches_the_beam_formula():
+    """Many segments and a stiff shear spring -> cantilever with a force at its end, delta = F L^3 / (3 E I)."""
+    fine = PUSH | dict(num_segments=2000, shear_modulus=1.0e15)
+    bend_deflection, shear_deflection = stem_reference.chain_push_deflection(force=0.05, **fine)
+    area_moment = math.pi * STEM["diameter"] ** 4 / 64
+    beam_deflection = 0.05 * STEM["length"] ** 3 / (3.0 * STEM["bend_modulus"] * area_moment)
+    assert bend_deflection == pytest.approx(beam_deflection, rel=2e-3)
+    assert shear_deflection < 1e-9
+
+
+def test_chain_push_deflection_is_proportional_to_the_force():
+    single = stem_reference.chain_push_deflection(force=0.05, **PUSH)
+    double = stem_reference.chain_push_deflection(force=0.10, **PUSH)
+    assert double == pytest.approx((2 * single[0], 2 * single[1]))
+
+
 def test_beam_first_frequency():
     beam = {key: STEM[key] for key in ("length", "diameter", "density", "bend_modulus")}
     frequency = stem_reference.beam_first_frequency(**beam)
