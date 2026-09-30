@@ -18,6 +18,7 @@ For the full motivation, research question, and scope, read `docs/project-propos
 - Simulation: NVIDIA Isaac Sim
 - RL framework: Isaac Lab (PPO)
 - Reference robot: Franka Research 3. Actions are defined in end-effector space so the skill is not tied to one arm.
+- End-effector: `fork_v2` (`assets/fr3/end_effectors/fork_v2/`). `fork` is the first design, kept but not used.
 - Stem model: deformable linear object, for example a chain of rigid segments with elastic and torsional joints, or a Cosserat rod. The final choice is still open. The DeformX paper (Cosserat rod co-simulated with Isaac Sim) is a candidate reference.
 - Assets are managed as USD files.
 

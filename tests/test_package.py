@@ -33,9 +33,9 @@ def test_asset_paths_point_into_repo():
 
 
 def test_fr3_cfg_usd_path():
-    """fr3_cfg("fork") points to the USD produced by convert_to_usd.sh."""
-    usd_path = fr3_cfg("fork").spawn.usd_path
-    assert usd_path.endswith("fr3_fork_usd/fr3_fork/fr3_fork.usda")
+    """fr3_cfg("fork_v2") points to the USD produced by convert_to_usd.sh."""
+    usd_path = fr3_cfg("fork_v2").spawn.usd_path
+    assert usd_path.endswith("fr3_fork_v2_usd/fr3_fork_v2/fr3_fork_v2.usda")
 
 
 def _rpy_to_matrix(roll: float, pitch: float, yaw: float) -> np.ndarray:
@@ -59,8 +59,8 @@ def _quat_xyzw_to_matrix(q: tuple[float, float, float, float]) -> np.ndarray:
 
 def test_tool_tip_offset_matches_yaml():
     """tool_tip_offset returns the yaml position and a quaternion (x, y, z, w) equal to the yaml rpy."""
-    tip = yaml.safe_load((EE_DIR / "fork" / "fork.yaml").read_text())["tool_tip"]
-    pos, rot = tool_tip_offset("fork")
+    tip = yaml.safe_load((EE_DIR / "fork_v2" / "fork_v2.yaml").read_text())["tool_tip"]
+    pos, rot = tool_tip_offset("fork_v2")
 
     np.testing.assert_allclose(pos, tip["xyz"], atol=1e-9)
     assert math.isclose(float(np.linalg.norm(rot)), 1.0, abs_tol=1e-9)

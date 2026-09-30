@@ -25,7 +25,7 @@ All commands are run from the repo root.
 ```bash
 uv run isaaclab list_envs                               # lists registered tasks, including this project's
 uv run pytest                                           # unit tests (no simulator)
-uv run --extra isaacsim python scripts/check_fr3.py     # FR3 + fork: pass/fail check in simulation
+uv run --extra isaacsim python scripts/check_fr3.py     # FR3 + fork (fork_v2): pass/fail check in simulation
 uv run --extra isaacsim python scripts/check_stem.py    # stem: pass/fail check in simulation
 uv run --extra isaacsim python scripts/sweep_stem_solver.py --test kick   # stem: measure one test (see below)
 ```

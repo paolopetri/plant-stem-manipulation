@@ -20,7 +20,7 @@ from stem_manip.assets import REPO_ASSETS_DIR
 BUILD_DIR = REPO_ASSETS_DIR / "fr3" / "build"
 EE_DIR = REPO_ASSETS_DIR / "fr3" / "end_effectors"
 
-# Bodies for tasks: the end-effector body has the end-effector's name (e.g. "fork").
+# Bodies for tasks: the end-effector body has the end-effector's name (e.g. "fork_v2").
 # tool_tip and fr3_link8 are plain frames in the USD, not bodies (the converter turns massless links
 # without geometry into frames). Use the end-effector body + tool_tip_offset(ee) instead.
 
@@ -46,7 +46,7 @@ def tool_tip_offset(ee: str) -> tuple[tuple[float, float, float], tuple[float, f
 
 
 def fr3_cfg(ee: str) -> ArticulationCfg:
-    """FR3 + end-effector `ee` (e.g. "fork"), stiff PD gains (suited for task-space control)."""
+    """FR3 + end-effector `ee` (e.g. "fork_v2"), stiff PD gains (suited for task-space control)."""
     return ArticulationCfg(
         spawn=sim_utils.UsdFileCfg(
             usd_path=str(BUILD_DIR / f"fr3_{ee}_usd" / f"fr3_{ee}" / f"fr3_{ee}.usda"),

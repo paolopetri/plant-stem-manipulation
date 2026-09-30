@@ -3,15 +3,18 @@
 Builds the FR3 robot with one of our end-effectors (e.g. the fork) for Isaac Lab.
 The Franka URDF is never edited by hand; each end-effector lives in its own folder with a yaml config.
 
+**The project uses `fork_v2`** (long prongs, `tool_tip` at the notch between them). `fork` is the first,
+shorter design; it is kept and still builds, but nothing uses it by default.
+
 ```
 fr3/
 ├── base/fr3.urdf               FR3 without end-effector (generated, not edited)
 ├── end_effectors/
-│   └── fork/                   one folder per end-effector, folder name = <ee>
-│       ├── fork.yaml           all parameters (mount, mass, inertia, tool tip)
-│       ├── fork_visual.stl
-│       └── fork_collision.stl
-│   (end-effectors so far: fork, fork_v2 = longer prongs)
+│   ├── fork_v2/                one folder per end-effector, folder name = <ee>
+│   │   ├── fork_v2.yaml        all parameters (mount, mass, inertia, tool tip)
+│   │   ├── fork_v2_visual.stl
+│   │   └── fork_v2_collision.stl
+│   └── fork/                   first design, same layout
 ├── build_asset.py              base + <ee> -> build/fr3_<ee>.urdf
 ├── view_urdf.py                sanity check of build/fr3_<ee>.urdf (printout + browser viewer)
 ├── convert_to_usd.sh           build/fr3_<ee>.urdf -> build/fr3_<ee>_usd/ (USD stage + payloads)
@@ -34,27 +37,38 @@ fr3/
 
 ## Build and check
 
-Replace `fork` with the end-effector you want. All commands run from this folder.
+The commands below use `fork_v2`; replace it with another end-effector folder name if needed. They run from
+this folder (`assets/fr3/`).
 
 ```bash
-uv run build_asset.py --ee fork                     # -> build/fr3_fork.urdf
-uv run view_urdf.py --ee fork                       # sanity check, open http://localhost:8080
-ISAACLAB_DIR=~/IsaacLab ./convert_to_usd.sh fork    # -> build/fr3_fork_usd/fr3_fork/fr3_fork.usda
+export FRANKA_DESCRIPTION=/path/to/franka_description   # once per terminal, see Setup step 4
+uv run build_asset.py --ee fork_v2                      # -> build/fr3_fork_v2.urdf
+uv run view_urdf.py --ee fork_v2                        # sanity check, open http://localhost:8080
+ISAACLAB_DIR=~/IsaacLab ./convert_to_usd.sh fork_v2     # -> build/fr3_fork_v2_usd/fr3_fork_v2/fr3_fork_v2.usda
 ```
+
+`build_asset.py` needs the path to the `franka_description` repo, because the FR3 meshes are copied from
+there. Without it the build stops with
+`ERROR: base URDF uses package:// paths -> pass --franka-description <path to franka_description repo>`.
+Set `FRANKA_DESCRIPTION` as above (add the line to `~/.bashrc` to make it permanent), or pass the path
+directly: `uv run build_asset.py --ee fork_v2 --franka-description /path/to/franka_description`.
+
+After building, check the result in simulation from the repo root:
+`uv run --extra isaacsim python scripts/check_fr3.py` (uses `fork_v2`; `--ee fork` for the first design).
 
 `view_urdf.py` prints the `tool_tip` pose and the end-effector's mass, CoM and inertia as they ended up in
 the URDF (compare with the yaml). It then serves a browser viewer with joint sliders, visual/collision
 toggles and axes for `fr3_link8` and `tool_tip` (red = x, green = y, blue = z). Stop it with Ctrl+C.
 It runs in the browser because the yourdfpy/pyglet window only shows white on Wayland.
 
-In Isaac Lab, use `fr3_cfg("fork")` from `stem_manip.assets.fr3` (`src/stem_manip/assets/fr3.py`). The articulation's bodies are `fr3_link0` … `fr3_link7`
-and the end-effector (`fork`). `tool_tip` and `fr3_link8` are **not** bodies: the converter turns massless links
+In Isaac Lab, use `fr3_cfg("fork_v2")` from `stem_manip.assets.fr3` (`src/stem_manip/assets/fr3.py`). The articulation's bodies are `fr3_link0` … `fr3_link7`
+and the end-effector (`fork_v2`). `tool_tip` and `fr3_link8` are **not** bodies: the converter turns massless links
 without geometry into plain frames. For the task frame, use the end-effector body plus the offset from the yaml:
 
 ```python
 from stem_manip.assets.fr3 import fr3_cfg, tool_tip_offset
-pos, rot = tool_tip_offset("fork")   # rot as quaternion (x, y, z, w), the Isaac Lab 3.0 order
-# e.g. body_name="fork", body_offset=OffsetCfg(pos=pos, rot=rot) in the IK action, or in a FrameTransformer
+pos, rot = tool_tip_offset("fork_v2")   # rot as quaternion (x, y, z, w), the Isaac Lab 3.0 order
+# e.g. body_name="fork_v2", body_offset=OffsetCfg(pos=pos, rot=rot) in the IK action, or in a FrameTransformer
 ```
 
 ## Adding an end-effector
