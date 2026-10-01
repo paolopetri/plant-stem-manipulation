@@ -19,7 +19,7 @@ For the full motivation, research question, and scope, read `docs/project-propos
 - RL framework: Isaac Lab (PPO)
 - Reference robot: Franka Research 3. Actions are defined in end-effector space so the skill is not tied to one arm.
 - End-effector: `fork_v2` (`assets/fr3/end_effectors/fork_v2/`). `fork` is the first design, kept but not used.
-- Stem model: deformable linear object, for example a chain of rigid segments with elastic and torsional joints, or a Cosserat rod. The final choice is still open. The DeformX paper (Cosserat rod co-simulated with Isaac Sim) is a candidate reference.
+- Stem model: deformable linear object. Implemented: Newton cable (`cable`, M1). Next: a chain of rigid segments with bending/twist joints as a PhysX articulation (`chain`, M1b), sharing one solver with the robot. Stem models are kept modular (selectable by name, like the end-effectors); the final choice is made with the supervisors. Background: `docs/TODO.md`, open questions (stem model, contact handling).
 - Assets are managed as USD files.
 
 ## Task stages (in order)
