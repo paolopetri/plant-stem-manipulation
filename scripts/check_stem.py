@@ -23,8 +23,10 @@ A second stem per env is clamped horizontally and sags under its own weight:
 - cantilever sag: tip drop at the end within 5 % of the value computed by hand for the segment chain
   (bending + shear, `stem_reference.chain_tip_sag`).
 Solver settings come from `solver` in the yaml.
-
-Not yet (docs/TODO.md -> M1): axial-strain noise.
+At the end, the upright stem is at rest and compressed by its own weight:
+- axial strain (reported, not checked): `joint_axial_strain` against the strain computed by hand
+  (`stem_reference.chain_weight_strain`), for the envs nearest to and farthest from the world origin. At the
+  current solver cost the stretch direction is not converged (docs/TODO.md -> M1).
 
 Usage (from the repo root; headless unless a visualizer is requested, e.g. `--viz newton_gl`):
     uv run --extra isaacsim python scripts/check_stem.py
@@ -37,6 +39,7 @@ from isaaclab.app import add_launcher_args, launch_simulation
 parser = argparse.ArgumentParser(description="Sanity check of the stem model.")
 parser.add_argument("--num_envs", type=int, default=2, help="Number of environments.")
 parser.add_argument("--steps", type=int, default=400, help="Simulation steps to run after the kick.")
+parser.add_argument("--env_spacing", type=float, default=1.0, help="Distance between neighbouring envs [m].")
 add_launcher_args(parser)
 args_cli = parser.parse_args()
 
@@ -57,7 +60,6 @@ from isaaclab.utils.math import quat_apply
 from stem_manip.assets.stem import fix_stem_base, register_body_forces, stem_cfg, stem_params
 from stem_manip.utils import stem_geometry, stem_reference
 
-ENV_SPACING = 1.0  # [m]
 POS_TOL = 1e-4  # [m]
 REL_TOL = 1e-3
 KICK_TIP_SPEED = 1.0  # [m/s] sideways start velocity of the tip (linear profile, zero at the base)
@@ -119,7 +121,7 @@ def main() -> None:
     with launch_simulation(sim_cfg, args_cli):
         sim = SimulationContext(sim_cfg)
         sim.set_camera_view(eye=(1.5, 1.5, 0.8), target=(0.5, 0.0, 0.2))
-        scene = InteractiveScene(StemSceneCfg(num_envs=args_cli.num_envs, env_spacing=ENV_SPACING))
+        scene = InteractiveScene(StemSceneCfg(num_envs=args_cli.num_envs, env_spacing=args_cli.env_spacing))
         sim.reset()
         stem, stem_horizontal = scene["stem"], scene["stem_horizontal"]
         model = SimulationManager.get_model()
@@ -280,6 +282,25 @@ def main() -> None:
             f"{[round(float(d) * 1e3, 2) for d in sag]} mm (by hand: {expected_sag * 1e3:.2f} mm = "
             f"bending {bend_sag * 1e3:.2f} + shear {shear_sag * 1e3:.2f})",
         )
+
+        # -- axial strain of the upright stem at rest, against the hand value; noise vs. distance from the origin
+        strain = stem_geometry.joint_axial_strain(stem.data.segment_pose_w.torch, segment_lengths)
+        expected_strain = torch.tensor(
+            stem_reference.chain_weight_strain(
+                geometry["length"], num_segments, material["density"], material["stretch_modulus"]
+            ),
+            device=sim.device,
+        )
+        strain_error = (strain - expected_strain).abs().max(dim=-1).values
+        distance = scene.env_origins[:, :2].norm(dim=-1)
+        nearest, farthest = int(distance.argmin()), int(distance.argmax())
+        stretch_stiffness = material["stretch_modulus"] * area  # E A [N]: strain error -> force error
+        for label, env in (("nearest", nearest), ("farthest", farthest)):
+            print(
+                f"[INFO] axial strain, {label} env ({float(distance[env]):.1f} m from the origin): base joint "
+                f"{float(strain[env, 0]):.2e} (by hand {float(expected_strain[0]):.2e}), max error "
+                f"{float(strain_error[env]):.1e} (= {float(strain_error[env]) * stretch_stiffness:.4f} N)"
+            )
 
         print(f"\n=== check_stem ({args_cli.num_envs} envs) ===")
         for name, (ok, info) in results.items():

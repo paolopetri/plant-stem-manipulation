@@ -59,11 +59,15 @@ kicked sideways and later pushed with a steady force, and one horizontal, which 
 | returns after the push | the pushed point is back within 1 mm after the force is removed |
 | cantilever sag | the horizontal stem's tip drop is within 5 % of the value computed by hand |
 
+It also prints the axial strain of the upright stem at rest against the hand value (`[INFO]` lines, not a check:
+at the current solver cost the stretch direction is not converged, see `docs/TODO.md`).
+
 Run it after every change to the stem or the yaml.
 
 | Option | Default | Meaning |
 |---|---|---|
 | `--num_envs N` | 2 | number of environments (each has one upright and one horizontal stem) |
+| `--env_spacing D` | 1.0 | distance between neighbouring environments [m]; 0 stacks all at the world origin |
 | `--steps N` | 400 | simulation steps after the kick (one step = `solver.sim_dt` = 10 ms) |
 | `--viz newton_gl` | off | open a viewer window (runs once at full speed; use the script below to watch) |
 

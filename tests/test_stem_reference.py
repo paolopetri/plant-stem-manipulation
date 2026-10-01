@@ -60,6 +60,14 @@ def test_chain_push_deflection_is_proportional_to_the_force():
     assert double == pytest.approx((2 * single[0], 2 * single[1]))
 
 
+def test_chain_weight_strain():
+    strain = stem_reference.chain_weight_strain(length=0.4, num_segments=20, density=1000.0, stretch_modulus=5.0e6)
+    assert len(strain) == 19
+    assert strain[0] == pytest.approx(-1000.0 * 9.81 * 0.02 * 19 / 5.0e6)  # base joint carries 19 segments
+    assert strain[-1] == pytest.approx(strain[0] / 19)  # top joint carries one segment
+    assert all(a < b < 0.0 for a, b in zip(strain, strain[1:]))  # compression decreases upwards
+
+
 def test_beam_first_frequency():
     beam = {key: STEM[key] for key in ("length", "diameter", "density", "bend_modulus")}
     frequency = stem_reference.beam_first_frequency(**beam)

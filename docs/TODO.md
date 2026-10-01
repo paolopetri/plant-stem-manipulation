@@ -5,9 +5,7 @@ Roadmap to the first training run (stage 1, position control). Milestones in ord
 Where things go: `docs/architecture.md`. Spec of each skeleton file: its module docstring.
 
 ## M1 Stem model v1 (Newton cable)
-- Replace the placeholder values in `assets/stem/stem.yaml` once a reference plant is fixed (cantilever test on the artificial plant gives EI directly).
-- Decide whether to raise `bend_modulus` by about 10 % to compensate the extra deflection from the soft shear spring (only meaningful once real stem values replace the placeholders).
-- Axial-strain noise in `check_stem.py`: with several envs, compare `joint_axial_strain` of the stem at rest with the expected strain, and look for jitter in envs far from the world origin (see Open questions, float32 positions).
+Done (2026-10-01). The stem values stay placeholders: the policy should work for any plant, and the values will be randomized (see Later).
 
 ## M2 FR3 on Newton
 - `fr3_cfg("fork_v2")` loads and holds its pose under Newton / MuJoCo-Warp (currently PhysX-only schemas).
@@ -18,6 +16,7 @@ Where things go: `docs/architecture.md`. Spec of each skeleton file: its module 
 ## M3 Coupled scene
 - Contact settings for the fork-stem contact: `NewtonShapeCfg` (ke, kd, mu); Isaac Lab's cable task uses ke=2.5e3, kd=100, mu=10.
 - Robot + stem + ground with `CouplerProxyCfg` (robot in MuJoCo-Warp, stem in VBD, fork as proxy collider).
+- Lay out the envs with `env_spacing=0` (all envs stacked at the world origin; Newton keeps them from colliding). Check that this still holds with the robot and the coupled solvers, and that observations do not depend on it.
 - Re-run the stem accuracy tests (`scripts/sweep_stem_solver.py`) with the solver settings of the coupled scene; the stem values in `stem.yaml` (`solver`) were checked for the stem alone.
 - `scripts/check_scene.py`: scripted push, stem deflects and springs back, no instabilities; report max curvature.
 
@@ -25,7 +24,7 @@ Where things go: `docs/architecture.md`. Spec of each skeleton file: its module 
 - Commands (target position of the stem point), observations, relative EE-position action.
 - Call `fix_stem_base` once at env start (startup event), and check that it survives resets.
 - Rewards: distance to target, curvature penalty, action penalties. Terminations: curvature limit, time out, out of bounds. Reset events.
-- Tensile-stress limit (tension only): stress = `stretch_modulus` · `joint_axial_strain`, compared with `damage.max_tensile_stress`; choose the threshold and the shape (free zone below it, penalty / termination above).
+- Tensile-stress limit (tension only): stress = `stretch_modulus` · `joint_axial_strain`, compared with `damage.max_tensile_stress`; choose the threshold and the shape (free zone below it, penalty / termination above). The strain is not reliable yet: at cost 80 the upright stem at rest is compressed 2.3 x more than by hand (base joint -1.72e-3 vs. -7.46e-4; 40 iterations: -8.2e-4), see the `[INFO] axial strain` lines of `check_stem.py`. Decide the solver cost or another tension measure before using it.
 - Register `StemManip-Push-Position-FR3-v0`.
 - Zero/random agent runs headless with few envs; observation/action shapes and ranges as expected; each termination shown to fire.
 
@@ -35,7 +34,8 @@ Where things go: `docs/architecture.md`. Spec of each skeleton file: its module 
 - Tag `v0.1-position-control`; add train/play commands to README and CLAUDE.md.
 
 ## Later
-- Domain randomization of stem parameters (stiffness, length, diameter, damping), after the per-env randomization question is answered. Re-check the solver settings over the randomization range (the stretch/shear-to-bend ratio that converges depends on segment length / diameter).
+- Domain randomization of stem parameters (stiffness, length, diameter, damping), after the per-env randomization question is answered. Choose the ranges from plausible orders of magnitude for plant stems (literature, a cantilever test on the artificial plant as one data point) rather than from one reference plant; the placeholder values in `stem.yaml` only need to lie inside them. Re-check the solver settings over the whole range (the stretch/shear-to-bend ratio that converges depends on segment length / diameter, and soft shear adds about 10 % deflection, which the range covers).
+- Stem damping: with `damping_time` 3.2 ms (damping ratio about 0.06) the stem swings back and forth several times after a kick, more like a bamboo stick than a living plant stem, which is likely much more damped. Fine for now; revisit with real stem values (measure the decay on the artificial plant) and in the randomization range.
 - Stage 2: full pose control (`tasks/push_pose`).
 - Model-based baseline (nominal vs. oracle parameters) in `src/stem_manip/baselines/`.
 - Real-robot validation on an artificial plant; distillation into a vision-based policy.
@@ -112,7 +112,7 @@ Where things go: `docs/architecture.md`. Spec of each skeleton file: its module 
 - Per-env randomization of stiffness and damping: Newton stores rod stiffness/damping per joint in `model.joint_target_ke` / `joint_target_kd` (all envs in one array). The VBD solver caches them at construction; its documentation says to call `notify_model_changed(JOINT_DOF_PROPERTIES)` after editing (in Isaac Lab: `NewtonManager.add_model_change`, the route `fix_stem_base` already uses for body flags). Read in the source, not run. Randomizing length or diameter changes the geometry and the mass, which this path does not cover. Confirm with the expert.
 - Contact forces between fork and stem: Isaac Lab's contact sensor is not supported with coupled solvers (contacts live in per-solver buffers, `isaaclab_contrib/coupling/coupler.py`). Candidate (unverified): the proxy-coupled solver's `get_proxy_contacts(source, destination)`. Needed only for force-based limits/rewards; stage 1 uses curvature.
 - Damage criteria beyond bending: the measures exist (twist rate, axial strain; tearing is limited as a tensile stress, `damage.max_tensile_stress`), but the limits are not set. Realistic values for torsion and for tension (the fork dragging along the stem with friction)? Crushing / abrasion needs contact forces (see above). Literature values or measurements on the artificial plant?
-- float32 world positions vs. axial strain: all envs share one world and sit on a grid (e.g. 4096 envs at 2 m spacing reach ~60 m from the origin). float32 has ~7 significant digits, so the position step grows with the distance: 0.06 µm at 0.5 m, 3.8 µm at 58 m. `joint_axial_strain` (gap / 2 cm) then has a round-off of ~1e-6 at the origin, ~5e-5 at 10 m, ~2e-4 at 50 m (computed from positions, not yet measured in simulation). In force terms that depends on the stretch modulus: with the current 5e6 Pa (EA = 251 N) it is 0.0002 N / 0.012 N / 0.05 N, a hundred times less than with the original 5e8 Pa, because a softer stem stretches more per newton. Curvature and twist come from orientations and are not affected. Is that precise enough for the tensile-stress limit, and does the solver itself show stretch jitter far from the origin (untested)? Possible remedies: smaller env spacing, zero spacing if Newton worlds don't collide with each other (unchecked), or a solver-side joint force. M1 has the check that measures it.
+- float32 world positions (largely answered): envs far from the world origin simulate a slightly different stem. With 1024 envs at 1 m spacing the push deflection is 10.1-10.3 mm near the origin but 9.45 mm 9.5-15.5 m away (7 % too stiff), in steps that follow the float32 precision bands; more iterations do not help. Hypothesis: the solver's small corrections fall below the float32 position step (1 µm at 10 m) and are lost. Remedy found: `env_spacing=0` stacks all envs at the origin; Newton keeps them from colliding, and all 1024 envs then give identical results and pass every check (stem alone; to re-check with the robot in M3). Question for the expert: is stacking envs at the origin the recommended practice for Newton, and are there side effects (rendering, contact buffers)?
 - Gravity compensation: with `disable_gravity=False` and stiffness 400, the arm sags ~0.05 rad at joints 2 and 4 in the start pose. Disable gravity on the robot (as Isaac Lab's Franka high-PD config does), add gravity compensation, or raise the gains?
   - Leaning: do it like Isaac Lab's Franka. `FRANKA_PANDA_HIGH_PD_CFG` (`isaaclab_assets/robots/franka.py`) uses the same gains (400/80) plus `disable_gravity=True`, "useful for task-space control using differential IK". Isaac Lab's OSC how-to and gear-assembly deployment docs do the same ("Robot is mounted, no gravity"). The real Franka controller also compensates gravity itself (from memory, check in the libfranka docs).
   - Side effect: the end-effector then also has no gravity in sim. Negligible for the ~50 g `fork`, less so for the 221 g `fork_v2` (CoM 74 mm from the flange axis, about 0.16 N·m); worth knowing.

@@ -86,6 +86,31 @@ def chain_push_deflection(
     return bend_deflection, shear_deflection
 
 
+def chain_weight_strain(
+    length: float, num_segments: int, density: float, stretch_modulus: float, gravity: float = 9.81
+) -> list[float]:
+    """Axial strain at each joint of the upright stem model, clamped at the base, under its own weight.
+
+    Joint k (k = 0 .. num_segments - 2) connects segments k and k + 1 and carries the weight of the
+    num_segments - 1 - k segments above it: strain = -(weight above) / (E_stretch A). The area cancels.
+
+    Args:
+        length: Stem length [m].
+        num_segments: Number of segments, including the clamped one.
+        density: Density [kg/m^3].
+        stretch_modulus: Stretch modulus actually simulated [Pa].
+        gravity: Gravitational acceleration [m/s^2].
+
+    Returns:
+        Strain per joint from the base upwards [-], negative = compression.
+    """
+    segment_length = length / num_segments
+    return [
+        -density * gravity * segment_length * (num_segments - 1 - joint) / stretch_modulus
+        for joint in range(num_segments - 1)
+    ]
+
+
 def beam_first_frequency(length: float, diameter: float, density: float, bend_modulus: float) -> float:
     """First bending frequency [Hz] of a uniform round beam clamped at one end (Euler-Bernoulli, no shear).
 
