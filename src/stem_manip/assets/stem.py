@@ -23,6 +23,7 @@ Verify: `scripts/check_stem.py`.
 import math
 from typing import ClassVar
 
+import warp as wp
 import yaml
 
 from isaaclab_newton.physics import NewtonManager
@@ -114,3 +115,28 @@ def fix_stem_base(stem: CableObject) -> None:
     body_flags[root_body_ids] = int(BodyFlags.KINEMATIC)
     model.body_flags.assign(body_flags)
     NewtonManager.add_model_change(ModelFlags.BODY_PROPERTIES)
+
+
+@wp.kernel
+def _add_body_forces(forces: wp.array(dtype=wp.spatial_vectorf), body_f: wp.array(dtype=wp.spatial_vectorf)):
+    body = wp.tid()
+    body_f[body] = body_f[body] + forces[body]
+
+
+def register_body_forces() -> wp.array:
+    """External forces on the bodies of the Newton model, e.g. to push a stem segment in a check script.
+
+    Returns an array with one entry per body of the model: force (x, y, z) [N] and torque (x, y, z) [N m] in the
+    world frame, acting at the body's centre of mass. It starts at zero; write into it (`assign`, `zero_`) to
+    switch forces on and off. Newton clears the body forces after every solver substep, so a callback re-applies
+    the array before each substep. The callback is recorded with the simulation step (CUDA graph): call this
+    after the simulation is built and before the first step.
+    """
+    model = NewtonManager.get_model()
+    forces = wp.zeros(model.body_count, dtype=wp.spatial_vectorf, device=model.device)
+    NewtonManager.register_state_force_callback(
+        lambda state: wp.launch(
+            _add_body_forces, dim=model.body_count, inputs=[forces], outputs=[state.body_f], device=model.device
+        )
+    )
+    return forces

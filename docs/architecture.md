@@ -99,6 +99,6 @@ Listed under "Open questions" in `docs/TODO.md`. The main ones for the cable mod
   Isaac Lab only offers pins (ball joints);
 - no damping parameter is exposed in Isaac Lab; we author Newton's rod damping attributes through `StemMaterialCfg`;
 - the VBD solver does not converge in bending with physical stretch and shear stiffness; both are softened in
-  `stem.yaml` (stretch 0.1 x, shear 0.001 x the bend modulus), with solver settings in its `solver` section;
+  `stem.yaml` (stretch 0.01 x, shear 0.001 x the bend modulus), with solver settings in its `solver` section;
 - per-env randomization: candidate path via Newton's per-joint `joint_target_ke` / `joint_target_kd`, unverified;
 - Newton contact sensors are not supported in coupled scenes.

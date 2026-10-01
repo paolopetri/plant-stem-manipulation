@@ -11,9 +11,9 @@ geometry:
 
 material:
   density: 1000.0         # [kg/m^3]
-  # Stretch and shear are softer than a real stem (0.1 x and 0.001 x the bend modulus): the VBD solver does not
-  # converge in bending with the physical ratios. Trade-offs: docs/notes/2026-09-30.md, docs/TODO.md (open questions).
-  stretch_modulus: 5.0e+7 # [Pa] -> CableMaterialCfg.stretch_stiffness
+  # Stretch and shear are softer than a real stem (0.01 x and 0.001 x the bend modulus): the VBD solver does not
+  # converge in bending with the physical ratios. Measurements and trade-offs: docs/TODO.md (open questions).
+  stretch_modulus: 5.0e+6 # [Pa] -> CableMaterialCfg.stretch_stiffness
   shear_modulus: 5.0e+5   # [Pa] -> CableMaterialCfg.shear_stiffness (null = solver fallback to stretch)
   bend_modulus: 5.0e+8    # [Pa] -> CableMaterialCfg.bend_stiffness
   twist_modulus: null     # [Pa] -> CableMaterialCfg.twist_stiffness (null = solver fallback to bend)
