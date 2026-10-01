@@ -18,7 +18,12 @@ uv run isaaclab train/play --task <ID>      Isaac Lab's own CLI, nothing custom
 The repo is an installable uv package (`stem_manip`), following Isaac Lab 3's external-project template.
 `scripts/` holds sanity checks and small tools. `tests/` holds unit tests that don't need the simulator.
 
-## Physics (stem model v1)
+## Physics (stem model v1, Newton cable)
+
+Two stem models are planned, selectable by name like the end-effectors (docs/TODO.md, M1b): `cable` (this
+section, implemented) and `chain` (rigid-segment articulation in PhysX, sharing one solver with the robot;
+prototype). Which one M2-M4 use is decided after the prototype.
+
 
 - **Stem:** Isaac Lab `CableObject`, a chain of capsule segments joined by cable joints (stretch, shear,
   bend, twist), solved by Newton's VBD solver. Parameters in `assets/stem/stem.yaml`.
@@ -42,8 +47,8 @@ The **stem point of interest** is given by a segment index + an offset along tha
 
 ## Stem interface (keeps the stem model swappable)
 
-The stem model may change (Newton cable now; possibly a rigid-segment articulation, another backend or a
-Cosserat co-simulation later). To keep that change local, **the rest of the code reads the stem only through
+The stem model may change (Newton cable now; a rigid-segment articulation in PhysX is being prototyped; another
+backend or a Cosserat co-simulation later). To keep that change local, **the rest of the code reads the stem only through
 one accessor**:
 
 ```
@@ -56,6 +61,9 @@ stem_segment_poses(env) -> (num_envs, num_segments, 7)   # position + quaternion
   accessor implementation. Task logic, rewards and training setup stay unchanged.
 - Writing stem state (resets, randomization in `mdp/events.py`) is inherently model-specific; keep it in
   one place next to the accessor as well.
+- With several stem models in the repo, each model provides its asset cfg, the accessor, clamping the base
+  and writing its state; the physics engine of the scene follows from the chosen model (cable: Newton;
+  chain: PhysX).
 
 ## No-damage constraint
 
