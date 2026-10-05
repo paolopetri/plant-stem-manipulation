@@ -3,8 +3,8 @@
 Loads `fr3_cfg(<ee>)` (default `fork_v2`), holds the start pose for a few hundred physics steps and checks:
 - the articulation has the bodies fr3_link0..fr3_link7 + the end-effector;
 - the end-effector stays rigidly at 107 mm along z of fr3_link7 (flange offset);
-- the start pose is held (reports the per-joint deviation; known ~0.05 rad sag at joints 2 and 4 without
-  gravity compensation, see the gravity question in docs/TODO.md).
+- the start pose is held (reports the per-joint deviation; gravity is off for the robot, see `fr3_cfg`; with
+  gravity the arm sagged about 0.05 rad at joints 2 and 4).
 
 Usage (from the repo root; runs headless unless a visualizer is requested):
     uv run --extra isaacsim python scripts/check_fr3.py
