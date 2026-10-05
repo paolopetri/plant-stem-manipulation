@@ -1,8 +1,9 @@
-"""Isaac Lab config for the plant stem, modelled as a Newton cable (stem model v1).
+"""Stem model `cable`: the plant stem as a Newton cable.
 
 The stem is a vertical chain of capsule segments joined by cable joints (see IsaacLab
-`docs/source/concepts/deformables.rst`, section Cables). All parameters come from `assets/stem/stem.yaml`.
-Newton only (VBD solver): the scene must use a Newton physics cfg.
+`docs/source/concepts/deformables.rst`, section Cables). Parameters: `stem_params("cable")`, i.e.
+`assets/stem/stem.yaml` + `assets/stem/cable/cable.yaml`. Newton only (VBD solver): the scene must use
+`physics_cfg()`.
 
 Damping: Isaac Lab's `CableMaterialCfg` has no damping fields, but Newton reads four per-mode values from the
 material prim (`newton:curves{Stretch,Shear,Bend,Twist}Damping`, schema `NewtonCurvesDeformableMaterialAPI`).
@@ -24,18 +25,14 @@ import math
 from typing import ClassVar
 
 import warp as wp
-import yaml
-
-from isaaclab_newton.physics import NewtonManager
+from isaaclab_newton.physics import NewtonCfg, NewtonManager, VBDSolverCfg
 from newton import BodyFlags, ModelFlags
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import CableObject, CableObjectCfg
 from isaaclab.utils import configclass
 
-from stem_manip.assets import REPO_ASSETS_DIR
-
-STEM_YAML = REPO_ASSETS_DIR / "stem" / "stem.yaml"
+from stem_manip.assets.stem import stem_params
 
 
 @configclass
@@ -62,14 +59,16 @@ class StemMaterialCfg(sim_utils.CableMaterialCfg):
     """Twist damping [N m^2 s]. None = not authored (Newton default 0)."""
 
 
-def stem_params() -> dict:
-    """Nominal stem parameters (geometry, material, damage limits) from `assets/stem/stem.yaml`."""
-    return yaml.safe_load(STEM_YAML.read_text())
+def physics_cfg() -> NewtonCfg:
+    """Newton VBD physics cfg with the settings of `solver` in `cable.yaml` (the step `solver.sim_dt` goes into
+    the `SimulationCfg`)."""
+    solver = stem_params("cable")["solver"]
+    return NewtonCfg(solver_cfg=VBDSolverCfg(iterations=solver["vbd_iterations"]), num_substeps=solver["num_substeps"])
 
 
 def stem_cfg() -> CableObjectCfg:
     """Vertical stem with its base at `geometry.base_position` in the env frame. Set `prim_path` in the scene."""
-    params = stem_params()
+    params = stem_params("cable")
     geometry, material = params["geometry"], params["material"]
     segment_length = geometry["length"] / geometry["num_segments"]
 

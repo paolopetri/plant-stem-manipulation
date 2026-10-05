@@ -26,7 +26,7 @@ All commands are run from the repo root.
 uv run isaaclab list_envs                               # lists registered tasks, including this project's
 uv run pytest                                           # unit tests (no simulator)
 uv run --extra isaacsim python scripts/check_fr3.py     # FR3 + fork (fork_v2): pass/fail check in simulation
-uv run --extra isaacsim python scripts/check_stem.py    # stem: pass/fail check in simulation
+uv run --extra isaacsim python scripts/check_stem.py    # stem (--stem_model, default cable): pass/fail check
 uv run --extra isaacsim python scripts/sweep_stem_solver.py --test kick   # stem: measure one test (see below)
 ```
 
@@ -35,7 +35,9 @@ Training commands are added once the first task is registered (docs/TODO.md, M4/
 
 ## Stem tests
 
-The stem parameters and solver settings are in `assets/stem/stem.yaml`. Two scripts test them.
+The stem is selected by name (`--stem_model`, default `cable`). The plant values shared by all stem models are in
+`assets/stem/stem.yaml`; each model adds its own values (segment count, solver settings, ...) in
+`assets/stem/<model>/<model>.yaml`. Two scripts test them; `sweep_stem_solver.py` is for the `cable` model only.
 
 ### `check_stem.py`: does the stem work? (pass/fail)
 

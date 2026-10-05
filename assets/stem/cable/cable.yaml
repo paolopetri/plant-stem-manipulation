@@ -1,0 +1,17 @@
+# Stem model `cable`: Newton cable (chain of capsule segments with cable joints, VBD solver).
+# Adds to the plant values in assets/stem/stem.yaml. Read by src/stem_manip/assets/stem/cable.py.
+
+geometry:
+  num_segments: 20        # number of capsule segments (control points = num_segments + 1)
+
+material:
+  # A cable joint also has stretch and shear springs. They are softer than a real stem (0.01 x and 0.001 x the bend
+  # modulus): the VBD solver does not converge in bending with the physical ratios. Measurements and trade-offs:
+  # docs/TODO.md (open questions). The tensile stress of this model is stretch_modulus * axial strain.
+  stretch_modulus: 5.0e+6 # [Pa] -> CableMaterialCfg.stretch_stiffness
+  shear_modulus: 5.0e+5   # [Pa] -> CableMaterialCfg.shear_stiffness (null = solver fallback to stretch)
+
+solver:                   # Newton VBD settings the values were checked with (scripts/sweep_stem_solver.py)
+  sim_dt: 0.01            # [s] simulation step
+  num_substeps: 8         # solver substeps per simulation step
+  vbd_iterations: 10      # VBD iterations per substep

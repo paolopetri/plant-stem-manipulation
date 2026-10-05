@@ -6,7 +6,7 @@ import pytest
 
 from stem_manip.utils import stem_reference
 
-# placeholder stem of assets/stem/stem.yaml
+# placeholder stem of stem model `cable` (assets/stem/stem.yaml + assets/stem/cable/cable.yaml)
 STEM = dict(length=0.4, num_segments=20, diameter=0.008, density=1000.0, bend_modulus=5.0e8, shear_modulus=5.0e5)
 
 

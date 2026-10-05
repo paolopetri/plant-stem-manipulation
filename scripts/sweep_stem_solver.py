@@ -1,7 +1,7 @@
-"""Accuracy of the stem model for one solver / stiffness setting (stem alone on Newton VBD, base clamped).
+"""Accuracy of stem model `cable` for one solver / stiffness setting (stem alone on Newton VBD, base clamped).
 
 Runs one setting and prints one `RESULT` line; loop over settings in the shell to get a table. Defaults are the
-values of `assets/stem/stem.yaml`, so without options it measures the setting the project uses.
+values of stem model `cable` (`assets/stem/stem.yaml` + `assets/stem/cable/cable.yaml`), so without options it measures the setting the project uses.
 
 Tests:
 - `sag`: stem clamped horizontally, tip sag under its own weight after `--steps`, against the value computed
@@ -69,7 +69,8 @@ from isaaclab.scene import InteractiveScene, InteractiveSceneCfg
 from isaaclab.sim import SimulationContext
 from isaaclab.utils import configclass
 
-from stem_manip.assets.stem import fix_stem_base, register_body_forces, stem_cfg, stem_params
+from stem_manip.assets.stem import stem_params
+from stem_manip.assets.stem.cable import fix_stem_base, register_body_forces, stem_cfg
 from stem_manip.utils import stem_geometry, stem_reference
 
 BASE_HEIGHT = 1.0  # [m] no ground plane in this scene
@@ -109,7 +110,7 @@ def _stem_cfg(params: dict) -> tuple[CableObjectCfg, float]:
 
 def main() -> None:
     """Run one setting and print its RESULT line."""
-    params = stem_params()
+    params = stem_params("cable")
     geometry, material, solver = params["geometry"], params["material"], params["solver"]
     num_segments = geometry["num_segments"]
     segment_length = geometry["length"] / num_segments
