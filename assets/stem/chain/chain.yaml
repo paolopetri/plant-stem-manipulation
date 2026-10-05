@@ -1,0 +1,18 @@
+# Stem model `chain`: rigid capsule segments joined by spring joints that only bend and twist (PhysX articulation).
+# Adds to the plant values in assets/stem/stem.yaml. Read by src/stem_manip/assets/stem/chain.py.
+# No stretch or shear springs: the joints cannot stretch or shear (thin-rod assumption, rigid in those directions).
+
+geometry:
+  num_segments: 20        # number of capsule segments, the lowest one clamped (PhysX limit: 64 links)
+
+joint:
+  # Extra inertia on every joint coordinate. PhysX solves the joint springs iteratively; without armature the light
+  # segments (1 g) on stiff springs give vibration modes up to 3.6 kHz that the solver does not resolve, and the stem
+  # comes out 16 x too soft. 1e-4 keeps the static shape exact and the first mode within 1 % (modes 2 and 3 are
+  # 26 % and 64 % too slow). Measurements: docs/notes/2026-10-05.md.
+  armature: 1.0e-4        # [kg m^2]
+
+solver:                   # PhysX settings the values were checked with (scripts/check_stem.py)
+  sim_dt: 0.002           # [s] simulation step (5 ms: push 5 % too large; 10 ms: 12 %)
+  position_iterations: 8  # articulation solver position iterations
+  velocity_iterations: 1  # articulation solver velocity iterations

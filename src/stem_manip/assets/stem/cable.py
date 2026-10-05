@@ -22,8 +22,11 @@ Verify: `scripts/check_stem.py`.
 """
 
 import math
+from collections.abc import Callable
 from typing import ClassVar
 
+import numpy as np
+import torch
 import warp as wp
 from isaaclab_newton.physics import NewtonCfg, NewtonManager, VBDSolverCfg
 from newton import BodyFlags, ModelFlags
@@ -114,6 +117,59 @@ def fix_stem_base(stem: CableObject) -> None:
     body_flags[root_body_ids] = int(BodyFlags.KINEMATIC)
     model.body_flags.assign(body_flags)
     NewtonManager.add_model_change(ModelFlags.BODY_PROPERTIES)
+
+
+def segment_poses(stem: CableObject) -> torch.Tensor:
+    """Segment poses (num_envs, num_segments, 7): position + quaternion (x, y, z, w), world frame."""
+    return stem.data.segment_pose_w.torch
+
+
+def segment_masses(stem: CableObject) -> torch.Tensor:
+    """Segment masses (num_envs, num_segments) [kg]."""
+    model = NewtonManager.get_model()
+    root_ids = stem.root_view.get_attribute("joint_parent", model).numpy()[:, 0, :1]  # segment 0
+    child_ids = stem.root_view.get_attribute("joint_child", model).numpy()[:, 0]  # segments 1 .. n-1
+    return torch.from_numpy(model.body_mass.numpy()[np.concatenate([root_ids, child_ids], axis=1)])
+
+
+def joint_gains(stem: CableObject) -> dict[str, np.ndarray]:
+    """Per-DOF stiffness and damping of the cable joints in the Newton model (stretch, shear, bend, twist)."""
+    model = NewtonManager.get_model()
+    return {
+        "stiffness": stem.root_view.get_attribute("joint_target_ke", model).numpy(),
+        "damping": stem.root_view.get_attribute("joint_target_kd", model).numpy(),
+    }
+
+
+def write_kick(stem: CableObject, angular_velocity: float) -> None:
+    """Rotate the stem above the first joint rigidly about the world y axis (+x sideways at the top) [rad/s].
+
+    Assumes the upright start pose: segment k (k >= 1) moves with the lever (k - 1/2) l about the first joint.
+    """
+    num_segments = stem.num_segments
+    segment_length = stem_params("cable")["geometry"]["length"] / num_segments
+    velocity = torch.zeros(stem.num_instances, num_segments, 6, device=stem.device)
+    levers = (torch.arange(1, num_segments, device=stem.device) - 0.5) * segment_length
+    velocity[:, 1:, 0] = angular_velocity * levers
+    velocity[:, 1:, 4] = angular_velocity
+    stem.write_segment_velocity_to_sim_index(segment_velocity=velocity)
+
+
+def segment_force_setter(stem: CableObject) -> Callable[[int, torch.Tensor | None], None]:
+    """Returns `set_force(segment, force)`: constant force (num_envs, 3) [N, world frame] at the segment's centre
+    of mass, replacing any previous one; `None` removes it. Call before the first simulation step
+    (see `register_body_forces`)."""
+    model = NewtonManager.get_model()
+    forces = register_body_forces()
+    child_body_ids = stem.root_view.get_attribute("joint_child", model).numpy()[:, 0]  # segment k = child of joint k-1
+
+    def set_force(segment: int, force: torch.Tensor | None) -> None:
+        values = np.zeros((model.body_count, 6), dtype=np.float32)
+        if force is not None:
+            values[child_body_ids[:, segment - 1], :3] = force.cpu().numpy()
+        forces.assign(values)
+
+    return set_force
 
 
 @wp.kernel

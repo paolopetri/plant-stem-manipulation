@@ -35,14 +35,16 @@ Training commands are added once the first task is registered (docs/TODO.md, M4/
 
 ## Stem tests
 
-The stem is selected by name (`--stem_model`, default `cable`). The plant values shared by all stem models are in
+The stem is selected by name (`--stem_model`, default `cable`): `cable` (Newton cable) or `chain` (rigid segments
+with spring joints, PhysX). The plant values shared by all stem models are in
 `assets/stem/stem.yaml`; each model adds its own values (segment count, solver settings, ...) in
 `assets/stem/<model>/<model>.yaml`. Two scripts test them; `sweep_stem_solver.py` is for the `cable` model only.
 
 ### `check_stem.py`: does the stem work? (pass/fail)
 
 ```bash
-uv run --extra isaacsim python scripts/check_stem.py
+uv run --extra isaacsim python scripts/check_stem.py --stem_model cable
+uv run --extra isaacsim python scripts/check_stem.py --stem_model chain
 ```
 
 Spawns two stems per environment from the yaml, both clamped at the base: one upright, whose tip is first
@@ -51,7 +53,7 @@ kicked sideways and later pushed with a steady force, and one horizontal, which 
 | Check | Passes if |
 |---|---|
 | segments, start poses, mass | the simulated stem has the yaml's segment count, shape and mass |
-| joint stiffness, joint damping | the solver's per-joint values equal those computed from the yaml |
+| joint stiffness, joint damping (chain: also joint armature) | the solver's per-joint values equal those computed from the yaml |
 | base fixed | the clamped segment does not move at all |
 | deflects when kicked | the tip moves by more than 1 cm and all values stay finite |
 | springs back | the tip is back within 1 mm of upright at the end |
@@ -61,7 +63,7 @@ kicked sideways and later pushed with a steady force, and one horizontal, which 
 | returns after the push | the pushed point is back within 1 mm after the force is removed |
 | cantilever sag | the horizontal stem's tip drop is within 5 % of the value computed by hand |
 
-It also prints the axial strain of the upright stem at rest against the hand value (`[INFO]` lines, not a check:
+For the cable it also prints the axial strain of the upright stem at rest against the hand value (`[INFO]` lines, not a check:
 at the current solver cost the stretch direction is not converged, see `docs/TODO.md`).
 
 Run it after every change to the stem or the yaml.
@@ -70,8 +72,10 @@ Run it after every change to the stem or the yaml.
 |---|---|---|
 | `--num_envs N` | 2 | number of environments (each has one upright and one horizontal stem) |
 | `--env_spacing D` | 1.0 | distance between neighbouring environments [m]; 0 stacks all at the world origin |
-| `--steps N` | 400 | simulation steps after the kick (one step = `solver.sim_dt` = 10 ms) |
-| `--viz newton_gl` | off | open a viewer window (runs once at full speed; use the script below to watch) |
+| `--stem_model M` | `cable` | stem model to check (`cable`, `chain`) |
+| `--kick_time T` | 4.0 | simulated time after the kick [s] |
+| `--viz newton_gl` | off | open a viewer window (both models; Kit's viewer `--viz kit` hangs at start-up on this machine) |
+| `--slow_motion S` | 1.0 | with a viewer: play S times slower than real time |
 
 ### `sweep_stem_solver.py`: how accurate is the stem? (measurement, and the script to watch the stem)
 
