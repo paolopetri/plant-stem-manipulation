@@ -67,8 +67,9 @@ Each model module provides the same functions:
   static shape exact, first mode -1 %, modes 2 / 3 -26 % / -64 %.
 - **Solver:** PhysX TGS, 2 ms step, 8 position / 1 velocity iterations (`chain.yaml`).
 - **Robot:** the FR3 already runs in PhysX (`fr3_cfg`), so robot and stem share one solver; contact forces via
-  Isaac Lab's `ContactSensor` (not tested yet). Joint reaction forces (axial force, twist torque per joint) come
-  from `stem.root_view.get_link_incoming_joint_force()` (checked: equal to the weight above each joint).
+  Isaac Lab's `ContactSensor` (checked in `scripts/check_contact.py`: within 1-5 % of the force from the stem's
+  stiffness). Joint reaction forces (axial force, twist moment per joint) come from `chain.joint_wrenches(stem)`
+  (PhysX `get_link_incoming_joint_force`; checked: equal to the weight above each joint).
 
 ## Physics (stem model `cable`, Newton cable)
 
