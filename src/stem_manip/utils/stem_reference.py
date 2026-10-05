@@ -86,33 +86,6 @@ def chain_push_deflection(
     return bend_deflection, shear_deflection
 
 
-def chain_point_compliance(
-    height: float, length: float, num_segments: int, diameter: float, bend_modulus: float
-) -> float:
-    """Sideways deflection per force at `height` of the upright clamped stem model, for a force at `height`.
-
-    Same chain as in `chain_tip_sag` (segment 0 clamped, joint j at height j * l with a bend spring E I / l),
-    bending only (no shear spring, as in the `chain` model), small deflections, no gravity. A joint below the
-    force point carries the moment F (height - j l) and adds its angle times the same lever to the deflection:
-    compliance = sum over the joints below `height` of (height - j l)^2 / (E I / l). The upright stem's own
-    weight makes it about 4 % softer.
-
-    Args:
-        height: Height of the force and of the deflected point above the base [m].
-        length: Stem length [m].
-        num_segments: Number of segments, including the clamped one.
-        diameter: Stem diameter [m].
-        bend_modulus: Bend modulus E [Pa].
-
-    Returns:
-        Deflection per force [m/N]; the force for a measured deflection is deflection / compliance.
-    """
-    segment_length = length / num_segments
-    joint_bend_stiffness = bend_modulus * math.pi * diameter**4 / 64 / segment_length
-    levers = [height - j * segment_length for j in range(1, num_segments) if j * segment_length < height]
-    return sum(lever**2 for lever in levers) / joint_bend_stiffness
-
-
 def chain_weight_strain(
     length: float, num_segments: int, density: float, stretch_modulus: float, gravity: float = 9.81
 ) -> list[float]:

@@ -200,17 +200,6 @@ def joint_gains(stem: Articulation) -> dict[str, np.ndarray]:
     }
 
 
-def joint_wrenches(stem: Articulation) -> torch.Tensor:
-    """Force and moment each segment receives through its incoming joint, (num_envs, num_segments, 6).
-
-    Force (x, y, z) [N] and moment (x, y, z) [N m] in the joint frame, x along the stem axis: x force > 0 is
-    compression, the x moment is the twisting moment, the y and z moments bend. Entry 0 is the base clamp.
-    """
-    segment_ids, _ = stem.find_bodies("seg_.*")
-    wrenches = stem.root_view.get_link_incoming_joint_force()
-    return torch.as_tensor(wrenches.torch if hasattr(wrenches, "torch") else wrenches)[:, segment_ids]
-
-
 def write_kick(stem: Articulation, angular_velocity: float) -> None:
     """Rotate the stem above the first joint rigidly about the world y axis (+x sideways at the top) [rad/s]."""
     velocity = torch.zeros_like(stem.data.joint_vel.torch)
