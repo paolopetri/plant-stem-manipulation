@@ -45,6 +45,8 @@ with spring joints, PhysX). The plant values shared by all stem models are in
 ```bash
 uv run --extra isaacsim python scripts/check_stem.py --stem_model cable
 uv run --extra isaacsim python scripts/check_stem.py --stem_model chain
+uv run --extra isaacsim python scripts/check_stem.py --stem_model chain --viz kit --slow_motion 5        # watch it
+uv run --extra isaacsim python scripts/check_stem.py --stem_model cable --viz newton_gl --slow_motion 5  # watch it
 ```
 
 Spawns two stems per environment from the yaml, both clamped at the base: one upright, whose tip is first
@@ -74,7 +76,7 @@ Run it after every change to the stem or the yaml.
 | `--env_spacing D` | 1.0 | distance between neighbouring environments [m]; 0 stacks all at the world origin |
 | `--stem_model M` | `cable` | stem model to check (`cable`, `chain`) |
 | `--kick_time T` | 4.0 | simulated time after the kick [s] |
-| `--viz newton_gl` | off | open a viewer window (both models; Kit's viewer `--viz kit` hangs at start-up on this machine) |
+| `--viz newton_gl` / `--viz kit` | off | open a viewer window: `newton_gl` for both models, `kit` (Isaac Sim's window) for the chain (PhysX) only. Kit's very first start takes several minutes without output (window "not responding"); later starts take seconds |
 | `--slow_motion S` | 1.0 | with a viewer: play S times slower than real time |
 
 ### `sweep_stem_solver.py`: how accurate is the stem? (measurement, and the script to watch the stem)

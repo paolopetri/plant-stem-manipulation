@@ -19,6 +19,7 @@ Verify: `scripts/check_stem.py --stem_model chain`.
 import hashlib
 import json
 import math
+import os
 from collections.abc import Callable
 
 import numpy as np
@@ -88,7 +89,11 @@ def write_chain_usd(path: str, num_segments: int, length: float, diameter: float
             drive = UsdPhysics.DriveAPI.Apply(joint.GetPrim(), axis)
             drive.CreateTypeAttr("force")
             drive.CreateTargetPositionAttr(0.0)
-    stage.GetRootLayer().Export(path)
+    # write only on change: Kit watches open layers and asks to reload a file that was rewritten
+    content = stage.GetRootLayer().ExportToString()
+    if not os.path.isfile(path) or open(path).read() != content:
+        with open(path, "w") as file:
+            file.write(content)
 
 
 def spawn_chain(prim_path: str, cfg: "ChainUsdFileCfg", *args, **kwargs):

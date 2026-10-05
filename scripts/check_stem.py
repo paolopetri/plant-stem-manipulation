@@ -29,13 +29,14 @@ Cable only, at the end: the upright stem is at rest and compressed by its own we
   (`stem_reference.chain_weight_strain`), for the envs nearest to and farthest from the world origin. At the
   current solver cost the stretch direction is not converged (docs/TODO.md -> M4).
 
-Usage (from the repo root; headless unless a visualizer is requested with `--viz newton_gl`, which works for both
-models; Kit's own viewer (`--viz kit`) hangs at start-up on this machine; `--slow_motion 5` plays five times slower
-than real time):
+Usage (from the repo root; headless unless a visualizer is requested: `--viz newton_gl` (both models) or
+`--viz kit` (Isaac Sim's window, chain only; the very first start takes several minutes); `--slow_motion 5` plays
+five times slower than real time):
     uv run --extra isaacsim python scripts/check_stem.py
     uv run --extra isaacsim python scripts/check_stem.py --stem_model chain
     uv run --extra isaacsim python scripts/check_stem.py --stem_model cable --viz newton_gl --slow_motion 5
     uv run --extra isaacsim python scripts/check_stem.py --stem_model chain --viz newton_gl --slow_motion 5
+    uv run --extra isaacsim python scripts/check_stem.py --stem_model chain --viz kit --slow_motion 5
 """
 
 import argparse
@@ -79,6 +80,7 @@ PUSH_REL_TOL = 0.10
 FREQUENCY_REL_TOL = 0.15
 DAMPING_RATIO_TOL = 0.02
 SAG_REL_TOL = 0.05
+RENDER_DT = 1.0 / 30.0  # [s] simulated time between rendered frames with a viewer
 HORIZONTAL_BASE = (0.3, 0.3, 0.5)  # [m] clamped end of the horizontal stem in the env frame
 HORIZONTAL_ROT = (0.0, math.sqrt(0.5), 0.0, math.sqrt(0.5))  # (x, y, z, w): +90 deg about y, stem along +x
 
@@ -121,9 +123,12 @@ def main() -> None:
 
         @configclass
         class StemSceneCfg(InteractiveSceneCfg):
-            """Ground plane, one upright and one horizontal stem per env."""
+            """Ground plane, light (for Kit's RTX viewer), one upright and one horizontal stem per env."""
 
             ground = AssetBaseCfg(prim_path="/World/ground", spawn=sim_utils.GroundPlaneCfg())
+            light = AssetBaseCfg(
+                prim_path="/World/light", spawn=sim_utils.DomeLightCfg(intensity=3000.0, color=(0.75, 0.75, 0.75))
+            )
             stem = stem_cfg.replace(prim_path="{ENV_REGEX_NS}/Stem")
             stem_horizontal = stem_cfg.replace(
                 prim_path="{ENV_REGEX_NS}/StemHorizontal",
@@ -194,16 +199,20 @@ def main() -> None:
         horizontal_start_poses = model_module.segment_poses(stem_horizontal).clone()
         set_force = model_module.segment_force_setter(stem)  # before the first step (cable)
 
+        render_every = max(1, round(RENDER_DT / sim_dt))  # simulation steps per rendered frame
+
         def run(duration: float) -> None:
-            """Step the simulation for `duration` simulated seconds, paced for the viewer."""
-            for _ in range(round(duration / sim_dt)):
-                step_start = time.perf_counter()
+            """Step the simulation for `duration` simulated seconds; with a viewer, render and pace every frame."""
+            frame_start = time.perf_counter()
+            for step in range(round(duration / sim_dt)):
                 scene.write_data_to_sim()
                 sim.step(render=False)
                 scene.update(sim_dt)
-                if sim.is_rendering:
+                if sim.is_rendering and step % render_every == 0:
                     sim.render()
-                    time.sleep(max(0.0, args_cli.slow_motion * sim_dt - (time.perf_counter() - step_start)))
+                    frame_time = args_cli.slow_motion * render_every * sim_dt
+                    time.sleep(max(0.0, frame_time - (time.perf_counter() - frame_start)))
+                    frame_start = time.perf_counter()
                 yield poses()
 
         model_module.write_kick(stem, KICK_TIP_SPEED / ((num_segments - 1.5) * segment_length))
