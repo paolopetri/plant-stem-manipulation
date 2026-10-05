@@ -9,7 +9,8 @@ Done (2026-10-01). The stem values stay placeholders: the policy should work for
 
 ## M1b Stem model v2: rigid-segment chain in PhysX (prototype), modular stem models
 Why: with the Newton cable, realistic stretch/shear stiffness, correct bending and speed exclude each other (open questions, stem-model entry), and robot and stem need two coupled solvers (open questions, contact handling). A chain of rigid segments connected by joints that only bend and twist cannot stretch or shear by construction, and in PhysX it shares one solver with the robot (contact forces readable, no coupling). Decision 2026-10-01: prototype it now, keep the Newton cable, make the stem model selectable like the end-effectors, and decide later (with the supervisors) which model M2-M4 use.
-- Optional: exact chain modes in `stem_manip.utils.stem_reference` (small-deflection model with gravity and armature: natural frequencies), with a unit test, for the frequency check of `check_stem.py`. The armature table of 2026-10-05 comes from a scratch version. (The force-at-a-height reference exists: `chain_point_compliance`.)
+- Exact reference for the chain in `stem_manip.utils.stem_reference` (small-deflection model with gravity and armature: mode frequencies, push deflection) with a unit test, used by `check_stem.py`. The comparison numbers of 2026-10-05 come from a scratch version of it.
+- First contact test in PhysX: FR3 with `fork_v2` (already runs in PhysX, `check_fr3.py`) pushes the `chain` stem. Check: stable contact between the fork and the light segments (mass ratio about 1 g vs. kilograms), no tunnelling, contact force readable with Isaac Lab's `ContactSensor`.
 - Compare `cable` and `chain` in one table (accuracy in the tests, time per step with many envs, contact behaviour, effort) and decide with the supervisors which model M2-M4 use. Both stay in the repo.
 
 ## M2 FR3 on Newton
