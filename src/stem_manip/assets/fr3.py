@@ -2,6 +2,11 @@
 
 Uses the USD produced by assets/fr3/convert_to_usd.sh (assets/fr3/build/fr3_<ee>_usd/fr3_<ee>/fr3_<ee>.usda).
 Joint position limits come from the URDF (FR3 values from franka_description).
+Gravity is off for the robot (its links and the end-effector only; other assets keep theirs), as in Isaac Lab's
+`FRANKA_PANDA_HIGH_PD_CFG` for task-space control: with gravity, differential IK on top of the PD drives keeps the
+gravity sag as a steady error (about 4 cm at the tool tip). The real FR3 compensates gravity itself (libfranka
+torque commands are sent without gravity and friction); its compensation includes the end-effector only if the
+end-effector's mass, centre of mass and inertia are set as the robot's load (`setLoad` or a Desk profile).
 Written against the Isaac Lab 3.0 API (backend-specific schemas, joint_effort_limit).
 """
 
@@ -51,7 +56,7 @@ def fr3_cfg(ee: str) -> ArticulationCfg:
         spawn=sim_utils.UsdFileCfg(
             usd_path=str(BUILD_DIR / f"fr3_{ee}_usd" / f"fr3_{ee}" / f"fr3_{ee}.usda"),
             activate_contact_sensors=True,  # needed if you put a ContactSensor on the end-effector
-            rigid_props=PhysxRigidBodyCfg(disable_gravity=False, max_depenetration_velocity=5.0),
+            rigid_props=PhysxRigidBodyCfg(disable_gravity=True, max_depenetration_velocity=5.0),
             articulation_props=[
                 PhysxArticulationCfg(
                     enabled_self_collisions=False,

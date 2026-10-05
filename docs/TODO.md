@@ -16,7 +16,6 @@ Why: with the Newton cable, realistic stretch/shear stiffness, correct bending a
 ## M2 FR3 on Newton
 Path for the `cable` model. If `chain` in PhysX is chosen, M2 becomes "FR3 + stem in one PhysX scene" and M3 (coupling) is not needed.
 - `fr3_cfg("fork_v2")` loads and holds its pose under Newton / MuJoCo-Warp (currently PhysX-only schemas).
-- Decide the gravity question (see Open questions) and apply it.
 - Test the `tool_tip` offset in practice: IK with body `fork_v2` + `tool_tip_offset("fork_v2")` moves the `tool_tip` to the target, and a `FrameTransformer` with the same offset reports the `tool_tip` pose. So far only the offset values and a manual combination with the fork pose are checked.
 - `scripts/check_fr3_newton.py` covers all of the above.
 
@@ -133,12 +132,9 @@ Path for the `cable` model. If `chain` in PhysX is chosen, M2 becomes "FR3 + ste
 - Rigid segments and local loads (user remark, 2026-10-05): with rigid segments the fork acts on a rigid body part, so a twisting or crushing load at the contact is spread over the segment and the neighbouring joints, while a real stem deforms and can break locally. The policy could learn to twist or press a segment hard without being punished. Keep in mind when the damage limits are defined: limit the twist rate / joint twist torque (`max_twist_rate` is still null) and the contact force, not only the bending curvature.
 - Damage criteria beyond bending: the measures exist (twist rate, axial strain; tearing is limited as a tensile stress, `damage.max_tensile_stress`), but the limits are not set. Realistic values for torsion and for tension (the fork dragging along the stem with friction)? Crushing / abrasion needs contact forces (see above). Literature values or measurements on the artificial plant?
 - float32 world positions (largely answered): envs far from the world origin simulate a slightly different stem. With 1024 envs at 1 m spacing the push deflection is 10.1-10.3 mm near the origin but 9.45 mm 9.5-15.5 m away (7 % too stiff), in steps that follow the float32 precision bands; more iterations do not help. Hypothesis: the solver's small corrections fall below the float32 position step (1 µm at 10 m) and are lost. Remedy found: `env_spacing=0` stacks all envs at the origin; Newton keeps them from colliding, and all 1024 envs then give identical results and pass every check (stem alone; to re-check with the robot in M3). Question for the expert: is stacking envs at the origin the recommended practice for Newton, and are there side effects (rendering, contact buffers)?
-- Gravity compensation: with `disable_gravity=False` and stiffness 400, the arm sags ~0.05 rad at joints 2 and 4 in the start pose. Disable gravity on the robot (as Isaac Lab's Franka high-PD config does), add gravity compensation, or raise the gains?
-  - Leaning: do it like Isaac Lab's Franka. `FRANKA_PANDA_HIGH_PD_CFG` (`isaaclab_assets/robots/franka.py`) uses the same gains (400/80) plus `disable_gravity=True`, "useful for task-space control using differential IK". Isaac Lab's OSC how-to and gear-assembly deployment docs do the same ("Robot is mounted, no gravity"). The real Franka controller also compensates gravity itself (from memory, check in the libfranka docs).
-  - Side effect: the end-effector then also has no gravity in sim. Negligible for the ~50 g `fork`, less so for the 221 g `fork_v2` (CoM 74 mm from the flange axis, about 0.16 N·m); worth knowing.
 
 ## Blocked / waiting
-- Weigh the printed forks → set `inertial.measured_mass` in `fork.yaml` and `fork_v2.yaml`.
+- Weigh the printed forks → set `inertial.measured_mass` in `fork.yaml` and `fork_v2.yaml`. On the real robot, enter the measured mass, centre of mass and inertia as the end-effector load (Desk profile or `setLoad`), so Franka's gravity compensation includes the fork (gravity is off for the robot in simulation).
 
 ## Repo
 - Add `docs/project-proposal.md` (referenced in CLAUDE.md).
