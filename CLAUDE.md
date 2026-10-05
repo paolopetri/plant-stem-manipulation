@@ -47,8 +47,8 @@ Much of this code is simulation and RL, where unit tests don't cover everything.
 ## Repo layout
 
 Installable uv package `stem_manip` (Isaac Lab 3 external-project layout). Details: `docs/architecture.md`.
-- `assets/`: source data and build pipelines (`fr3/` URDF -> USD, `stem/stem.yaml`). No Isaac Lab cfgs here.
-- `src/stem_manip/assets/`: Isaac Lab configs pointing to `assets/` (`fr3.py`, `stem.py`).
+- `assets/`: source data and build pipelines (`fr3/` URDF -> USD, `stem/stem.yaml` = plant + `stem/<model>/<model>.yaml`). No Isaac Lab cfgs here.
+- `src/stem_manip/assets/`: Isaac Lab configs pointing to `assets/` (`fr3.py`, `stem/` with one module per stem model, selected by name via `stem_model(name)`).
 - `src/stem_manip/tasks/<task>/`: one package per task (env cfg, `mdp/`, `agents/`), registered via the `isaaclab.tasks` entry point.
 - `src/stem_manip/utils/`: simulator-free helpers (e.g. stem curvature).
 - `scripts/`: sanity checks (`check_*.py`). `tests/`: unit tests without the simulator.

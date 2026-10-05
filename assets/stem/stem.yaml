@@ -1,31 +1,22 @@
-# Nominal stem, model v1: Newton cable (chain of capsule segments with cable joints, VBD solver).
-# Read by src/stem_manip/assets/stem.py. Values are chosen in M1 (see docs/TODO.md); null = not set yet.
+# The plant stem, shared by all stem models. Each model adds its own values in assets/stem/<model>/<model>.yaml
+# (same sections; a key is defined in exactly one of the two files). Read by src/stem_manip/assets/stem/.
 # Units: SI (m, kg/m^3, Pa, 1/m).
-# PLACEHOLDER values: chosen to check the code, not measured on a plant. Replace once a reference plant is fixed.
+# PLACEHOLDER values: chosen to check the code, not measured on a plant. They will be domain-randomized.
+# The stem is treated as a thin rod: it bends and twists, stretch and shear are negligible.
 
 geometry:
   length: 0.4             # [m] base to tip
-  num_segments: 20        # number of capsule segments (control points = num_segments + 1)
-  diameter: 0.008         # [m] -> CableMaterialCfg.thickness
+  diameter: 0.008         # [m]
   base_position: [0.5, 0.0, 0.0]  # [x, y, z] in the env frame [m]
 
 material:
   density: 1000.0         # [kg/m^3]
-  # Stretch and shear are softer than a real stem (0.01 x and 0.001 x the bend modulus): the VBD solver does not
-  # converge in bending with the physical ratios. Measurements and trade-offs: docs/TODO.md (open questions).
-  stretch_modulus: 5.0e+6 # [Pa] -> CableMaterialCfg.stretch_stiffness
-  shear_modulus: 5.0e+5   # [Pa] -> CableMaterialCfg.shear_stiffness (null = solver fallback to stretch)
-  bend_modulus: 5.0e+8    # [Pa] -> CableMaterialCfg.bend_stiffness
-  twist_modulus: null     # [Pa] -> CableMaterialCfg.twist_stiffness (null = solver fallback to bend)
+  bend_modulus: 5.0e+8    # [Pa] E; joint bend stiffness E I / l
+  twist_modulus: null     # [Pa] G; joint twist stiffness G J / l (null = twist stiffness equal to bend stiffness)
   damping_time: 0.0032    # [s] stiffness-proportional damping of bend and twist: damping = damping_time * stiffness
-                          # (bend: tau*E*I, twist: tau*G*J); stretch and shear are not damped; null = no damping
-
-solver:                   # Newton VBD settings the values above were checked with (scripts/sweep_stem_solver.py)
-  sim_dt: 0.01            # [s] simulation step
-  num_substeps: 8         # solver substeps per simulation step
-  vbd_iterations: 10      # VBD iterations per substep
+                          # (bend: tau*E*I, twist: tau*G*J); null = no damping
 
 damage:                   # hard limits, used for termination and penalty (see docs/architecture.md)
   max_curvature: 5.0      # [1/m] bending (= 1 / minimum bending radius); stage 1 starts with this one
   max_twist_rate: null    # [rad/m] torsion
-  max_tensile_stress: null  # [Pa] tension from pulling / dragging along the stem (tearing); stress = stretch_modulus * axial strain
+  max_tensile_stress: null  # [Pa] tension from pulling / dragging along the stem (tearing)

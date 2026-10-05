@@ -1,7 +1,7 @@
-"""Sanity check of stem model v1 alone on Newton (no robot).
+"""Sanity check of a stem model alone (no robot). Model chosen with `--stem_model` (default `cable`).
 
-Spawns `stem_cfg()` in a few envs on a ground plane, and checks that the values of `assets/stem/stem.yaml`
-arrive in the simulator:
+Spawns the model's `stem_cfg()` in a few envs on a ground plane, and checks that the values of
+`stem_params(model)` (`assets/stem/stem.yaml` + `assets/stem/<model>/<model>.yaml`) arrive in the simulator:
 - number of segments; start poses (segment centres on a vertical line above the base, tangent = local +Z up);
 - total mass against rho * A * L;
 - per-joint stretch / shear / bend / twist stiffness in the Newton model against E A / l, E I / l
@@ -22,7 +22,7 @@ After the swing has died out, the last segment of the upright stem is pushed sid
 A second stem per env is clamped horizontally and sags under its own weight:
 - cantilever sag: tip drop at the end within 5 % of the value computed by hand for the segment chain
   (bending + shear, `stem_reference.chain_tip_sag`).
-Solver settings come from `solver` in the yaml.
+Solver settings come from the model (`physics_cfg()`, step `solver.sim_dt` from its yaml).
 At the end, the upright stem is at rest and compressed by its own weight:
 - axial strain (reported, not checked): `joint_axial_strain` against the strain computed by hand
   (`stem_reference.chain_weight_strain`), for the envs nearest to and farthest from the world origin. At the
@@ -30,13 +30,17 @@ At the end, the upright stem is at rest and compressed by its own weight:
 
 Usage (from the repo root; headless unless a visualizer is requested, e.g. `--viz newton_gl`):
     uv run --extra isaacsim python scripts/check_stem.py
+    uv run --extra isaacsim python scripts/check_stem.py --stem_model cable --viz newton_gl
 """
 
 import argparse
 
 from isaaclab.app import add_launcher_args, launch_simulation
 
+from stem_manip.assets.stem import STEM_MODELS, stem_model, stem_params
+
 parser = argparse.ArgumentParser(description="Sanity check of the stem model.")
+parser.add_argument("--stem_model", choices=STEM_MODELS, default="cable", help="Stem model to check.")
 parser.add_argument("--num_envs", type=int, default=2, help="Number of environments.")
 parser.add_argument("--steps", type=int, default=400, help="Simulation steps to run after the kick.")
 parser.add_argument("--env_spacing", type=float, default=1.0, help="Distance between neighbouring envs [m].")
@@ -47,7 +51,6 @@ import math
 
 import numpy as np
 import torch
-from isaaclab_newton.physics import NewtonCfg, VBDSolverCfg
 from isaaclab_newton.physics import NewtonManager as SimulationManager
 
 import isaaclab.sim as sim_utils
@@ -57,7 +60,6 @@ from isaaclab.sim import SimulationContext
 from isaaclab.utils import configclass
 from isaaclab.utils.math import quat_apply
 
-from stem_manip.assets.stem import fix_stem_base, register_body_forces, stem_cfg, stem_params
 from stem_manip.utils import stem_geometry, stem_reference
 
 POS_TOL = 1e-4  # [m]
@@ -74,14 +76,16 @@ SAG_REL_TOL = 0.05
 HORIZONTAL_BASE = (0.3, 0.3, 0.5)  # [m] clamped end of the horizontal stem in the env frame
 HORIZONTAL_ROT = (0.0, math.sqrt(0.5), 0.0, math.sqrt(0.5))  # (x, y, z, w): +90 deg about y, stem along +x
 
+model_module = stem_model(args_cli.stem_model)
+
 
 @configclass
 class StemSceneCfg(InteractiveSceneCfg):
     """Ground plane, one upright and one horizontal stem per env."""
 
     ground = AssetBaseCfg(prim_path="/World/ground", spawn=sim_utils.GroundPlaneCfg())
-    stem: CableObjectCfg = stem_cfg().replace(prim_path="{ENV_REGEX_NS}/Stem")
-    stem_horizontal: CableObjectCfg = stem_cfg().replace(
+    stem: CableObjectCfg = model_module.stem_cfg().replace(prim_path="{ENV_REGEX_NS}/Stem")
+    stem_horizontal: CableObjectCfg = model_module.stem_cfg().replace(
         prim_path="{ENV_REGEX_NS}/StemHorizontal",
         init_state=CableObjectCfg.InitialStateCfg(pos=HORIZONTAL_BASE, rot=HORIZONTAL_ROT),
     )
@@ -104,20 +108,14 @@ def _compare_gains(model_values, expected: dict[str, float]) -> tuple[bool, str]
 
 def main() -> None:
     """Spawn the stem, compare the simulator state with the yaml and print a pass/fail summary."""
-    params = stem_params()
+    params = stem_params(args_cli.stem_model)
     geometry, material, solver = params["geometry"], params["material"], params["solver"]
     num_segments = geometry["num_segments"]
     segment_length = geometry["length"] / num_segments
     area = math.pi * geometry["diameter"] ** 2 / 4
     area_moment = math.pi * geometry["diameter"] ** 4 / 64
 
-    sim_cfg = sim_utils.SimulationCfg(
-        dt=solver["sim_dt"],
-        device=args_cli.device,
-        physics=NewtonCfg(
-            solver_cfg=VBDSolverCfg(iterations=solver["vbd_iterations"]), num_substeps=solver["num_substeps"]
-        ),
-    )
+    sim_cfg = sim_utils.SimulationCfg(dt=solver["sim_dt"], device=args_cli.device, physics=model_module.physics_cfg())
     with launch_simulation(sim_cfg, args_cli):
         sim = SimulationContext(sim_cfg)
         sim.set_camera_view(eye=(1.5, 1.5, 0.8), target=(0.5, 0.0, 0.2))
@@ -167,11 +165,11 @@ def main() -> None:
         results["joint damping"] = _compare_gains(model.joint_target_kd.numpy(), expected_kd)
 
         # -- clamp the bases, kick the upright stem sideways, step
-        fix_stem_base(stem)
-        fix_stem_base(stem_horizontal)
+        model_module.fix_stem_base(stem)
+        model_module.fix_stem_base(stem_horizontal)
         horizontal_start_poses = stem_horizontal.data.segment_pose_w.torch.clone()
 
-        push_forces = register_body_forces()  # must be registered before the first step
+        push_forces = model_module.register_body_forces()  # must be registered before the first step
 
         def step_simulation() -> None:
             sim.step(render=False)
@@ -302,7 +300,7 @@ def main() -> None:
                 f"{float(strain_error[env]):.1e} (= {float(strain_error[env]) * stretch_stiffness:.4f} N)"
             )
 
-        print(f"\n=== check_stem ({args_cli.num_envs} envs) ===")
+        print(f"\n=== check_stem, model {args_cli.stem_model} ({args_cli.num_envs} envs) ===")
         for name, (ok, info) in results.items():
             print(f"[{'PASS' if ok else 'FAIL'}] {name}: {info}")
         print("=== all passed ===" if all(ok for ok, _ in results.values()) else "=== FAILED ===")

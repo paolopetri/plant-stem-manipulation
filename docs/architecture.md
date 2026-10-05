@@ -7,7 +7,7 @@ How the project is put together and where each future piece goes. Open items liv
 ```
 assets/                     source data + build pipelines (URDF, meshes, yaml, generated USD)
    │
-src/stem_manip/assets/      Isaac Lab configs that point to that data: fr3_cfg(ee), stem_cfg()
+src/stem_manip/assets/      Isaac Lab configs that point to that data: fr3_cfg(ee), stem_model(name).stem_cfg()
    │
 src/stem_manip/tasks/<task> one package per task: env cfg (scene + physics + MDP), mdp/ terms, agents/
    │   registered as a Gymnasium ID, found through the `isaaclab.tasks` entry point in pyproject.toml
@@ -18,15 +18,31 @@ uv run isaaclab train/play --task <ID>      Isaac Lab's own CLI, nothing custom
 The repo is an installable uv package (`stem_manip`), following Isaac Lab 3's external-project template.
 `scripts/` holds sanity checks and small tools. `tests/` holds unit tests that don't need the simulator.
 
-## Physics (stem model v1, Newton cable)
+## Stem models
 
-Two stem models are planned, selectable by name like the end-effectors (docs/TODO.md, M1b): `cable` (this
-section, implemented) and `chain` (rigid-segment articulation in PhysX, sharing one solver with the robot;
-prototype). Which one M2-M4 use is decided after the prototype.
+Stem models are selectable by name, like the end-effectors: `cable` (Newton cable, implemented) and `chain`
+(rigid-segment articulation in PhysX, sharing one solver with the robot; prototype, docs/TODO.md M1b). Which one
+M2-M4 use is decided after the prototype.
+
+```
+assets/stem/stem.yaml                  the plant, shared by all models: geometry, material, damping, damage limits
+assets/stem/<model>/<model>.yaml       model-specific: segment count, extra springs (cable), solver settings
+src/stem_manip/assets/stem/__init__.py stem_params(model), stem_model(name), STEM_MODELS
+src/stem_manip/assets/stem/<model>.py  the model: stem_cfg(), physics_cfg(), fix_stem_base(stem)
+```
+
+- `stem_params(model)` merges the two yaml files (same sections; a key may be defined in only one file, so both
+  models simulate the same plant).
+- `stem_model(name)` imports the model module on first use; the physics engine of the scene follows from the
+  model (`physics_cfg()`). Scripts select the model with `--stem_model`.
+- Adding a model: a folder `assets/stem/<name>/` with `<name>.yaml` and a module `<name>.py` with the functions
+  above.
+
+## Physics (stem model `cable`, Newton cable)
 
 
 - **Stem:** Isaac Lab `CableObject`, a chain of capsule segments joined by cable joints (stretch, shear,
-  bend, twist), solved by Newton's VBD solver. Parameters in `assets/stem/stem.yaml`.
+  bend, twist), solved by Newton's VBD solver. Parameters in `assets/stem/stem.yaml` + `assets/stem/cable/cable.yaml`.
 - **Robot:** FR3 + fork (end-effector `fork_v2`) in MuJoCo-Warp (Newton).
 - **Coupling:** `CouplerProxyCfg`. The fork appears as a proxy collider in the VBD solve.
   Template: IsaacLab `isaaclab_tasks/core/lift/config/franka_soft/franka_cable_env_cfg.py`.
@@ -57,13 +73,12 @@ stem_segment_poses(env) -> (num_envs, num_segments, 7)   # position + quaternion
 
 - MDP terms (observations, rewards, terminations, commands) and `stem_manip.utils.stem_geometry` use only
   this accessor (plus segment rest lengths). They never call `CableObject` or any backend API directly.
-- Switching the stem model then means changing two things: the asset cfg (`stem_manip.assets.stem`) and the
-  accessor implementation. Task logic, rewards and training setup stay unchanged.
+- Switching the stem model then means changing the model name (see Stem models); the accessor is implemented
+  per model. Task logic, rewards and training setup stay unchanged.
 - Writing stem state (resets, randomization in `mdp/events.py`) is inherently model-specific; keep it in
   one place next to the accessor as well.
-- With several stem models in the repo, each model provides its asset cfg, the accessor, clamping the base
-  and writing its state; the physics engine of the scene follows from the chosen model (cable: Newton;
-  chain: PhysX).
+- Each stem model provides its asset cfg, physics cfg and base clamping (implemented), and the accessor and
+  writing its state (added with the `chain` model, when both implementations exist).
 
 ## No-damage constraint
 
@@ -107,6 +122,6 @@ Listed under "Open questions" in `docs/TODO.md`. The main ones for the cable mod
   Isaac Lab only offers pins (ball joints);
 - no damping parameter is exposed in Isaac Lab; we author Newton's rod damping attributes through `StemMaterialCfg`;
 - the VBD solver does not converge in bending with physical stretch and shear stiffness; both are softened in
-  `stem.yaml` (stretch 0.01 x, shear 0.001 x the bend modulus), with solver settings in its `solver` section;
+  `cable/cable.yaml` (stretch 0.01 x, shear 0.001 x the bend modulus), with solver settings in its `solver` section;
 - per-env randomization: candidate path via Newton's per-joint `joint_target_ke` / `joint_target_kd`, unverified;
 - Newton contact sensors are not supported in coupled scenes.
