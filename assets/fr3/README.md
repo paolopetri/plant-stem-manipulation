@@ -18,6 +18,7 @@ fr3/
 ├── build_asset.py              base + <ee> -> build/fr3_<ee>.urdf
 ├── view_urdf.py                sanity check of build/fr3_<ee>.urdf (printout + browser viewer)
 ├── convert_to_usd.sh           build/fr3_<ee>.urdf -> build/fr3_<ee>_usd/ (USD stage + payloads)
+├── set_collision.py            collision shape of the end-effector mesh in the USD (run by convert_to_usd.sh)
 └── build/                      generated output (git-ignored)
 ```
 
@@ -117,6 +118,25 @@ tool_tip:                       # task frame (observations, rewards, IK), in the
 ```
 
 The build checks that the inertia tensor is physically valid (positive definite).
+
+**Collision shape (optional section).** The URDF converter approximates every collision mesh by its convex hull.
+That fills any opening in the part, e.g. the slot between the fork's prongs. For such parts add a
+`collision_approximation` section; `convert_to_usd.sh` then runs `set_collision.py`, which sets a convex
+decomposition on the end-effector's collision mesh (only that one). Without the section the convex hull stays.
+
+```yaml
+collision_approximation:        # optional; settings of PhysX's convex decomposition
+  type: convexDecomposition
+  max_convex_hulls: 64          # default 32
+  voxel_resolution: 2000000     # default 500000
+  error_percentage: 1.0         # default 10
+  shrink_wrap: true             # project the hull vertices onto the mesh surface
+```
+
+`fork_v2` uses these values: with PhysX's defaults the decomposition still bridged the outer part of the slot,
+and the stem stopped 11 cm before the slot bottom (`docs/notes/2026-10-05.md`). After changing the section,
+rerun only the collision step: `uv run python assets/fr3/set_collision.py <ee>` (from the repo root), or the
+whole conversion.
 
 **Why mass, CoM and inertia are all required:** if the inertia is missing, PhysX computes it from the convex
 approximation of the collision mesh with uniform density. That's plausible, but wrong for printed parts

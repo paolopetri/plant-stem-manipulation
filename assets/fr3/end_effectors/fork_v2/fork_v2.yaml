@@ -13,6 +13,17 @@ meshes:
   visual: fork_v2_visual.stl        # Onshape STL export, binary, meter, fine
   collision: fork_v2_collision.stl  # Onshape STL export, binary, meter, coarse
 
+# PhysX collision shape of the collision mesh, set after the USD conversion (set_collision.py, run by
+# convert_to_usd.sh). The converter's convex hull fills the slot between the prongs; this fine convex
+# decomposition keeps it open, so the stem reaches the slot bottom (contact test, docs/notes/2026-10-05.md).
+# Without this section the convex hull stays. Settings: PhysxConvexDecompositionCollisionAPI.
+collision_approximation:
+  type: convexDecomposition
+  max_convex_hulls: 64           # default 32
+  voxel_resolution: 2000000      # default 500000
+  error_percentage: 1.0          # default 10
+  shrink_wrap: true              # project the hull vertices onto the mesh surface
+
 inertial:
   cad_mass: 0.221021       # solid PLA from Onshape (V = 1.77e-4 m³ -> ~1250 kg/m³)
   measured_mass: null      # set after weighing the print -> inertia is scaled by measured/cad
