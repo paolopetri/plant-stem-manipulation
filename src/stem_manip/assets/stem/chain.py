@@ -7,6 +7,12 @@ implicit actuators: bend E I / l, twist G J / l, damping = `material.damping_tim
 `armature` of `chain.yaml`. The chain cannot stretch or shear by construction. Parameters: `stem_params("chain")`,
 i.e. `assets/stem/stem.yaml` + `assets/stem/chain/chain.yaml`. PhysX only: the scene must use `physics_cfg()`.
 
+Collision surface: a smooth tube of the stem's radius around its centre line. Each segment's capsule has the
+segment length as its cylinder part, so its round ends are centred on the joints; at every joint the neighbours
+share the same sphere, and the union stays smooth at any bend angle (capsules that only touch would leave a groove
+of depth radius at every joint, where an edge of the tool can catch). Neighbouring segments do not collide with
+each other. The end segments are shortened by half a radius so that the tube ends at the base and at the tip.
+
 The USD holds only the geometry (segments, collision capsules, masses, joint frames) and is written from the yaml
 at spawn time into `assets/stem/chain/build/` (file name = hash of the values it depends on). Stiffness, damping,
 armature and masses are runtime properties: domain randomization writes them per env
@@ -63,10 +69,14 @@ def write_chain_usd(path: str, num_segments: int, length: float, diameter: float
         mass_api.CreateMassAttr(mass)
         mass_api.CreateCenterOfMassAttr(Gf.Vec3f(0.0))
         mass_api.CreateDiagonalInertiaAttr(Gf.Vec3f(inertia_bend, inertia_bend, mass * radius**2 / 2))
+        # round ends centred on the joints (see the module docstring); the end segments stop at the base / the tip
         capsule = UsdGeom.Capsule.Define(stage, f"/Stem/seg_{i:02d}/collision")
         capsule.CreateAxisAttr("Z")
         capsule.CreateRadiusAttr(radius)
-        capsule.CreateHeightAttr(segment_length - 2 * radius)  # cylinder part; total length = segment length
+        end_shift = 0.5 * radius if i == 0 else -0.5 * radius if i == num_segments - 1 else 0.0
+        capsule.CreateHeightAttr(segment_length - abs(2 * end_shift))  # cylinder part
+        if end_shift:
+            capsule.AddTranslateOp().Set(Gf.Vec3d(0.0, 0.0, end_shift))
         UsdPhysics.CollisionAPI.Apply(capsule.GetPrim())
 
         if i == 0:  # clamp: fixed joint from the world to the bottom end of segment 0

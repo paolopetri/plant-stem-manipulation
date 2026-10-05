@@ -57,6 +57,9 @@ Each model module provides the same functions:
   joint only rotates (D6 joint with locked translations, a spherical joint with 3 DOFs in PhysX: `joint_<i>:0`
   twist, `:1`/`:2` bend). Springs and dampers are implicit actuators (E I / l, G J / l, damping time x stiffness)
   with joint armature 1e-4 kg m^2. No stretch or shear by construction.
+- **Collision surface:** a smooth tube of the stem radius: each capsule's round ends are centred on the joints, so
+  neighbours share a sphere there (capsules that only touch leave a groove at every joint, where the fork's slot
+  edges caught the stem).
 - **USD:** written from the yaml at spawn time into `assets/stem/chain/build/` (gitignored), geometry only.
   Stiffness, damping, armature and masses are runtime properties, randomizable per env without a new USD.
 - **Armature:** PhysX solves the joint springs iteratively; without armature the 1 g segments on stiff springs
