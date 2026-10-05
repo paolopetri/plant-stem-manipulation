@@ -20,16 +20,29 @@ The repo is an installable uv package (`stem_manip`), following Isaac Lab 3's ex
 
 ## Stem models
 
-Stem models are selectable by name, like the end-effectors: `cable` (Newton cable, implemented) and `chain`
-(rigid-segment articulation in PhysX, sharing one solver with the robot; prototype, docs/TODO.md M1b). Which one
-M2-M4 use is decided after the prototype.
+Stem models are selectable by name, like the end-effectors: `cable` (Newton cable) and `chain` (rigid-segment
+articulation in PhysX, sharing one solver with the robot; prototype, docs/TODO.md M1b). Which one M2-M4 use is
+decided with the supervisors.
 
 ```
 assets/stem/stem.yaml                  the plant, shared by all models: geometry, material, damping, damage limits
 assets/stem/<model>/<model>.yaml       model-specific: segment count, extra springs (cable), solver settings
 src/stem_manip/assets/stem/__init__.py stem_params(model), stem_model(name), STEM_MODELS
-src/stem_manip/assets/stem/<model>.py  the model: stem_cfg(), physics_cfg(), fix_stem_base(stem)
+src/stem_manip/assets/stem/<model>.py  the model (functions below)
 ```
+
+Each model module provides the same functions:
+
+| Function | Purpose |
+|---|---|
+| `stem_cfg()` | Isaac Lab asset cfg of the upright stem (set `prim_path` in the scene) |
+| `physics_cfg()` | physics cfg of the scene (the engine follows from the model) |
+| `fix_stem_base(stem)` | clamp the base after the simulation is built (chain: nothing to do) |
+| `segment_poses(stem)` | (num_envs, num_segments, 7) segment poses, the stem interface below |
+| `segment_masses(stem)`, `joint_gains(stem)` | read back masses and per-joint stiffness / damping (/ armature) |
+| `write_kick(stem, angular_velocity)` | rigid rotation of the stem above the first joint (checks) |
+| `segment_force_setter(stem)` | `set_force(segment, force)`: constant world-frame force on a segment (checks) |
+
 
 - `stem_params(model)` merges the two yaml files (same sections; a key may be defined in only one file, so both
   models simulate the same plant).
@@ -37,6 +50,22 @@ src/stem_manip/assets/stem/<model>.py  the model: stem_cfg(), physics_cfg(), fix
   model (`physics_cfg()`). Scripts select the model with `--stem_model`.
 - Adding a model: a folder `assets/stem/<name>/` with `<name>.yaml` and a module `<name>.py` with the functions
   above.
+
+## Physics (stem model `chain`, PhysX articulation)
+
+- **Stem:** Isaac Lab `Articulation` of rigid capsule segments. Segment 0 is clamped by a fixed joint; every other
+  joint only rotates (D6 joint with locked translations, a spherical joint with 3 DOFs in PhysX: `joint_<i>:0`
+  twist, `:1`/`:2` bend). Springs and dampers are implicit actuators (E I / l, G J / l, damping time x stiffness)
+  with joint armature 1e-4 kg m^2. No stretch or shear by construction.
+- **USD:** written from the yaml at spawn time into `assets/stem/chain/build/` (gitignored), geometry only.
+  Stiffness, damping, armature and masses are runtime properties, randomizable per env without a new USD.
+- **Armature:** PhysX solves the joint springs iteratively; without armature the 1 g segments on stiff springs
+  give modes up to 3.6 kHz that 8 iterations do not resolve (stem 16 x too soft). Armature removes these modes:
+  static shape exact, first mode -1 %, modes 2 / 3 -26 % / -64 %.
+- **Solver:** PhysX TGS, 2 ms step, 8 position / 1 velocity iterations (`chain.yaml`).
+- **Robot:** the FR3 already runs in PhysX (`fr3_cfg`), so robot and stem share one solver; contact forces via
+  Isaac Lab's `ContactSensor` (not tested yet). Joint reaction forces (axial force, twist torque per joint) come
+  from `stem.root_view.get_link_incoming_joint_force()` (checked: equal to the weight above each joint).
 
 ## Physics (stem model `cable`, Newton cable)
 
