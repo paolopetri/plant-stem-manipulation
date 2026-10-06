@@ -10,10 +10,9 @@ Done (2026-10-01). The stem values stay placeholders: the policy should work for
 ## M1b Stem model v2: rigid-segment chain in PhysX (prototype), modular stem models
 Why: with the Newton cable, realistic stretch/shear stiffness, correct bending and speed exclude each other (open questions, stem-model entry), and robot and stem need two coupled solvers (open questions, contact handling). A chain of rigid segments connected by joints that only bend and twist cannot stretch or shear by construction, and in PhysX it shares one solver with the robot (contact forces readable, no coupling). Decision 2026-10-01: prototype it now, keep the Newton cable, make the stem model selectable like the end-effectors, and decide later (with the supervisors) which model M2-M4 use.
 - Optional: exact chain modes in `stem_manip.utils.stem_reference` (small-deflection model with gravity and armature: natural frequencies), with a unit test, for the frequency check of `check_stem.py`. The armature table of 2026-10-05 comes from a scratch version. (The force-at-a-height reference exists: `chain_point_compliance`.)
-- Compare `cable` and `chain` in one table (accuracy in the tests, time per step with many envs, contact behaviour, effort) and decide with the supervisors which model M2-M4 use. Both stay in the repo.
 
 ## M2 FR3 on Newton
-Path for the `cable` model. If `chain` in PhysX is chosen, M2 becomes "FR3 + stem in one PhysX scene" and M3 (coupling) is not needed.
+Path for the `cable` model. Not needed for now: the supervisors chose `chain` in PhysX (2026-10-06), and FR3 + stem in one PhysX scene already runs (`check_contact.py`). M2 and M3 stay here in case the cable is revisited.
 - `fr3_cfg("fork_v2")` loads and holds its pose under Newton / MuJoCo-Warp (currently PhysX-only schemas).
 - Test the `tool_tip` offset in practice: IK with body `fork_v2` + `tool_tip_offset("fork_v2")` moves the `tool_tip` to the target, and a `FrameTransformer` with the same offset reports the `tool_tip` pose. So far only the offset values and a manual combination with the fork pose are checked.
 - `scripts/check_fr3_newton.py` covers all of the above.
@@ -26,21 +25,30 @@ Path for the `cable` model. If `chain` in PhysX is chosen, M2 becomes "FR3 + ste
 - `scripts/check_scene.py`: scripted push, stem deflects and springs back, no instabilities; report max curvature.
 
 ## M4 Stage-1 environment (`tasks/push_position`)
-- Commands (target position of the stem point), observations, relative EE-position action.
+Stem model `chain` (decision 2026-10-06). Target: first training run (M5) by the end of the week, 2026-10-09.
+- Commands (target position of the stem point), observations, relative EE-position action. No contact forces in the observations (decision 2026-10-06): the policy must later run on a camera-based stem state (see Perception). Keep the stem-state observation terms in one place so they can be changed to what the perception module can deliver.
 - Call `fix_stem_base` once at env start (startup event), and check that it survives resets.
-- Rewards: distance to target, curvature penalty, action penalties. Terminations: curvature limit, time out, out of bounds. Reset events.
+- Rewards: distance to target, curvature penalty, action penalties. Terminations: curvature limit, time out, out of bounds. Reset events. Contact forces may be used here (decision 2026-10-06), e.g. a penalty on high or jerky contact force; limit values not chosen yet.
 - Tensile-stress limit (tension only), compared with `damage.max_tensile_stress`. `chain`: stress = axial joint force / A, read exactly from `stem.root_view.get_link_incoming_joint_force()` (joint x axis, + = compression; checked against the weight above each joint and a 1 N pull, 2026-10-05). `cable`: stress = `stretch_modulus` · `joint_axial_strain`; choose the threshold and the shape (free zone below it, penalty / termination above). The strain is not reliable yet: at cost 80 the upright stem at rest is compressed 2.3 x more than by hand (base joint -1.72e-3 vs. -7.46e-4; 40 iterations: -8.2e-4), see the `[INFO] axial strain` lines of `check_stem.py`. Decide the solver cost or another tension measure before using it.
 - Register `StemManip-Push-Position-FR3-v0`.
 - Zero/random agent runs headless with few envs; observation/action shapes and ranges as expected; each termination shown to fire.
 
 ## M5 First training run
-- `rsl_rl_ppo_cfg.py`; short headless training run; mean reward increases.
+- `rsl_rl_ppo_cfg.py`; short headless training run; mean reward increases. First run without contact-force terms (curvature only), as a baseline.
+- Second step: a contact-force penalty (smooth, not a termination), with the contact forces as privileged critic observations only (asymmetric actor-critic: the critic sees them, the policy does not). Compare with the baseline run.
 - Log our repo's git commit with every run: Isaac Lab's `train` stores the git state of the Isaac Lab and RSL-RL repos only (`runner.add_git_repo_to_log(__file__)` in `isaaclab_rl/entrypoints/backends/train_rsl_rl.py`). Option: a commit-hash field in our env cfg, which ends up in the run's `params/env.yaml`.
 - Tag `v0.1-position-control`; add train/play commands to README and CLAUDE.md.
+
+## Perception (in parallel with M5, with Alessio Caporali)
+Why: Alessio's experience is that RL policies have trouble transferring to the real world; the stem state the policy observes must come from cameras there. Start while the first training runs.
+- With Alessio: set up a vision model that estimates the stem state from camera images.
+- List the stem-state quantities the policy observes in simulation and check which ones the vision model can deliver, and how accurately; adapt the observations (M4) to its limits.
 
 ## Later
 - Domain randomization of stem parameters (stiffness, length, diameter, damping), after the per-env randomization question is answered. Choose the ranges from plausible orders of magnitude for plant stems (literature, a cantilever test on the artificial plant as one data point) rather than from one reference plant; the placeholder values in `stem.yaml` only need to lie inside them. Re-check the solver settings over the whole range (the stretch/shear-to-bend ratio that converges depends on segment length / diameter, and soft shear adds about 10 % deflection, which the range covers).
 - Stem damping: with `damping_time` 3.2 ms (damping ratio about 0.06) the stem swings back and forth several times after a kick, more like a bamboo stick than a living plant stem, which is likely much more damped. Fine for now; revisit with real stem values (measure the decay on the artificial plant) and in the randomization range.
+- Specialize the policy for the test plant, most likely a thin bamboo (Alessio's suggestion, 2026-10-06): after broad training, condition the policy on stem parameters close to the real plant. Options: (A) fine-tune with the randomization narrowed around the measured values; (B) the stem parameters as an extra policy input, with the measured values entered on the real robot; (C) online adaptation from the motion history. Confirm with Alessio which one he means (likely A, possibly with B). Needs: the bamboo's length, diameter, bending stiffness (cantilever test) and damping (decay after a flick); re-check the chain's armature for these values.
+- `--video` option for the sanity checks (`check_contact.py` first): render offscreen from a fixed camera and write an mp4, so clips for presentations are reproducible (the 2026-10-06 clip was a screen recording of the Kit viewer).
 - Stage 2: full pose control (`tasks/push_pose`).
 - Model-based baseline (nominal vs. oracle parameters) in `src/stem_manip/baselines/`.
 - Real-robot validation on an artificial plant; distillation into a vision-based policy.
@@ -122,7 +130,7 @@ Path for the `cable` model. If `chain` in PhysX is chosen, M2 becomes "FR3 + ste
   | D | one solver: stem as a rigid-segment chain next to the robot (PhysX, or MuJoCo-Warp) | yes, same step | yes (`ContactSensor`) | no coupling; also removes the stiffness problem | the stem model must be built and validated (M1b) |
   | E | quasi-static (Alessio Caporali's suggestion): for each fork position, compute the shape the stem settles into | not applicable | yes, part of the calculation | cheap, no time stepping | friction and sliding depend on history and are hard to represent; contact solver written by us |
 
-  The deciding questions: does the force on the robot matter (a stiff position-controlled FR3 is hardly moved by forces below 1 N, which favours C), must the contact force be readable (crushing limit, rewards), and how realistic must friction and sliding be? Contact parameters (stiffness, damping, friction coefficient) are open for every option; Isaac Lab's cable task uses mu = 10, which suits gripping, not pushing. Current direction (2026-10-01): D, prototyped in M1b; the other options stay documented.
+  The deciding questions: does the force on the robot matter (a stiff position-controlled FR3 is hardly moved by forces below 1 N, which favours C), must the contact force be readable (crushing limit, rewards), and how realistic must friction and sliding be? Contact parameters (stiffness, damping, friction coefficient) are open for every option; Isaac Lab's cable task uses mu = 10, which suits gripping, not pushing. Current direction (2026-10-01): D, prototyped in M1b; the other options stay documented. Decided with the supervisors (2026-10-06): D, the `chain` in PhysX; Alessio's quasi-static model (E) may still be compared, e.g. as a baseline.
 - Cable base (solved, confirmation wanted): Isaac Lab only offers pins (ball joints). We clamp the base by marking the root segment as a kinematic body in the Newton model (`fix_stem_base`); `check_stem.py` shows the base segment does not move at all, in several envs. Is there a cfg-level way, and does the flag survive env resets (to check in M4)?
 - Cable damping (solved, confirmation wanted): Isaac Lab's `CableMaterialCfg` does not expose it. We author Newton's `newton:curves{Bend,Twist}Damping` on the material prim through a subclass (`StemMaterialCfg`); the values arrive in `model.joint_target_kd` and the measured damping ratio matches (`check_stem.py`). Stretch and shear are left undamped on purpose (see the stem-model entry). Is that the intended way?
 - Per-env randomization of stiffness and damping: Newton stores rod stiffness/damping per joint in `model.joint_target_ke` / `joint_target_kd` (all envs in one array). The VBD solver caches them at construction; its documentation says to call `notify_model_changed(JOINT_DOF_PROPERTIES)` after editing (in Isaac Lab: `NewtonManager.add_model_change`, the route `fix_stem_base` already uses for body flags). Read in the source, not run. Randomizing length or diameter changes the geometry and the mass, which this path does not cover. Confirm with the expert.
