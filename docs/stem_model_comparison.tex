@@ -1,5 +1,6 @@
 % Comparison of the two stem models, written for the supervisors (standalone explanation).
-% Follows docs/stem_model_tradeoff.tex (option (d) there). Source of the numbers: docs/notes/2026-10-05.md.
+% Follows docs/stem_model_tradeoff.tex (option (d) there). Source of the numbers: docs/notes/2026-10-05.md,
+% contact results: docs/notes/2026-10-06.md.
 %
 % This file compiles on its own. To use it inside another document, copy everything between
 % "BEGIN CONTENT" and "END CONTENT". The content needs the packages amsmath and booktabs.
@@ -26,7 +27,9 @@ On the same placeholder stem and the same tests, the chain reproduces the thin-r
 2\,\% (sag, push, first natural frequency), cannot stretch or shear, and reports the force in every joint
 exactly. It needed one modelling addition, a small extra inertia on every joint (``armature''), which makes the
 second and third natural frequencies too low. It is about 1.8 times slower than the cable at its current
-setting. Contact with the robot's tool has not been tested yet.
+setting. Contact with the robot's tool has since been tested (Section~\ref{sec:contact}): the robot pushes the
+chain with its fork, and the contact force read from the simulation agrees within about 5\,\% with two
+independent references.
 
 \subsection{The chain model}
 
@@ -147,7 +150,7 @@ matters.
     Same result in every parallel environment & -- & only if all are placed at the origin & yes \\
     Computing time, 1024 stems, per 10\,ms & -- & 8.6\,ms          & about 15.8\,ms \\
     Solvers needed with the robot & --      & two, coupled           & one \\
-    Contact force readable    & --          & not with Isaac Lab's sensor & expected, not tested \\
+    Contact force readable    & --          & not with Isaac Lab's sensor & yes, within about 5\,\% (Table~\ref{tab:contact}) \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -187,10 +190,67 @@ locally. A policy might learn to twist or press a segment hard without being pen
 The damage limits should therefore also bound the twisting moment and the contact force, not only the
 curvature.
 
+\subsection{Contact with the robot's tool}
+\label{sec:contact}
+
+The FR3 with the fork pushes the upright chain. Robot and stem run in the same PhysX solver; the robot follows
+the commanded tool-tip path (differential inverse kinematics), and the stem is moved only by the contact forces.
+The fork points at 45\,degrees in the horizontal plane and pushes at 0.30\,m height at 5\,cm/s, with a 2\,ms
+step and PhysX's default contact parameters. The robot reaches the start in three legs (over the stem's tip,
+down behind the start, horizontally to the start), and the test checks that only the fork touches the stem:
+no contact with any arm link during the whole test, and no contact before the push.
+
+Three changes were needed to get there:
+\begin{itemize}
+  \item \emph{Smooth stem surface.} The chain's capsules first touched only at the joints, leaving a groove
+        of 4\,mm depth every 2\,cm. The grooves caught the edges of the fork's slot: in the 15\,cm push the
+        stem was dragged along when the fork pulled back, with a maximum contact force of 32\,N (earlier setup,
+        fork at 90\,degrees). Each capsule's cylinder part is now the segment length, so the round ends are
+        centred on the joints and neighbours share the same sphere: a smooth tube at any bend. Maximum contact
+        force in the same push: 1.7\,N (1.73\,N in the current setup).
+  \item \emph{Fork collision shape.} The robot asset approximated the fork by its convex hull, which fills the
+        slot: contact started 173\,mm early, at the prong tips. PhysX's default convex decomposition was still
+        112\,mm early; a fine decomposition (64 hulls, voxel resolution $2\cdot10^{6}$, error 1\,\%) lets the
+        stem reach the bottom of the slot. It is now part of the asset pipeline.
+  \item \emph{Robot gravity off}, as in Isaac Lab's Franka set-up for task-space control. The real FR3
+        compensates gravity itself, with the tool entered as end-effector load.
+\end{itemize}
+
+The contact force is read with Isaac Lab's contact sensor on the stem segments, filtered to the fork (its
+component along the push). It is compared with two references that do not use the contact: the force the
+stem's stiffness needs for the measured deflection at the push height (linear chain, bending only, no
+gravity), and the bending moment in the lowest joint divided by the lever (Table~\ref{tab:contact}).
+
+\begin{table}[h]
+  \centering
+  \caption{Contact tests, chain stem, fork at 45\,degrees, push at 0.30\,m. Force at the end of the hold, from
+           the sensor / the stiffness / the base moment. No arm contact and no contact before the push in all
+           three tests.}
+  \label{tab:contact}
+  \begin{tabular}{lllll}
+    \toprule
+    Test & Contact at (expected) & Deflection / fork travel & Force & Max curvature \\
+    \midrule
+    Slot, 5\,cm  & 348.0\,mm (349.6) & 53.2 / 50.8\,mm   & 0.637 / 0.658 / 0.671\,N & 1.92\,1/m \\
+    Side, 5\,cm  & 327.9\,mm (327.6) & 52.4 / 48.9\,mm   & 0.648 / 0.648 / 0.654\,N & 1.89\,1/m \\
+    Slot, 15\,cm & 348.0\,mm (349.6) & 130.7 / 150.4\,mm & 1.11 / 1.62 / 1.62\,N    & 4.73\,1/m \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+For the 5\,cm pushes the three values agree within about 5\,\% (largest difference: 0.637 against 0.671\,N).
+The 15\,cm push is reported only, not checked: at 131\,mm deflection the linear references no longer apply.
+The full force on the stem at the end of the hold is $(1.04, 0.53, -1.03)$\,N, about 1.55\,N, with a large
+downward part because the fork pushes perpendicular to a strongly tilted stem, and the fork slides along the
+stem towards its tip: the stem point that was at the push height ends 39\,mm below the fork. The maximum
+contact force over the whole test is 1.73\,N, and the maximum curvature (4.73\,1/m) stays below the limit of
+5\,1/m.
+
 \subsection{Limits of these results}
 
 \begin{itemize}
-  \item One stem geometry with placeholder values, the stem alone: no robot, no contact with the tool.
+  \item One stem geometry with placeholder values. Contact tested with one tool, one push height and slow
+        pushes only, with PhysX's default contact parameters; the friction of a real stem is unknown.
   \item The armature value was chosen for this geometry. Lighter or shorter segments (randomized diameter or
         length) need it checked again.
   \item Only slow motions are reproduced accurately; the second and third natural frequencies of the chain are
@@ -205,8 +265,9 @@ curvature.
   \item Would a solver that treats the joint dynamics directly instead of iteratively be preferable? The
         MuJoCo-based solver available in Isaac Lab solves the joint-space equations with a direct method and
         may not need armature (untested).
-  \item With the chain, robot and stem run in one solver, and contact forces should be readable. Is this the
-        model to continue with for the first training stage, keeping the cable for comparison?
+  \item With the chain, robot and stem run in one solver, and the contact forces are readable
+        (Section~\ref{sec:contact}). Is this the model to continue with for the first training stage, keeping
+        the cable for comparison?
   \item Which damage limits besides curvature are needed: twisting moment, axial force (tearing), contact force
         (crushing)? Are realistic values for plant stems known?
 \end{enumerate}

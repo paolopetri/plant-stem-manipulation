@@ -21,8 +21,8 @@ The repo is an installable uv package (`stem_manip`), following Isaac Lab 3's ex
 ## Stem models
 
 Stem models are selectable by name, like the end-effectors: `cable` (Newton cable) and `chain` (rigid-segment
-articulation in PhysX, sharing one solver with the robot; prototype, docs/TODO.md M1b). Which one M2-M4 use is
-decided with the supervisors.
+articulation in PhysX, sharing one solver with the robot). The supervisors chose `chain` for the training
+(2026-10-06); `cable` is kept for comparison.
 
 ```
 assets/stem/stem.yaml                  the plant, shared by all models: geometry, material, damping, damage limits
@@ -86,17 +86,19 @@ Each model module provides the same functions:
 
 1. **Action:** relative end-effector position, turned into joint targets by differential IK on the body
    `fork_v2` with `tool_tip_offset("fork_v2")`.
-2. **Simulation:** Newton steps robot and stem together (proxy coupling, a few substeps).
-3. **Observation** (privileged state): tool_tip pose, stem segment poses, position of the stem point of
-   interest, target position, last action.
+2. **Simulation:** PhysX steps robot and stem (`chain`) together in one solver.
+3. **Observation** (stem state read from the simulation; on the real robot it will come from cameras):
+   tool_tip pose, stem segment poses, position of the stem point of interest, target position, last action.
+   No contact forces. To be reduced to what the perception can deliver.
 4. **Reward / termination:** distance of the stem point to the target, curvature penalty, action
-   penalties; terminate on curvature limit, time out, out of bounds.
+   penalties; terminate on curvature limit, time out, out of bounds. Contact forces (contact sensor) and
+   joint forces may be used here, not in the observation.
 
 The **stem point of interest** is given by a segment index + an offset along that segment (task cfg).
 
 ## Stem interface (keeps the stem model swappable)
 
-The stem model may change (Newton cable now; a rigid-segment articulation in PhysX is being prototyped; another
+The stem model may change (the `chain` in PhysX is used, the Newton cable is kept; another
 backend or a Cosserat co-simulation later). To keep that change local, **the rest of the code reads the stem only through
 one accessor**:
 
@@ -146,7 +148,9 @@ once a threshold is chosen, the tensile-stress limit; the twist limit follows wh
 | Domain randomization of stem parameters | `tasks/<task>/mdp/events.py`, ranges in the task's env cfg |
 | Model-based baseline | `src/stem_manip/baselines/` |
 | Another end-effector | `assets/fr3/end_effectors/<ee>/` (see `assets/fr3/README.md`) |
-| Real robot, vision distillation | out of scope for now |
+| Perception: camera-based stem state (with Alessio Caporali) | to decide; starts in parallel with M5 (`docs/TODO.md`) |
+| Real robot deployment | later (stage 3) |
+| Distillation into an end-to-end vision policy | stretch goal |
 
 ## Open modelling questions
 
