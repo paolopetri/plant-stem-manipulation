@@ -60,6 +60,24 @@ def test_chain_push_deflection_is_proportional_to_the_force():
     assert double == pytest.approx((2 * single[0], 2 * single[1]))
 
 
+GEOMETRY = dict(length=0.4, num_segments=20, diameter=0.008, bend_modulus=5.0e8)
+
+
+def test_chain_point_compliance_matches_the_push_on_the_last_segment():
+    """Force at the centre of the last segment: same as the bending part of `chain_push_deflection`."""
+    height = 0.4 - 0.5 * 0.4 / 20
+    bend_deflection, _ = stem_reference.chain_push_deflection(force=1.0, shear_modulus=1.0e9, **GEOMETRY)
+    assert stem_reference.chain_point_compliance(height, **GEOMETRY) == pytest.approx(bend_deflection)
+
+
+def test_chain_point_compliance_approaches_the_beam_formula():
+    """Many segments -> cantilever with the force at the height h, delta / F = h^3 / (3 E I)."""
+    geometry = dict(GEOMETRY, num_segments=4000)
+    height = 0.3
+    beam = height**3 / (3 * 5.0e8 * math.pi * 0.008**4 / 64)
+    assert stem_reference.chain_point_compliance(height, **geometry) == pytest.approx(beam, rel=2e-3)
+
+
 def test_chain_weight_strain():
     strain = stem_reference.chain_weight_strain(length=0.4, num_segments=20, density=1000.0, stretch_modulus=5.0e6)
     assert len(strain) == 19
