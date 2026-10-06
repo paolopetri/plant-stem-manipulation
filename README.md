@@ -28,6 +28,7 @@ uv run pytest                                           # unit tests (no simulat
 uv run --extra isaacsim python scripts/check_fr3.py     # FR3 + fork (fork_v2): pass/fail check in simulation
 uv run --extra isaacsim python scripts/check_stem.py    # stem (--stem_model, default cable): pass/fail check
 uv run --extra isaacsim python scripts/sweep_stem_solver.py --test kick   # stem: measure one test (see below)
+uv run --extra isaacsim python scripts/check_contact.py --test slot       # FR3 + fork push the chain stem (see below)
 ```
 
 Simulation scripts run without a window unless a viewer is requested with `--viz newton_gl`.
@@ -78,6 +79,33 @@ Run it after every change to the stem or the yaml.
 | `--kick_time T` | 4.0 | simulated time after the kick [s] |
 | `--viz newton_gl` / `--viz kit` | off | open a viewer window: `newton_gl` for both models, `kit` (Isaac Sim's window) for the chain (PhysX) only. Kit's very first start takes several minutes without output (window "not responding"); later starts take seconds |
 | `--slow_motion S` | 1.0 | with a viewer: play S times slower than real time |
+
+### `check_contact.py`: does the fork push the stem correctly? (pass/fail)
+
+The FR3 with `fork_v2` pushes the `chain` stem (PhysX, robot and stem in one solver). The robot follows a straight
+tool-tip path with differential IK; the stem moves only through contact. The fork points at 45 degrees between
+world +x and +y, so that the arm stays behind it, and it reaches the start over the stem's tip and from behind, so
+that nothing touches the stem before the push. The contact force is read with Isaac Lab's `ContactSensor` and
+compared with the force the stem needs for its measured deflection and with the bending moment in its base joint.
+
+```bash
+uv run --extra isaacsim python scripts/check_contact.py --test slot                              # 5 cm, stem in the slot
+uv run --extra isaacsim python scripts/check_contact.py --test side                              # 5 cm, outer face of a prong
+uv run --extra isaacsim python scripts/check_contact.py --test slot_far --viz kit --slow_motion 3  # 15 cm, watch it
+```
+
+| Check | Passes if |
+|---|---|
+| start pose reached | the tool tip is within 1 mm of the start |
+| only the fork touches the stem | no contact with the arm links at all, and no contact before the push |
+| contact where expected | first contact within 3 mm of where the fork touches the stem surface |
+| follows the fork | stem deflection at the push height within 10 % of the fork travel after contact |
+| contact force vs. stiffness / vs. base moment | the sensor force within 10 % of each calculated force |
+| finite, below the curvature limit | no NaN, maximum curvature below `damage.max_curvature` |
+| springs back | the stem tip is back within 1 mm after the fork has pulled back |
+
+`slot_far` checks only the start pose, the contacts and the spring-back and reports the rest (large deflection, the
+linear reference does not apply).
 
 ### `sweep_stem_solver.py`: how accurate is the stem? (measurement, and the script to watch the stem)
 
