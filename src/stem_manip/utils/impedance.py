@@ -49,36 +49,83 @@ def quat_from_rotvec(rotvec: torch.Tensor) -> torch.Tensor:
     return torch.cat((rotvec * scale, torch.cos(half)), dim=-1)
 
 
-def _limited_step(action: torch.Tensor, max_step: float) -> torch.Tensor:
-    """Action (n, 3) clipped to [-1, 1] per axis, scaled by max_step, then its length limited to max_step."""
-    step = action.clamp(-1.0, 1.0) * max_step
-    length = step.norm(dim=-1, keepdim=True)
-    return step * (max_step / length.clamp(min=max_step))
+def rotvec_from_quat(quat: torch.Tensor) -> torch.Tensor:
+    """Rotation vectors (n, 3) (axis * angle [rad], angle in [0, pi]) of unit quaternions (n, 4) (x, y, z, w)."""
+    quat = torch.where(quat[..., 3:] < 0.0, -quat, quat)  # w >= 0: the shorter rotation
+    sin_half = quat[..., :3].norm(dim=-1, keepdim=True)
+    angle = 2.0 * torch.atan2(sin_half, quat[..., 3:])
+    # angle / sin(a/2) -> 2 for a -> 0, keeps small and zero rotations exact
+    scale = torch.where(sin_half > 1e-6, angle / sin_half.clamp(min=1e-12), 2.0 + angle**2 / 12.0)
+    return quat[..., :3] * scale
 
 
-def integrate_target(target: torch.Tensor, action: torch.Tensor, max_step: float) -> tuple[torch.Tensor, torch.Tensor]:
+def _limit_norm(vector: torch.Tensor, max_norm: float) -> torch.Tensor:
+    """Vectors (n, 3) scaled down to length `max_norm` where they are longer (direction kept)."""
+    return vector * (max_norm / vector.norm(dim=-1, keepdim=True).clamp(min=max_norm))
+
+
+def _limited_step(
+    action: torch.Tensor, max_step: float, prev_step: torch.Tensor | None, max_change: float | None
+) -> torch.Tensor:
+    """Action (n, 3) clipped to [-1, 1] per axis, scaled by max_step, its length limited to max_step; then, if
+    `prev_step` is given, its change from `prev_step` limited to length `max_change`."""
+    step = _limit_norm(action.clamp(-1.0, 1.0) * max_step, max_step)
+    if prev_step is not None:
+        step = prev_step + _limit_norm(step - prev_step, max_change)
+    return step
+
+
+def integrate_target(
+    target: torch.Tensor,
+    action: torch.Tensor,
+    max_step: float,
+    prev_step: torch.Tensor | None = None,
+    max_change: float | None = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
     """New target = previous target + step (IndustReal's policy-level action integrator, PLAI).
 
     The action (n, 3) is clipped to [-1, 1] per axis and scaled by `max_step` [m]; the step's length is then
-    limited to `max_step`, so that the tool can follow every step (max_step from the sweep, see module docstring).
+    limited to `max_step` (speed cap). With `prev_step` (n, 3) [m] the change of the step per policy step is limited
+    to length `max_change` [m] (acceleration limit: keeps the tracking error small; Overleaf controller section).
     Returns (new target, step).
     """
-    step = _limited_step(action, max_step)
+    step = _limited_step(action, max_step, prev_step, max_change)
     return target + step, step
 
 
 def integrate_orientation(
-    target_quat: torch.Tensor, action: torch.Tensor, max_rot_step: float
+    target_quat: torch.Tensor,
+    action: torch.Tensor,
+    max_rot_step: float,
+    prev_step: torch.Tensor | None = None,
+    max_change: float | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """New target orientation = rotation step applied to the previous target orientation (PLAI for rotation).
 
     The action (n, 3) is a rotation vector in the robot base frame, clipped to [-1, 1] per axis and scaled by
-    `max_rot_step` [rad]; its angle is then limited to `max_rot_step`. Returns (new target quaternion, rotation
+    `max_rot_step` [rad]; its angle is then limited to `max_rot_step`. With `prev_step` (n, 3) [rad] the change of the
+    rotation vector per policy step is limited to `max_change` [rad]. Returns (new target quaternion, rotation
     step (n, 3) [rad]).
     """
-    step = _limited_step(action, max_rot_step)
+    step = _limited_step(action, max_rot_step, prev_step, max_change)
     quat = _quat_mul(quat_from_rotvec(step), target_quat)  # base-frame rotation: applied from the left
     return quat / quat.norm(dim=-1, keepdim=True), step
+
+
+def clamp_target_offset(target: torch.Tensor, pos: torch.Tensor, max_offset: float) -> torch.Tensor:
+    """Target position (n, 3) moved towards the tool position `pos` so that it is at most `max_offset` [m] away.
+
+    Bounds the spring force of the law to K_p * max_offset when the tool is blocked (e.g. pushed against something).
+    """
+    return pos + _limit_norm(target - pos, max_offset)
+
+
+def clamp_target_rot_offset(target_quat: torch.Tensor, quat: torch.Tensor, max_angle: float) -> torch.Tensor:
+    """Target orientation (n, 4) turned towards the tool orientation `quat` so that the rotation between them is at
+    most `max_angle` [rad] (bounds the spring moment to K_o * max_angle)."""
+    offset = rotvec_from_quat(_quat_mul(target_quat, _quat_conj(quat)))  # base frame: tool -> target
+    clamped = _quat_mul(quat_from_rotvec(_limit_norm(offset, max_angle)), quat)
+    return clamped / clamped.norm(dim=-1, keepdim=True)
 
 
 def _sqrtm_spd(matrix: torch.Tensor) -> torch.Tensor:

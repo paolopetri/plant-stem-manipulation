@@ -7,10 +7,13 @@ import torch
 from stem_manip.utils.impedance import (
     apparent_mass_damping,
     cartesian_impedance_torque,
+    clamp_target_offset,
+    clamp_target_rot_offset,
     integrate_orientation,
     integrate_target,
     quat_from_rotvec,
     limit_torque_rate,
+    rotvec_from_quat,
 )
 
 N, M = 2, 7
@@ -153,3 +156,60 @@ def test_rotational_feedforward_cancels_damping():
     assert torch.allclose(wrench[:, 5], torch.full((N,), -2.0 * math.sqrt(10.0) * 0.5), atol=1e-5)
     tau = cartesian_impedance_torque(**state, **GAINS, target_ang_vel=torch.tensor([[0.0, 0.0, 0.5]]).repeat(N, 1))
     assert torch.allclose(tau[:, 5], torch.zeros(N), atol=1e-5)
+
+
+def test_step_change_is_limited_and_reaches_the_desired_step():
+    """From rest, a full action ramps the step up by at most max_change per policy step until max_step; a zero
+    action then ramps it down the same way (the target brakes instead of stopping at once)."""
+    max_step, max_change = 0.0064, 0.0005
+    target, step = torch.zeros(1, 3), torch.zeros(1, 3)
+    full = torch.tensor([[1.0, 0.0, 0.0]])
+    steps = []
+    for _ in range(20):
+        new_target, new_step = integrate_target(target, full, max_step, step, max_change)
+        assert float((new_step - step).norm()) <= max_change + 1e-9
+        target, step = new_target, new_step
+        steps.append(float(step[0, 0]))
+    assert math.isclose(steps[0], max_change, rel_tol=1e-6)
+    assert math.isclose(steps[-1], max_step, rel_tol=1e-6)
+    _, braked = integrate_target(target, torch.zeros(1, 3), max_step, step, max_change)
+    assert math.isclose(float(braked[0, 0]), max_step - max_change, rel_tol=1e-6)
+
+
+def test_rotation_step_change_is_limited():
+    """The rotation vector's change per policy step is limited as well (here a reversal about z)."""
+    max_rot, max_change = math.radians(1.44), math.radians(0.1)
+    prev = torch.tensor([[0.0, 0.0, max_rot]])
+    identity = torch.tensor([[0.0, 0.0, 0.0, 1.0]])
+    _, step = integrate_orientation(identity, torch.tensor([[0.0, 0.0, -1.0]]), max_rot, prev, max_change)
+    assert torch.allclose(step, prev - torch.tensor([[0.0, 0.0, max_change]]), atol=1e-9)
+
+
+def test_rotvec_from_quat_inverts_quat_from_rotvec():
+    """Round trip for zero, small and large rotations; q and -q give the same rotation vector."""
+    rotvec = torch.tensor([[0.0, 0.0, 0.0], [1e-8, 0.0, 0.0], [0.3, -0.2, 0.1], [0.0, 3.0, 0.0]])
+    quat = quat_from_rotvec(rotvec)
+    assert torch.allclose(rotvec_from_quat(quat), rotvec, atol=1e-6)
+    assert torch.allclose(rotvec_from_quat(-quat), rotvec, atol=1e-6)
+
+
+def test_clamp_target_offset():
+    """Offsets inside the bound are kept; outside, the target is pulled back along the offset to the bound."""
+    pos = torch.tensor([[0.1, 0.2, 0.3], [0.1, 0.2, 0.3]])
+    target = pos + torch.tensor([[0.005, 0.0, 0.0], [0.0, 0.03, 0.04]])
+    clamped = clamp_target_offset(target, pos, 0.01)
+    assert torch.allclose(clamped[0], target[0])
+    assert torch.allclose(clamped[1] - pos[1], torch.tensor([0.0, 0.006, 0.008]), atol=1e-7)
+
+
+def test_clamp_target_rot_offset():
+    """A 30 deg target offset about x is reduced to 10 deg about the same axis; a 5 deg offset is kept."""
+    tool = quat_from_rotvec(torch.tensor([[0.0, 0.0, 0.7], [0.0, 0.0, 0.7]]))
+    offsets = torch.tensor([[math.radians(5.0), 0.0, 0.0], [math.radians(30.0), 0.0, 0.0]])
+    from stem_manip.utils.impedance import _quat_mul, _quat_conj
+
+    target = _quat_mul(quat_from_rotvec(offsets), tool)
+    clamped = clamp_target_rot_offset(target, tool, math.radians(10.0))
+    remaining = rotvec_from_quat(_quat_mul(clamped, _quat_conj(tool)))
+    assert torch.allclose(remaining[0], offsets[0], atol=1e-6)
+    assert torch.allclose(remaining[1], torch.tensor([math.radians(10.0), 0.0, 0.0]), atol=1e-6)
