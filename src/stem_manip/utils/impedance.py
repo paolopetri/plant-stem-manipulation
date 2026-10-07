@@ -40,6 +40,22 @@ def _quat_apply(q: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
     return v + w * t + torch.cross(xyz, t, dim=-1)
 
 
+def quat_from_rotvec(rotvec: torch.Tensor) -> torch.Tensor:
+    """Unit quaternions (n, 4) (x, y, z, w) of rotation vectors (n, 3) (axis * angle [rad])."""
+    angle = rotvec.norm(dim=-1, keepdim=True)
+    half = 0.5 * angle
+    # sin(a/2)/a -> 1/2 for a -> 0 (series), keeps small and zero rotations exact
+    scale = torch.where(angle > 1e-6, torch.sin(half) / angle.clamp(min=1e-12), 0.5 - angle**2 / 48.0)
+    return torch.cat((rotvec * scale, torch.cos(half)), dim=-1)
+
+
+def _limited_step(action: torch.Tensor, max_step: float) -> torch.Tensor:
+    """Action (n, 3) clipped to [-1, 1] per axis, scaled by max_step, then its length limited to max_step."""
+    step = action.clamp(-1.0, 1.0) * max_step
+    length = step.norm(dim=-1, keepdim=True)
+    return step * (max_step / length.clamp(min=max_step))
+
+
 def integrate_target(target: torch.Tensor, action: torch.Tensor, max_step: float) -> tuple[torch.Tensor, torch.Tensor]:
     """New target = previous target + step (IndustReal's policy-level action integrator, PLAI).
 
@@ -47,10 +63,22 @@ def integrate_target(target: torch.Tensor, action: torch.Tensor, max_step: float
     limited to `max_step`, so that the tool can follow every step (max_step from the sweep, see module docstring).
     Returns (new target, step).
     """
-    step = action.clamp(-1.0, 1.0) * max_step
-    length = step.norm(dim=-1, keepdim=True)
-    step = step * (max_step / length.clamp(min=max_step))
+    step = _limited_step(action, max_step)
     return target + step, step
+
+
+def integrate_orientation(
+    target_quat: torch.Tensor, action: torch.Tensor, max_rot_step: float
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """New target orientation = rotation step applied to the previous target orientation (PLAI for rotation).
+
+    The action (n, 3) is a rotation vector in the robot base frame, clipped to [-1, 1] per axis and scaled by
+    `max_rot_step` [rad]; its angle is then limited to `max_rot_step`. Returns (new target quaternion, rotation
+    step (n, 3) [rad]).
+    """
+    step = _limited_step(action, max_rot_step)
+    quat = _quat_mul(quat_from_rotvec(step), target_quat)  # base-frame rotation: applied from the left
+    return quat / quat.norm(dim=-1, keepdim=True), step
 
 
 def _sqrtm_spd(matrix: torch.Tensor) -> torch.Tensor:
@@ -97,14 +125,15 @@ def cartesian_impedance_torque(
     k_ns: float,
     q_ns: torch.Tensor,
     damping: torch.Tensor | None = None,
+    target_ang_vel: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Joint torques (n, num_joints) of Franka's Cartesian impedance example controller.
 
-    tau = J^T [-K_p (x - x_d) - D_p (v - v_d);  -K_o e_o - D_o w]
+    tau = J^T [-K_p (x - x_d) - D_p (v - v_d);  -K_o e_o - D_o (w - w_d)]
           + (I - J^T J^T+) (k_ns (q_ns - q) - 2 sqrt(k_ns) dq)
     with D = 2 sqrt(K) as in franka_ros / libfranka, e_o from the quaternion error as in their code (vector part
-    of q^-1 q_d, rotated to the base frame, sign flipped), and v_d the target velocity (0 in Franka's example,
-    the feedforward term here). Gravity and Coriolis are not included: the robot compensates gravity, and the
+    of q^-1 q_d, rotated to the base frame, sign flipped), and v_d, w_d the target velocities (0 in Franka's
+    example, the feedforward terms here). Gravity and Coriolis are not included: the robot compensates gravity, and the
     Coriolis term is added on the real robot from libfranka's model (not available from the simulator).
 
     Args:
@@ -113,12 +142,14 @@ def cartesian_impedance_torque(
         target_pos, target_vel, target_quat: target position (n, 3), velocity (n, 3), orientation (n, 4).
         k_pos [N/m], k_rot [N m/rad], k_ns [N m/rad]: stiffnesses. q_ns: null-space rest posture (n, m).
         damping: task-space damping matrix (n, 6, 6), e.g. `apparent_mass_damping`; None = Franka's 2 sqrt(K).
+        target_ang_vel: target angular velocity (n, 3) [rad/s] (rotational feedforward); None = 0 (Franka).
     """
     d_pos, d_rot, d_ns = 2.0 * k_pos**0.5, 2.0 * k_rot**0.5, 2.0 * k_ns**0.5
     quat = torch.where((quat * target_quat).sum(-1, keepdim=True) < 0.0, -quat, quat)  # same hemisphere
     error_quat = _quat_mul(_quat_conj(quat), target_quat)
     error_rot = -_quat_apply(quat, error_quat[..., :3])
-    velocity_error = torch.cat((twist[..., :3] - target_vel, twist[..., 3:]), dim=-1)
+    angular_error = twist[..., 3:] if target_ang_vel is None else twist[..., 3:] - target_ang_vel
+    velocity_error = torch.cat((twist[..., :3] - target_vel, angular_error), dim=-1)
     if damping is None:
         damping_force = torch.cat((d_pos * velocity_error[..., :3], d_rot * velocity_error[..., 3:]), dim=-1)
     else:

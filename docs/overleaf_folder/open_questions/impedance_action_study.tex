@@ -8,32 +8,34 @@
 \section{Open question: robot controller and action space}
 \label{sec:action-controller}
 
-\paragraph{Summary.} The policy commands small steps of the tool tip. They are executed by Franka's Cartesian
-impedance controller, with one change in the damping, and the \emph{same} controller with the \emph{same} values
-runs in simulation and on the real FR3 (Section~\ref{sec:controller-what}). Successful sim-to-real work on Franka
-robots does the same~\cite{tang2023industreal,frankatwin}. In simulation the tool follows every commanded step
-within 2\,mm at up to 5.5\,cm/s over the workspace (Section~\ref{sec:controller-results}). We ask the supervisors to
+\paragraph{Summary.} The policy commands small steps of the tool's position and orientation. They are executed by
+Franka's Cartesian impedance controller, with one change in the damping, and the \emph{same} controller with the
+\emph{same} values runs in simulation and on the real FR3 (Section~\ref{sec:controller-what}). Successful sim-to-real
+work on Franka robots does the same~\cite{tang2023industreal,frankatwin}. In simulation the tool follows every
+commanded step within 2\,mm at up to 5.5\,cm/s and turns at up to 7.8$^\circ$/s over the workspace
+(Section~\ref{sec:controller-results}). We ask the supervisors to
 confirm the controller and to tell us about the lab's FR3 setup (end of this section).
 
 \subsection{What we use}
 \label{sec:controller-what}
 
-\paragraph{Action.} Every policy step (31.25\,Hz) the policy outputs a displacement of the tool tip, at most
-1.75\,mm long. It is added to the \emph{previous target}, not to the measured tool position (IndustReal's
-policy-level action integrator~\cite{tang2023industreal}), so commanded steps are never lost. Within the policy step
-the target moves linearly to its new value, and its velocity $\dot x_d$ is passed to the controller. The fork's
-orientation is held fixed (horizontal, pointing forward).
+\paragraph{Action.} Every policy step (31.25\,Hz) the policy outputs a displacement of the tool tip (at most
+1.75\,mm) and a rotation of the fork (rotation vector, at most 0.25$^\circ$), both in the robot's base frame. They
+are applied to the \emph{previous target} pose, not to the measured tool pose (IndustReal's policy-level action
+integrator~\cite{tang2023industreal}), so commanded steps are never lost. Within the policy step the target moves
+and turns at constant rate, and its velocities $\dot x_d$, $\omega_d$ are passed to the controller. The fork
+starts horizontal; its orientation is then free.
 
 \paragraph{Control law.} Every control step the joint torques are
 \begin{equation}
   \tau = J^\top \begin{bmatrix} K_p\,(x_d - x) - D_p\,(\dot x - \dot x_d) \\
-                                 -K_o\,e_o - D_o\,\omega \end{bmatrix}
+                                 -K_o\,e_o - D_o\,(\omega - \omega_d) \end{bmatrix}
        + \left(I - J^\top J^{\top+}\right)\left(k_\text{ns}(q_\text{ns} - q) - 2\sqrt{k_\text{ns}}\,\dot q\right)
        + \tau_\text{Coriolis},
   \label{eq:impedance}
 \end{equation}
-a spring and damper that pull the tool tip $x$ to its target $x_d$ and hold its orientation ($e_o$: orientation
-error), plus a weak spring that keeps the elbow of the redundant arm near its rest posture. This is the law of
+a spring and damper that pull the tool tip $x$ to its target $x_d$ and its orientation to the target orientation
+($e_o$: orientation error), plus a weak spring that keeps the elbow of the redundant arm near its rest posture. This is the law of
 Franka's example controllers~\cite{libfranka,frankaros}, with one change: Franka sets the damping to
 $D = 2\sqrt{K}$, which is critically damped only for a tool of 1\,kg. The arm's inertia felt at the tool,
 $\Lambda = (J M^{-1} J^\top)^{-1}$, is several kilograms and depends on pose and direction. We therefore use
@@ -76,7 +78,8 @@ lagged 0.2\,s behind its targets and has no counterpart on the real robot.
 \label{sec:controller-results}
 
 Criterion for ``the step is followed'': while moving, the tool trails the commanded path by at most 2\,mm, and it
-overshoots the end point by at most 5\,mm (fork tilt at most 1$^\circ$). Every step is eventually executed: after a
+overshoots the end point by at most 5\,mm (fork tilt at most 1$^\circ$); while turning, the angle lags and overshoots
+by at most 2$^\circ$ and the tool tip moves by at most 2\,mm. Every step is eventually executed: after a
 hold the tool is within 0.5\,mm of the commanded end point in all tests.
 
 \begin{table}[h]
@@ -110,6 +113,21 @@ hold the tool is within 0.5\,mm of the commanded end point in all tests.
     1.5\,mm  & 4.7\,cm/s & 1.63\,mm & 2.9\,mm & 0.68$^\circ$ & 2.7\,mm \\
     \bottomrule
   \end{tabular}
+
+  \bigskip
+
+  \caption{Rotation step: 20$^\circ$ turns about the base axes at the same 9 points, worst case. The tool tip should
+  stay in place while the fork turns.}
+  \label{tab:controller-rotation}
+  \begin{tabular}{rrrrr}
+    \toprule
+    Step           & Speed               & angle following & angle overshoot & tool-tip drift \\
+    \midrule
+    0.25$^\circ$ & 7.8$^\circ$/s & 0.7$^\circ$ & 1.0$^\circ$ & 1.7\,mm \\
+    0.30$^\circ$ & 9.4$^\circ$/s & 1.1$^\circ$ & 1.1$^\circ$ & 2.1\,mm \\
+    1$^\circ$    & 31$^\circ$/s  & 2.9$^\circ$ & 1.5$^\circ$ & 5.7\,mm \\
+    \bottomrule
+  \end{tabular}
 \end{table}
 
 \paragraph{Findings.}
@@ -118,6 +136,10 @@ hold the tool is within 0.5\,mm of the commanded end point in all tests.
         to 7\,mm in the directions where the arm feels heavy; damping by the apparent mass removes most of it.
   \item The simulated FR3 initially had no motor inertia. Without it the arm oscillated and pressed the stem with
         5\,N instead of 0.85\,N; at the wrist the motor inertia is about 100 times the link inertia.
+  \item Turning the fork moves the tool tip: the law treats position and orientation as independent springs, but
+        the arm's dynamics couple them. With the criterion (tip drift $\le 2$\,mm, angles $\le 2^\circ$) rotations are
+        limited to 7.8$^\circ$/s. After the first sim-to-real transfer we plan to decouple them (operational-space
+        control with inertia feedforward~\cite{khatib1987}), which needs only the mass matrix, also on the robot.
   \item Close to a joint limit the arm lags more; there the real robot would stop. The task will keep the tool away
         from these poses (workspace bound or penalty).
   \item When pushing the stem, contact force (0.8 to 1.4\,N) and curvature (2.0 to 3.2\,1/m, limit 5) depend on
@@ -129,7 +151,7 @@ robot; no joint friction; control period 2\,ms instead of 1\,ms.
 
 \paragraph{Questions.}
 \begin{enumerate}
-  \item Is this controller acceptable next to a plant ($K_p = 400$\,N/m, at most 5.5\,cm/s)?
+  \item Is this controller acceptable next to a plant ($K_p = 400$\,N/m, at most 5.5\,cm/s and 7.8$^\circ$/s)?
   \item Lab setup: is the Franka Control Interface (torque control) enabled on our FR3, with which system and
         libfranka versions; is there a real-time PC for it; does the lab already use a control stack
         (franka\_ros2, frankapy, own C++) that this controller should be added to?
@@ -152,6 +174,8 @@ robot; no joint friction; control period 2\,ms instead of 1\,ms.
   solutions, and best practices. \emph{Annual Review of Control, Robotics, and Autonomous Systems}, 9, 2026.
 \bibitem{albu2003cartesian} A.~Albu-Schäffer, C.~Ott, U.~Frese, G.~Hirzinger. Cartesian impedance control of
   redundant robots: recent results with the DLR-light-weight-arms. \emph{IEEE ICRA}, 2003.
+\bibitem{khatib1987} O.~Khatib. A unified approach for motion and force control of robot manipulators: the
+  operational space formulation. \emph{IEEE Journal on Robotics and Automation}, 3(1), 1987.
 \bibitem{libfranka} Franka Robotics. libfranka example \texttt{cartesian\_impedance\_control.cpp}.
   \texttt{github.com/frankaemika/libfranka}.
 \bibitem{frankaros} Franka Robotics. franka\_ros \texttt{cartesian\_impedance\_example\_controller}.

@@ -4,16 +4,15 @@ Requirements:
 - Scene: FR3 + fork (`stem_manip.assets.fr3.fr3_cfg("fork_v2")`), stem (`stem_model(name).stem_cfg()` from
   `stem_manip.assets.stem`), ground. Stem model `chain`: robot and stem in one PhysX scene (as in
   `scripts/check_contact.py`).
-- Actions: relative tool-tip position with a fixed tool orientation, executed by Franka's Cartesian impedance law
-  (`mdp.ToolTipImpedanceAction`, the same controller as on the real FR3); robot in torque mode.
+- Actions: relative tool-tip pose (position and rotation step, robot base frame), executed by Franka's Cartesian
+  impedance law (`mdp.ToolTipImpedanceAction`, the same controller as on the real FR3); robot in torque mode.
 - Managers from `mdp/` (commands, observations, rewards, terminations, events); weights and ranges as cfg fields.
 - The point of interest (segment index + offset) and the curvature limit come from cfg / `assets/stem/stem.yaml`.
 
-Implemented (M4, part 1): scene, impedance action, horizontal start pose, tool-tip observation, reset, time out.
+Implemented (M4, part 1): scene, 6-D impedance action, horizontal start pose, tool-tip pose observation, reset,
+time out.
 Verify: `scripts/check_push_env.py`; zero/random agent runs headless with few envs. See docs/TODO.md -> M4.
 """
-
-import math
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg
@@ -32,7 +31,6 @@ from . import mdp
 
 STEM_MODEL = "chain"
 END_EFFECTOR = "fork_v2"
-TOOL_YAW = 0.0  # [rad] fork direction (tool x) in the ground plane, from the robot's +x (forward)
 # Start pose (user, 2026-10-06): fork horizontal, pointing forward, tool tip at (0.30, 0, 0.55) m in the base frame,
 # above and behind the stem area. Joint angles solved once with differential IK (2026-10-07); smallest distance to a
 # joint limit 0.54 rad (joint 4).
@@ -63,26 +61,27 @@ class StemPushSceneCfg(InteractiveSceneCfg):
 
 @configclass
 class ActionsCfg:
-    """Relative tool-tip position (at most `max_step` per policy step), Franka's Cartesian impedance law."""
+    """Relative tool-tip pose (at most `max_step` / `max_rot_step` per policy step), Franka's Cartesian impedance law."""
 
     tool_tip = mdp.ToolTipImpedanceActionCfg(
         asset_name="robot",
         joint_names=["fr3_joint[1-7]"],
         body_name=END_EFFECTOR,
         tool_offset=tool_tip_offset(END_EFFECTOR),
-        # fork horizontal, flange down (tool z down), tool x at TOOL_YAW: rotation by pi about (cos, sin, 0)(yaw/2)
-        tool_quat=(math.cos(TOOL_YAW / 2), math.sin(TOOL_YAW / 2), 0.0, 0.0),
     )
 
 
 @configclass
 class ObservationsCfg:
-    """Policy observations (step 1: tool tip and last action only; stem state and target follow)."""
+    """Policy observations (tool-tip pose and last action so far; stem state and target follow)."""
 
     @configclass
     class PolicyCfg(ObsGroup):
         tool_tip_pos = ObsTerm(
             func=mdp.tool_tip_pos, params={"body_name": END_EFFECTOR, "offset": tool_tip_offset(END_EFFECTOR)}
+        )
+        tool_tip_rot = ObsTerm(
+            func=mdp.tool_tip_rot6d, params={"body_name": END_EFFECTOR, "offset": tool_tip_offset(END_EFFECTOR)}
         )
         actions = ObsTerm(func=mdp.last_action)
 

@@ -5,7 +5,7 @@ Requirements:
   point-of-interest position, target position, last action.
 - Shapes fixed per task; values in meters / normalized quaternions.
 
-Implemented: tool-tip position. See docs/TODO.md -> M4.
+Implemented: tool-tip position and orientation. See docs/TODO.md -> M4.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 import torch
 
 from isaaclab.managers import SceneEntityCfg
-from isaaclab.utils.math import combine_frame_transforms, subtract_frame_transforms
+from isaaclab.utils.math import combine_frame_transforms, matrix_from_quat, subtract_frame_transforms
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
@@ -48,3 +48,15 @@ def tool_tip_pos(
 ) -> torch.Tensor:
     """Tool-tip position in the robot root frame (num_envs, 3) [m]."""
     return tool_tip_pose_b(env, body_name, offset, asset_cfg)[0]
+
+
+def tool_tip_rot6d(
+    env: ManagerBasedEnv,
+    body_name: str,
+    offset: tuple[tuple[float, ...], tuple[float, ...]],
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Tool-tip orientation as the first two columns of its rotation matrix (num_envs, 6): the tool's x and y axes in
+    the robot base frame. Continuous, unlike quaternions (q and -q); Zhou et al., CVPR 2019 (decision 2026-10-07)."""
+    rotation = matrix_from_quat(tool_tip_pose_b(env, body_name, offset, asset_cfg)[1])
+    return torch.cat((rotation[..., 0], rotation[..., 1]), dim=-1)
