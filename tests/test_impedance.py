@@ -7,7 +7,9 @@ import torch
 from stem_manip.utils.impedance import (
     apparent_mass_damping,
     cartesian_impedance_torque,
+    integrate_orientation,
     integrate_target,
+    quat_from_rotvec,
     limit_torque_rate,
 )
 
@@ -121,3 +123,33 @@ def test_damping_matrix_replaces_franka_damping():
     tau_default = cartesian_impedance_torque(**state, **GAINS)
     tau_matrix = cartesian_impedance_torque(**state, **GAINS, damping=franka)
     assert torch.allclose(tau_default, tau_matrix, atol=1e-4)
+
+
+def test_quat_from_rotvec():
+    """0.3 rad about z; zero rotation gives the identity."""
+    q = quat_from_rotvec(torch.tensor([[0.0, 0.0, 0.3], [0.0, 0.0, 0.0]]))
+    assert torch.allclose(q[0], torch.tensor([0.0, 0.0, math.sin(0.15), math.cos(0.15)]), atol=1e-6)
+    assert torch.allclose(q[1], torch.tensor([0.0, 0.0, 0.0, 1.0]))
+
+
+def test_integrate_orientation_limits_and_composes_in_base_frame():
+    """Steps are limited by angle; a base-frame step is applied from the left (q_new = dq * q)."""
+    start = quat_from_rotvec(torch.tensor([[math.pi, 0.0, 0.0]]))  # fork flipped (tool z down)
+    new, step = integrate_orientation(start, torch.tensor([[0.0, 0.0, 1.0]]), math.radians(2.0))
+    assert math.isclose(float(step.norm()), math.radians(2.0), rel_tol=1e-6)
+    expected = quat_from_rotvec(torch.tensor([[0.0, 0.0, math.radians(2.0)]]))
+    from stem_manip.utils.impedance import _quat_mul
+
+    assert torch.allclose(new, _quat_mul(expected, start), atol=1e-6)
+    _, step = integrate_orientation(start, torch.full((1, 3), 5.0), math.radians(2.0))
+    assert float(step.norm()) <= math.radians(2.0) + 1e-9
+
+
+def test_rotational_feedforward_cancels_damping():
+    """Turning at 0.5 rad/s about z: damping moment -2 sqrt(K_o) * 0.5; with the same target rate it vanishes."""
+    state = _state(_identity_jacobian())
+    state["twist"][:, 5] = 0.5
+    wrench = _task_wrench(state)
+    assert torch.allclose(wrench[:, 5], torch.full((N,), -2.0 * math.sqrt(10.0) * 0.5), atol=1e-5)
+    tau = cartesian_impedance_torque(**state, **GAINS, target_ang_vel=torch.tensor([[0.0, 0.0, 0.5]]).repeat(N, 1))
+    assert torch.allclose(tau[:, 5], torch.zeros(N), atol=1e-5)

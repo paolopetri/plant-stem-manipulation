@@ -1,9 +1,10 @@
-"""Action term: relative tool-tip position, executed by Franka's Cartesian impedance law.
+"""Action term: relative tool-tip pose (position and rotation step), executed by Franka's Cartesian impedance law.
 
-The policy outputs a tool-tip step per policy step; the term integrates it into a target (IndustReal's policy-level
-action integrator) and, every physics step, computes the joint torques with the same law the real FR3 will run
-(`stem_manip.utils.impedance`). The fork's orientation is held at `tool_quat` by the rotational spring. With
-`feedforward`, the target moves linearly through the policy step and its velocity enters the damping term.
+The policy outputs a tool-tip translation and rotation per policy step (robot base frame); the term integrates them
+into a target pose (IndustReal's policy-level action integrator) and, every physics step, computes the joint torques
+with the same law the real FR3 will run (`stem_manip.utils.impedance`). With `feedforward`, the target moves
+linearly (position) and turns at constant rate (orientation) through the policy step, and its linear and angular
+velocities enter the damping term.
 """
 
 from __future__ import annotations
@@ -28,8 +29,10 @@ from isaaclab.utils.math import (
 from stem_manip.utils.impedance import (
     apparent_mass_damping,
     cartesian_impedance_torque,
+    integrate_orientation,
     integrate_target,
     limit_torque_rate,
+    quat_from_rotvec,
 )
 
 from .actions_cfg import ToolTipImpedanceActionCfg
@@ -39,7 +42,7 @@ if TYPE_CHECKING:
 
 
 class ToolTipImpedanceAction(ActionTerm):
-    """Relative tool-tip position action with a Cartesian impedance controller (see the module docstring)."""
+    """Relative tool-tip pose action with a Cartesian impedance controller (see the module docstring)."""
 
     cfg: ToolTipImpedanceActionCfg
     _asset: Articulation
@@ -56,12 +59,13 @@ class ToolTipImpedanceAction(ActionTerm):
 
         n, device = self.num_envs, self.device
         self._offset_pos, self._offset_quat = (torch.tensor(v, device=device).repeat(n, 1) for v in cfg.tool_offset)
-        self._tool_quat = torch.tensor(cfg.tool_quat, device=device).repeat(n, 1)
         self._q_ns = self._asset.data.default_joint_pos.torch[:, self._joint_ids].clone()
-        self._raw_actions = torch.zeros(n, 3, device=device)
-        self._step = torch.zeros(n, 3, device=device)  # processed action: the tool-tip step of this policy step
-        self._target = torch.zeros(n, 3, device=device)  # target at the end of the policy step
-        self._target_start = torch.zeros(n, 3, device=device)  # target at the start of the policy step
+        self._raw_actions = torch.zeros(n, 6, device=device)
+        self._step = torch.zeros(n, 6, device=device)  # processed action: translation [m] and rotation vector [rad]
+        self._target = torch.zeros(n, 3, device=device)  # target position at the end of the policy step
+        self._target_start = torch.zeros(n, 3, device=device)  # target position at the start of the policy step
+        self._target_quat = torch.zeros(n, 4, device=device)  # target orientation at the end of the policy step
+        self._target_quat_start = torch.zeros(n, 4, device=device)
         self._tau_prev = torch.zeros(n, len(self._joint_ids), device=device)
         self._decimation = env.cfg.decimation
         self._substep = 0
@@ -71,7 +75,7 @@ class ToolTipImpedanceAction(ActionTerm):
 
     @property
     def action_dim(self) -> int:
-        return 3
+        return 6
 
     @property
     def raw_actions(self) -> torch.Tensor:
@@ -96,19 +100,31 @@ class ToolTipImpedanceAction(ActionTerm):
         """Current target position (n, 3) in the robot base frame (end of the current policy step)."""
         return self._target
 
+    def target_quat(self) -> torch.Tensor:
+        """Current target orientation (n, 4) (x, y, z, w) in the robot base frame (end of the current policy step)."""
+        return self._target_quat
+
     def process_actions(self, actions: torch.Tensor):
         self._raw_actions[:] = actions
         self._target_start[:] = self._target
-        self._target[:], self._step[:] = integrate_target(self._target, actions, self.cfg.max_step)
+        self._target_quat_start[:] = self._target_quat
+        self._target[:], self._step[:, :3] = integrate_target(self._target, actions[:, :3], self.cfg.max_step)
+        self._target_quat[:], self._step[:, 3:] = integrate_orientation(
+            self._target_quat, actions[:, 3:], self.cfg.max_rot_step
+        )
         self._substep = 0
 
     def apply_actions(self):
         self._substep = min(self._substep + 1, self._decimation)
         if self.cfg.feedforward:
-            target_pos = self._target_start + (self._substep / self._decimation) * self._step
-            target_vel = self._step / (self._decimation * self._env.physics_dt)
+            fraction = self._substep / self._decimation
+            target_pos = self._target_start + fraction * self._step[:, :3]
+            target_quat = quat_mul(quat_from_rotvec(fraction * self._step[:, 3:]), self._target_quat_start)
+            target_vel = self._step[:, :3] / (self._decimation * self._env.physics_dt)
+            target_ang_vel = self._step[:, 3:] / (self._decimation * self._env.physics_dt)
         else:
-            target_pos, target_vel = self._target, torch.zeros_like(self._step)
+            target_pos, target_quat = self._target, self._target_quat
+            target_vel, target_ang_vel = torch.zeros_like(self._target), torch.zeros_like(self._target)
         data = self._asset.data
         pos, quat = self.tool_pose()
         jacobian = self._tool_jacobian()
@@ -130,23 +146,26 @@ class ToolTipImpedanceAction(ActionTerm):
             dq,
             target_pos,
             target_vel,
-            self._tool_quat,
+            target_quat,
             self.cfg.stiffness_pos,
             self.cfg.stiffness_rot,
             self.cfg.stiffness_nullspace,
             self._q_ns,
             damping,
+            target_ang_vel,
         )
         tau = limit_torque_rate(tau, self._tau_prev, self._max_torque_change)
         self._tau_prev[:] = tau
         self._asset.set_joint_effort_target_index(target=tau, joint_ids=self._joint_ids)
 
     def reset(self, env_ids: Sequence[int] | None = None) -> None:
-        """Start the target at the tool's current position (link poses are up to date after the reset event)."""
+        """Start the target at the tool's current pose (link poses are up to date after the reset event)."""
         env_ids = slice(None) if env_ids is None else env_ids
-        pos = self.tool_pose()[0]
+        pos, quat = self.tool_pose()
         self._target[env_ids] = pos[env_ids]
         self._target_start[env_ids] = pos[env_ids]
+        self._target_quat[env_ids] = quat[env_ids]
+        self._target_quat_start[env_ids] = quat[env_ids]
         self._step[env_ids] = 0.0
         self._raw_actions[env_ids] = 0.0
         self._tau_prev[env_ids] = 0.0
