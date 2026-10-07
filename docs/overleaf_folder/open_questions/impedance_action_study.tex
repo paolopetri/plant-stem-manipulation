@@ -8,6 +8,14 @@
 \section{Open question: robot controller and action space}
 \label{sec:action-controller}
 
+\paragraph{The problem.} The policy does not move the robot's joints directly. At 31\,Hz it outputs a small motion
+command for the fork (``move a little this way, turn a little''), and a low-level controller turns these commands
+into motor torques at 1\,kHz. The policy learns how the fork reacts to its commands, so two things must hold for it
+to work on the real robot: (1) the controller in simulation must be the one that runs on the real FR3, with the same
+values, otherwise the fork reacts differently after the transfer; (2) every commanded step must actually be carried
+out within a small, known error, otherwise the policy's commands and the fork's motion drift apart. This section
+proposes the controller, the form of the commands, and how large a step may be.
+
 \paragraph{Summary.} The policy commands small steps of the tool's position and orientation. They are executed by
 Franka's Cartesian impedance controller, with one change in the damping, and the \emph{same} controller with the
 \emph{same} values runs in simulation and on the real FR3 (Section~\ref{sec:controller-what}). Successful sim-to-real
@@ -138,8 +146,12 @@ hold the tool is within 0.5\,mm of the commanded end point in all tests.
         5\,N instead of 0.85\,N; at the wrist the motor inertia is about 100 times the link inertia.
   \item Turning the fork moves the tool tip: the law treats position and orientation as independent springs, but
         the arm's dynamics couple them. With the criterion (tip drift $\le 2$\,mm, angles $\le 2^\circ$) rotations are
-        limited to 7.8$^\circ$/s. After the first sim-to-real transfer we plan to decouple them (operational-space
-        control with inertia feedforward~\cite{khatib1987}), which needs only the mass matrix, also on the robot.
+        limited to 7.8$^\circ$/s, so a 90$^\circ$ turn takes longer than one 10\,s episode. Decoupling
+        rotation and translation (operational-space control with inertia feedforward~\cite{khatib1987}; needs only
+        the mass matrix, also on the robot), is \textbf{being investigated now} (status 7 October 2026): how much
+        faster the fork can turn, and how robust this is to errors in the robot model. Deciding before the first
+        training avoids retraining after the transfer; the risk is that the real robot's model is less accurate than
+        the simulator's.
   \item Close to a joint limit the arm lags more; there the real robot would stop. The task will keep the tool away
         from these poses (workspace bound or penalty).
   \item When pushing the stem, contact force (0.8 to 1.4\,N) and curvature (2.0 to 3.2\,1/m, limit 5) depend on
