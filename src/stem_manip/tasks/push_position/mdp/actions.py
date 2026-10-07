@@ -1,0 +1,165 @@
+"""Action term: relative tool-tip position, executed by Franka's Cartesian impedance law.
+
+The policy outputs a tool-tip step per policy step; the term integrates it into a target (IndustReal's policy-level
+action integrator) and, every physics step, computes the joint torques with the same law the real FR3 will run
+(`stem_manip.utils.impedance`). The fork's orientation is held at `tool_quat` by the rotational spring. With
+`feedforward`, the target moves linearly through the policy step and its velocity enters the damping term.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import TYPE_CHECKING
+
+import torch
+
+from isaaclab.assets import Articulation
+from isaaclab.managers import ActionTerm
+from isaaclab.utils.math import (
+    combine_frame_transforms,
+    matrix_from_quat,
+    quat_apply,
+    quat_inv,
+    quat_mul,
+    skew_symmetric_matrix,
+    subtract_frame_transforms,
+)
+
+from stem_manip.utils.impedance import (
+    apparent_mass_damping,
+    cartesian_impedance_torque,
+    integrate_target,
+    limit_torque_rate,
+)
+
+from .actions_cfg import ToolTipImpedanceActionCfg
+
+if TYPE_CHECKING:
+    from isaaclab.envs import ManagerBasedEnv
+
+
+class ToolTipImpedanceAction(ActionTerm):
+    """Relative tool-tip position action with a Cartesian impedance controller (see the module docstring)."""
+
+    cfg: ToolTipImpedanceActionCfg
+    _asset: Articulation
+
+    def __init__(self, cfg: ToolTipImpedanceActionCfg, env: ManagerBasedEnv):
+        super().__init__(cfg, env)
+        self._joint_ids, _ = self._asset.find_joints(cfg.joint_names)
+        body_ids, body_names = self._asset.find_bodies(cfg.body_name)
+        if len(body_ids) != 1:
+            raise ValueError(f"Expected one body for '{cfg.body_name}', found {body_names}")
+        self._body_idx = body_ids[0]
+        self._jacobi_body_idx = self._body_idx - 1 if self._asset.is_fixed_base else self._body_idx
+        self._jacobi_joint_ids = [j + self._asset.num_base_dofs for j in self._joint_ids]
+
+        n, device = self.num_envs, self.device
+        self._offset_pos, self._offset_quat = (torch.tensor(v, device=device).repeat(n, 1) for v in cfg.tool_offset)
+        self._tool_quat = torch.tensor(cfg.tool_quat, device=device).repeat(n, 1)
+        self._q_ns = self._asset.data.default_joint_pos.torch[:, self._joint_ids].clone()
+        self._raw_actions = torch.zeros(n, 3, device=device)
+        self._step = torch.zeros(n, 3, device=device)  # processed action: the tool-tip step of this policy step
+        self._target = torch.zeros(n, 3, device=device)  # target at the end of the policy step
+        self._target_start = torch.zeros(n, 3, device=device)  # target at the start of the policy step
+        self._tau_prev = torch.zeros(n, len(self._joint_ids), device=device)
+        self._decimation = env.cfg.decimation
+        self._substep = 0
+        self._max_torque_change = cfg.torque_rate_limit * env.physics_dt
+        if cfg.damping not in ("franka", "apparent_mass"):
+            raise ValueError(f"Unknown damping '{cfg.damping}', expected 'franka' or 'apparent_mass'")
+
+    @property
+    def action_dim(self) -> int:
+        return 3
+
+    @property
+    def raw_actions(self) -> torch.Tensor:
+        return self._raw_actions
+
+    @property
+    def processed_actions(self) -> torch.Tensor:
+        return self._step
+
+    def tool_pose(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """Tool-tip position (n, 3) and orientation (n, 4) in the robot base frame."""
+        data = self._asset.data
+        pos, quat = subtract_frame_transforms(
+            data.root_pos_w.torch,
+            data.root_quat_w.torch,
+            data.body_pos_w.torch[:, self._body_idx],
+            data.body_quat_w.torch[:, self._body_idx],
+        )
+        return combine_frame_transforms(pos, quat, self._offset_pos, self._offset_quat)
+
+    def target(self) -> torch.Tensor:
+        """Current target position (n, 3) in the robot base frame (end of the current policy step)."""
+        return self._target
+
+    def process_actions(self, actions: torch.Tensor):
+        self._raw_actions[:] = actions
+        self._target_start[:] = self._target
+        self._target[:], self._step[:] = integrate_target(self._target, actions, self.cfg.max_step)
+        self._substep = 0
+
+    def apply_actions(self):
+        self._substep = min(self._substep + 1, self._decimation)
+        if self.cfg.feedforward:
+            target_pos = self._target_start + (self._substep / self._decimation) * self._step
+            target_vel = self._step / (self._decimation * self._env.physics_dt)
+        else:
+            target_pos, target_vel = self._target, torch.zeros_like(self._step)
+        data = self._asset.data
+        pos, quat = self.tool_pose()
+        jacobian = self._tool_jacobian()
+        dq = data.joint_vel.torch[:, self._joint_ids]
+        twist = (jacobian @ dq.unsqueeze(-1)).squeeze(-1)
+        damping = None
+        if self.cfg.damping == "apparent_mass":
+            # PhysX's mass matrix excludes the joint armature (motor inertia); add it
+            joints = self._jacobi_joint_ids
+            mass_matrix = data.mass_matrix.torch[:, joints][:, :, joints]
+            mass_matrix = mass_matrix + torch.diag_embed(data.joint_armature.torch[:, self._joint_ids])
+            damping = apparent_mass_damping(jacobian, mass_matrix, self.cfg.stiffness_pos, self.cfg.stiffness_rot)
+        tau = cartesian_impedance_torque(
+            jacobian,
+            pos,
+            quat,
+            twist,
+            data.joint_pos.torch[:, self._joint_ids],
+            dq,
+            target_pos,
+            target_vel,
+            self._tool_quat,
+            self.cfg.stiffness_pos,
+            self.cfg.stiffness_rot,
+            self.cfg.stiffness_nullspace,
+            self._q_ns,
+            damping,
+        )
+        tau = limit_torque_rate(tau, self._tau_prev, self._max_torque_change)
+        self._tau_prev[:] = tau
+        self._asset.set_joint_effort_target_index(target=tau, joint_ids=self._joint_ids)
+
+    def reset(self, env_ids: Sequence[int] | None = None) -> None:
+        """Start the target at the tool's current position (link poses are up to date after the reset event)."""
+        env_ids = slice(None) if env_ids is None else env_ids
+        pos = self.tool_pose()[0]
+        self._target[env_ids] = pos[env_ids]
+        self._target_start[env_ids] = pos[env_ids]
+        self._step[env_ids] = 0.0
+        self._raw_actions[env_ids] = 0.0
+        self._tau_prev[env_ids] = 0.0
+
+    def _tool_jacobian(self) -> torch.Tensor:
+        """Geometric Jacobian of the tool tip in the base frame (n, 6, num_joints)."""
+        data = self._asset.data
+        jacobian = data.body_link_jacobian_w.torch[:, self._jacobi_body_idx, :, self._jacobi_joint_ids]
+        base_quat_inv = quat_inv(data.root_quat_w.torch)
+        base_rot = matrix_from_quat(base_quat_inv)  # world -> base
+        jacobian = torch.cat((base_rot @ jacobian[:, :3], base_rot @ jacobian[:, 3:]), dim=1)
+        # shift the linear rows from the body origin to the tool tip: v_tip = v_body + w x r = v_body - [r]x w
+        body_quat_b = quat_mul(base_quat_inv, data.body_quat_w.torch[:, self._body_idx])
+        lever = quat_apply(body_quat_b, self._offset_pos)
+        jacobian[:, :3] += torch.bmm(-skew_symmetric_matrix(lever), jacobian[:, 3:])
+        return jacobian
