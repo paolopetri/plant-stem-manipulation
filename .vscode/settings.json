@@ -1,0 +1,23 @@
+{
+    // LaTeX Workshop: build the Overleaf mirror (docs/overleaf_folder/main.tex) with Tectonic on save.
+    // Tectonic is installed in ~/.local/bin (no TeX Live on this machine).
+    "latex-workshop.latex.tools": [
+        {
+            "name": "tectonic",
+            "command": "/home/paolo/.local/bin/tectonic",
+            "args": ["--synctex", "--keep-logs", "%DOC%.tex"],
+            "env": {}
+        }
+    ],
+    "latex-workshop.latex.recipes": [
+        {
+            "name": "tectonic",
+            "tools": ["tectonic"]
+        }
+    ],
+    "latex-workshop.latex.recipe.default": "tectonic",
+    "latex-workshop.latex.autoBuild.run": "onSave",
+    "latex-workshop.latex.outDir": "%DIR%",
+    "latex-workshop.latex.rootFile.useSubFile": false,
+    "latex-workshop.view.pdf.viewer": "tab"
+}
