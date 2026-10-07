@@ -1,24 +1,18 @@
-% Comparison of the two stem models, written for the supervisors (standalone explanation).
-% Follows docs/stem_model_tradeoff.tex (option (d) there). Source of the numbers: docs/notes/2026-10-05.md,
-% contact results: docs/notes/2026-10-06.md.
-%
-% This file compiles on its own. To use it inside another document, copy everything between
-% "BEGIN CONTENT" and "END CONTENT". The content needs the packages amsmath and booktabs.
-\documentclass[11pt,a4paper]{article}
-\usepackage[T1]{fontenc}
-\usepackage[utf8]{inputenc}
-\usepackage[margin=2.5cm]{geometry}
-\usepackage{amsmath}
-\usepackage{booktabs}
-
-\begin{document}
+% Comparison of the two stem models, written for the supervisors. Follows open_questions/stem_model_tradeoff
+% (option (d) there). Included by main.tex; uses only packages loaded there (amsmath, booktabs).
+% Numbers: docs/notes/2026-10-05.md, contact results: docs/notes/2026-10-06.md in the project repo.
 
 % ======================================= BEGIN CONTENT =======================================
 \section{Stem model comparison: Newton cable and rigid-segment chain}
+\label{sec:stem-comparison}
+
+\paragraph{Status (6 October 2026).} Discussed in the meeting with the supervisors: the project continues with
+the rigid-segment chain in PhysX for the first training stage (question~3 below); the Newton cable is kept for
+comparison. Questions 1, 2 and 4 remain open.
 
 \subsection{Summary}
 
-The previous section showed that the Newton cable cannot combine realistic stretch and shear stiffness,
+Section~\ref{sec:stem-tradeoff} showed that the Newton cable cannot combine realistic stretch and shear stiffness,
 correct bending and an affordable simulation. I have therefore built the alternative suggested there, option
 (d): a chain of rigid segments whose joints can only bend and twist, simulated as an articulation in PhysX,
 the physics engine that also simulates the robot arm. Both models are kept and can be selected by name.
@@ -126,7 +120,7 @@ the push is 12\,\% too large.
 
 Both models use the same placeholder stem (length 0.4\,m, diameter 8\,mm, density 1000\,kg/m$^3$, bend modulus
 $5\cdot10^{8}$\,Pa, 20 segments), clamped at the base, without robot or contact. The tests are those of the
-previous section: sag of the horizontal stem, push of 0.05\,N on the last segment of the upright stem, and a
+Section~\ref{sec:stem-tradeoff}: sag of the horizontal stem, push of 0.05\,N on the last segment of the upright stem, and a
 kick (everything above the lowest joint is set rotating so that the top moves sideways at 1\,m/s). The reference
 is the thin-rod chain: bending only, computed exactly for the same 20 segments, including gravity where it
 matters.
@@ -272,5 +266,3 @@ contact force over the whole test is 1.73\,N, and the maximum curvature (4.73\,1
         (crushing)? Are realistic values for plant stems known?
 \end{enumerate}
 % ======================================== END CONTENT ========================================
-
-\end{document}

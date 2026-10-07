@@ -10,7 +10,8 @@
 #   - fixed base (arm is bolted to the table)
 #   - do NOT merge fixed joints (otherwise the end-effector body is merged into fr3_link7)
 # Massless links without geometry (fr3_link8, tool_tip) become plain frames, not bodies.
-# Afterwards set_collision.py sets the end-effector's collision shape from its yaml (collision_approximation).
+# Afterwards set_collision.py sets the end-effector's collision shape from its yaml (collision_approximation), and
+# fix_base_joint.py turns the converter's base joint into a world joint (fixed base; see its docstring).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,4 +31,6 @@ uv run --extra isaacsim python scripts/tools/convert_urdf.py "$URDF" "$USD_DIR" 
 [[ -f "$USD" ]] || { echo "conversion finished but $USD is missing"; exit 1; }
 # collision shape of the end-effector mesh from its yaml (the converter uses a convex hull for every mesh)
 uv run --extra isaacsim python "$HERE/set_collision.py" "$EE"
+# base joint: the converter attaches fr3_link0 to the (non-rigid) root prim; make it a world joint
+uv run --extra isaacsim python "$HERE/fix_base_joint.py" "$EE"
 echo "wrote $USD"

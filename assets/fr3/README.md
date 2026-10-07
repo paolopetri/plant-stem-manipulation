@@ -19,6 +19,7 @@ fr3/
 ├── view_urdf.py                sanity check of build/fr3_<ee>.urdf (printout + browser viewer)
 ├── convert_to_usd.sh           build/fr3_<ee>.urdf -> build/fr3_<ee>_usd/ (USD stage + payloads)
 ├── set_collision.py            collision shape of the end-effector mesh in the USD (run by convert_to_usd.sh)
+├── fix_base_joint.py           base joint -> world joint, so the FR3 is fixed-base (run by convert_to_usd.sh)
 └── build/                      generated output (git-ignored)
 ```
 

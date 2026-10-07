@@ -19,3 +19,9 @@ wandb/
 
 # Newton viewer window layout (written when a script runs with --viz newton_gl)
 imgui.ini
+
+# LaTeX build outputs (docs/overleaf_folder, built locally with Tectonic)
+docs/overleaf_folder/*.pdf
+docs/overleaf_folder/*.log
+docs/overleaf_folder/*.aux
+docs/overleaf_folder/*.synctex.gz

@@ -1,19 +1,16 @@
 % Open question on the stem model, written for the supervisors (standalone explanation).
 % Source of the numbers: docs/TODO.md (open questions) and docs/notes/2026-09-30.md.
 %
-% This file compiles on its own. To use it inside another document, copy everything between
-% "BEGIN CONTENT" and "END CONTENT". The content needs the packages amsmath and booktabs.
-\documentclass[11pt,a4paper]{article}
-\usepackage[T1]{fontenc}
-\usepackage[utf8]{inputenc}
-\usepackage[margin=2.5cm]{geometry}
-\usepackage{amsmath}
-\usepackage{booktabs}
+% Included by main.tex; uses only packages loaded there (amsmath, booktabs).
 
-\begin{document}
 
 % ======================================= BEGIN CONTENT =======================================
 \section{Open question: stiffness of the simulated stem}
+\label{sec:stem-tradeoff}
+
+\paragraph{Status (6 October 2026).} Answered: option (d) below, a chain of rigid segments in PhysX, was
+built and compared with the cable (Section~\ref{sec:stem-comparison}); the supervisors chose it for the first
+training stage. This section is kept as the record of why the cable was not used.
 
 \subsection{Summary}
 
@@ -252,5 +249,3 @@ makes the problem mild enough for the solver at hand.
         single softened setting harder to justify.
 \end{enumerate}
 % ======================================== END CONTENT ========================================
-
-\end{document}
