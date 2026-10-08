@@ -2,23 +2,37 @@
 
 Creates the env with a few envs, resets it and drives the tool tip with constant actions (same in every env):
 hold (zero action), then full translation along +x, +y, +z, each for `--steps` policy steps and followed by a hold;
-then a full rotation about the vertical (+z) for `--steps` policy steps and a hold; finally the action (1, ..., 1)
-to check the step limits. The action term (6-D: translation and rotation step, robot base frame) is Franka's
-Cartesian impedance law with an integrated target (`mdp.ToolTipImpedanceAction`).
+then a full rotation about the vertical (+z) for `--steps` policy steps and a hold. Then, each after a reset to the
+start pose: a full +y translation and a full rotation about +z from rest (step limits), and a move +x followed by a
+full move down (-z) into the ground and a lift (target clamp, restart after contact). The action term (6-D:
+translation and rotation step, robot base frame) is Franka's Cartesian impedance law with an
+integrated target, speed cap, step-change limit and target-offset clamp (`mdp.ToolTipImpedanceAction`). With the
+step-change limit the target ramps up at the start of a move and brakes during the hold.
 Checks:
-- shapes: observation (num_envs, obs_dim) and action (num_envs, 3) as declared, all observations finite;
+- shapes: observation (num_envs, 21) and action (num_envs, 6), all observations finite;
 - start pose: tool tip within 5 mm of (0.30, 0, 0.55) m and within 1 deg of its orientation at reset after the hold;
 - holds still: the tool tip moves less than 1 mm during the last half of the hold;
-- follows the actions: steady following error (largest distance to the commanded target over the last quarter of
-  the move; at the end of a policy step the interpolated target equals the step's end target) <= 2 mm; after each
-  move the tool passes the end point by at most 5 mm and ends within 1 mm of it (every step executed); sideways
-  drift < 2 mm; orientation within 1 deg throughout. The start-up peak (from rest to full speed in one step) is
-  reported, not checked (same criterion as `scripts/sweep_impedance.py`, lag_ss);
-- step limits: with action (1, ..., 1) the target moves by exactly max_step and turns by exactly max_rot_step.
-- follows the rotation: about +z, angle following <= 2 deg, overshoot <= 2 deg, tool-tip drift while turning <= 2 mm,
-  end within 1 deg of the target after the hold.
+- follows the actions: following error (largest distance to the target over the move and the hold; at the end of
+  a policy step the interpolated target equals the step's end target) <= 2 mm; the tool passes the target's final
+  position by at most 5 mm and ends within 1 mm of it; sideways drift < 2 mm; orientation within 1 deg throughout.
+  The final target is the target after the clamp; that every commanded step was executed follows from the following
+  error: had the clamp shortened a step, target and tool would be 4 mm apart at the end of that policy step;
+- follows the rotation: about +z, angle following <= 2 deg, overshoot past the final target <= 2 deg, tool-tip
+  drift while turning <= 2 mm, end within 1 deg of the target after the hold;
+- step limits: from rest the first step is exactly 0.08 mm (+y translation) and 0.02 deg (rotation about +z), and
+  the step then reaches the caps 3.2 mm and 1.44 deg;
+- follows at full speed: over the +y ramp (incl. `FULL_SPEED_STEPS` steps at the cap, 10 cm/s) following error
+  <= 2 mm; over the rotation ramp (up to 45 deg/s) angle following <= 2 deg and tool-tip drift <= 2 mm (the moves
+  above stay below the caps because of the step-change limit);
+- target clamp: at every physics step of the move down, the target the law uses is at most 4 mm from the tool; while
+  the tool is blocked by the ground (last `BLOCKED_STEPS` policy steps) exactly 4 mm;
+- restart after contact: lifting off the ground, the applied step changes by at most 0.08 mm per policy step;
+- applied step within the caps (3.2 mm, 1.44 deg) in every phase.
+The expected limits are the decided values (option B1), not the cfg's: with an override flag those checks fail.
+Joint-limit guard: a check whose measurement window comes within 0.25 rad of a joint limit fails as invalid (there
+the arm, not the controller, limits the motion; user 2026-10-08, same threshold as scripts/sweep_action_poses.py).
 The orientation reference for translation moves is the start orientation (rotation action zero).
-Reported: per axis, travel vs. commanded, largest following error and overshoot.
+Reported: per axis, travel, largest following error and overshoot.
 
 Usage (from the repo root; headless unless a visualizer is requested):
     uv run --extra isaacsim python scripts/check_push_env.py
@@ -51,10 +65,9 @@ import time
 import gymnasium as gym
 import torch
 
-from isaaclab.utils.math import quat_box_minus
-
 import stem_manip.tasks  # noqa: F401  (registers the task)
 from stem_manip.tasks.push_position.env_cfg import StemPushPositionEnvCfg
+from stem_manip.utils.impedance import rotvec_between
 
 TASK = "StemManip-Push-Position-FR3-v0"
 START_POS = (0.30, 0.0, 0.55)  # [m] tool tip of the start pose (env_cfg.START_JOINT_POS)
@@ -66,6 +79,17 @@ OVERSHOOT_TOL = 5e-3  # [m]
 END_TOL = 1e-3  # [m] after the hold following a move
 DRIFT_TOL = 2e-3  # [m]
 ROT_FOLLOW_TOL, ROT_OVERSHOOT_TOL, ROT_DRIFT_TOL = math.radians(2.0), math.radians(2.0), 2e-3  # user, 2026-10-07
+OBS_DIM = 21  # tool-tip position 3, orientation 6, applied step 6, target offset 6
+# decided action limits (option B1, user 2026-10-07/08; docs/overleaf_folder/open_questions/action_limits_problem.tex);
+# fixed here, not read from the cfg, so that a wrong cfg value fails (with an override flag these checks fail too)
+FIRST_STEP, FIRST_ROT_STEP = 8e-5, 0.000349  # [m], [rad] step-change limits 0.08 mm (2026-10-08) / 0.02 deg
+CAP_STEP, CAP_ROT_STEP = 0.0032, 0.02513  # [m], [rad] speed caps 10 cm/s (2026-10-08) / 45 deg/s (2026-10-07)
+CLAMP_OFFSET = 4e-3  # [m] target clamp, 4 N at K_p 1000 (2026-10-08)
+JOINT_MARGIN_MIN = 0.25  # [rad] closer to a joint limit, a check is invalid (user, 2026-10-08)
+# clamp test path (test setup, not a criterion): +x first, so that the way down stays clear of joint 4's limit
+# (at 10 cm/s the tool reaches the ground after ~186 down steps; DOWN_STEPS leaves the blocked window well after it)
+CLAMP_APPROACH_STEPS, DOWN_STEPS, BLOCKED_STEPS, LIFT_STEPS = 40, 260, 20, 10
+FULL_SPEED_STEPS = 10  # policy steps at the translation cap at the end of the +y ramp
 
 
 def main() -> None:
@@ -87,12 +111,11 @@ def main() -> None:
         obs, _ = env.reset()
         sim, device, n = env.sim, env.device, env.num_envs
         term = env.action_manager.get_term("tool_tip")
-        max_step, max_rot_step = term.cfg.max_step, term.cfg.max_rot_step
         quat_ref = term.tool_pose()[1].clone()  # start orientation, held while the rotation action is zero
 
         def angle_between(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
             """Angle between orientations a and b (n, 4) [rad] (axis-angle of a b^-1; exact also near 0)."""
-            return quat_box_minus(a, b).norm(dim=-1)
+            return rotvec_between(a, b).norm(dim=-1)
 
         def angle_to_fixed(quat: torch.Tensor) -> torch.Tensor:
             return angle_between(quat, quat_ref)
@@ -101,11 +124,26 @@ def main() -> None:
         frame_start = time.perf_counter()
         finite = bool(torch.isfinite(obs["policy"]).all())
         max_angle = 0.0
+        robot = env.scene[term.cfg.asset_name]
+        joint_ids = robot.find_joints(term.cfg.joint_names)[0]
+        limits = robot.data.joint_pos_limits.torch[:, joint_ids]  # (n, joints, 2)
+        margin = math.inf  # smallest distance to a joint limit [rad] since the last `window()`
+        max_applied = [0.0, 0.0]  # largest applied translation [m] and rotation [rad] step over all phases
+
+        def window() -> None:
+            """Start a measurement window of the joint-limit guard."""
+            nonlocal margin
+            margin = math.inf
 
         def step(action: torch.Tensor, track_tilt: bool = True) -> None:
-            nonlocal frame_start, finite, max_angle
+            nonlocal frame_start, finite, max_angle, margin
             obs, _, _, _, _ = env.step(action.repeat(n, 1))
             finite = finite and bool(torch.isfinite(obs["policy"]).all())
+            q = robot.data.joint_pos.torch[:, joint_ids]
+            margin = min(margin, float(torch.minimum(q - limits[..., 0], limits[..., 1] - q).min()))
+            applied = term.processed_actions
+            max_applied[0] = max(max_applied[0], float(applied[:, :3].norm(dim=-1).max()))
+            max_applied[1] = max(max_applied[1], float(applied[:, 3:].norm(dim=-1).max()))
             if track_tilt:
                 max_angle = max(max_angle, float(angle_to_fixed(term.tool_pose()[1]).max()))
             if sim.is_rendering:
@@ -128,23 +166,20 @@ def main() -> None:
 
         # -- full action along +x, +y, +z, each followed by a hold
         moves = []
+        window()
         for axis in range(3):
             action = torch.zeros(6, device=device)
             action[axis] = 1.0
             start = term.tool_pose()[0].clone()
-            follow, peak = torch.zeros(n, device=device), torch.zeros(n, device=device)
-            for i in range(args_cli.steps):
-                step(action)
-                error = (term.tool_pose()[0] - term.target()).norm(dim=-1)
-                peak = torch.maximum(peak, error)
-                if i >= 0.75 * args_cli.steps:
-                    follow = torch.maximum(follow, error)
-            end = start.clone()
-            end[:, axis] += args_cli.steps * max_step
-            overshoot = torch.zeros(n, device=device)
-            for _ in range(args_cli.hold_steps):
-                step(zero)
-                overshoot = torch.maximum(overshoot, term.tool_pose()[0][:, axis] - end[:, axis])
+            follow = torch.zeros(n, device=device)
+            positions = []  # tool positions during the hold
+            for i in range(args_cli.steps + args_cli.hold_steps):
+                step(action if i < args_cli.steps else zero)
+                follow = torch.maximum(follow, (term.tool_pose()[0] - term.target()).norm(dim=-1))
+                if i >= args_cli.steps:
+                    positions.append(term.tool_pose()[0][:, axis].clone())
+            end = term.target().clone()  # final target (the target brakes during the hold)
+            overshoot = (torch.stack(positions) - end[:, axis]).max(dim=0).values
             pos = term.tool_pose()[0]
             delta = pos - start
             drift = torch.cat([delta[:, :axis], delta[:, axis + 1 :]], dim=1).norm(dim=-1)
@@ -152,7 +187,6 @@ def main() -> None:
                 {
                     "travel": delta[:, axis],
                     "follow": follow,
-                    "peak": peak,
                     "overshoot": overshoot.clamp(min=0.0),
                     "end_error": (pos - end).norm(dim=-1),
                     "drift": drift,
@@ -162,28 +196,96 @@ def main() -> None:
         # -- rotation about the vertical (+z), reported only
         rotate = torch.zeros(6, device=device)
         rotate[5] = 1.0
-        tip_start, quat_start = (v.clone() for v in term.tool_pose())
+        moves_margin = margin
+        window()
+        tip_start = term.tool_pose()[0].clone()
         rot_follow, tip_drift = torch.zeros(n, device=device), torch.zeros(n, device=device)
-        for i in range(args_cli.steps):
-            step(rotate, track_tilt=False)
+        rot_speed = 0.0  # largest applied rotation step [rad]
+        quats = []  # tool orientations during the hold
+        for i in range(args_cli.steps + args_cli.hold_steps):
+            step(rotate if i < args_cli.steps else zero, track_tilt=False)
             tip_drift = torch.maximum(tip_drift, (term.tool_pose()[0] - tip_start).norm(dim=-1))
-            if i >= 0.75 * args_cli.steps:
-                rot_follow = torch.maximum(rot_follow, angle_between(term.tool_pose()[1], term.target_quat()))
+            rot_follow = torch.maximum(rot_follow, angle_between(term.tool_pose()[1], term.target_quat()))
+            rot_speed = max(rot_speed, float(term.processed_actions[:, 3:].norm(dim=-1).max()))
+            if i >= args_cli.steps:
+                quats.append(term.tool_pose()[1].clone())
         target_end = term.target_quat().clone()
-        rot_overshoot = torch.zeros(n, device=device)
-        commanded_angle = args_cli.steps * max_rot_step
-        for _ in range(args_cli.hold_steps):
-            step(zero, track_tilt=False)
-            turned = angle_between(term.tool_pose()[1], quat_start)
-            rot_overshoot = torch.maximum(rot_overshoot, turned - commanded_angle)
-            tip_drift = torch.maximum(tip_drift, (term.tool_pose()[0] - tip_start).norm(dim=-1))
+        # overshoot: rotation from the final target to the tool, about +z (the turning direction)
+        rot_overshoot = torch.stack([rotvec_between(q, target_end)[:, 2] for q in quats]).max(0).values
         rot_end = angle_between(term.tool_pose()[1], target_end)
+        turned = angle_between(target_end, quat_ref)
 
-        # -- action (1, ..., 1): translation limited to max_step, rotation to max_rot_step
-        target_before, quat_before = term.target().clone(), term.target_quat().clone()
-        step(torch.ones(6, device=device), track_tilt=False)
-        diagonal_step = (term.target() - target_before).norm(dim=-1)
-        diagonal_rot = angle_between(term.target_quat(), quat_before)
+        rot_margin = margin
+
+        def restart() -> None:
+            """Reset to the start pose and hold (zero action) until the tool settles."""
+            env.reset()
+            for _ in range(args_cli.steps):
+                step(zero, track_tilt=False)
+
+        # -- step limits: from rest at the start pose, full +y translation, then full rotation about +z; the step
+        # grows by the step-change limit until the cap
+        def ramp(axis: int, n_steps: int) -> tuple[torch.Tensor, torch.Tensor, float, dict[str, torch.Tensor]]:
+            """Full action on `axis` from rest; returns the first and last applied step, the joint margin and the
+            largest following error, angle following and tool-tip drift over the ramp."""
+            restart()
+            window()
+            action = torch.zeros(6, device=device)
+            action[axis] = 1.0
+            taken = []
+            tip_start = term.tool_pose()[0].clone()
+            follow = {k: torch.zeros(n, device=device) for k in ("pos", "angle", "drift")}
+            for _ in range(n_steps):
+                step(action, track_tilt=False)
+                taken.append(term.processed_actions.clone())
+                pos, quat = term.tool_pose()
+                follow["pos"] = torch.maximum(follow["pos"], (pos - term.target()).norm(dim=-1))
+                follow["angle"] = torch.maximum(follow["angle"], angle_between(quat, term.target_quat()))
+                follow["drift"] = torch.maximum(follow["drift"], (pos - tip_start).norm(dim=-1))
+            return taken[0], taken[-1], margin, follow
+
+        ramp_steps = math.ceil(CAP_STEP / FIRST_STEP) + FULL_SPEED_STEPS
+        rot_ramp_steps = math.ceil(CAP_ROT_STEP / FIRST_ROT_STEP) + 2
+        first, last, ramp_margin, ramp_follow = ramp(1, ramp_steps)
+        first_rot, last_rot, rot_ramp_margin, rot_ramp_follow = ramp(5, rot_ramp_steps)
+
+        # -- target clamp: +x, then full move down into the ground; at every physics step the target the law uses may
+        # be at most CLAMP_OFFSET ahead of the tool (measured around each apply_actions call)
+        restart()
+        x_move = torch.zeros(6, device=device)
+        x_move[0] = 1.0
+        for i in range(CLAMP_APPROACH_STEPS + args_cli.hold_steps):
+            step(x_move if i < CLAMP_APPROACH_STEPS else zero, track_tilt=False)
+        stretch = torch.zeros(n, device=device)  # largest target-tool distance over the physics steps of a policy step
+        apply_actions = term.apply_actions
+
+        def apply_and_measure() -> None:
+            pos = term.tool_pose()[0].clone()  # the pose the law sees in this physics step
+            apply_actions()
+            stretch.copy_(torch.maximum(stretch, (term.command_pose()[0] - pos).norm(dim=-1)))
+
+        term.apply_actions = apply_and_measure
+        down = torch.zeros(6, device=device)
+        down[2] = -1.0
+        stretches = []
+        for i in range(DOWN_STEPS):
+            if i == DOWN_STEPS - BLOCKED_STEPS:
+                window()
+            stretch.zero_()
+            step(down, track_tilt=False)
+            stretches.append(stretch.clone())
+        term.apply_actions = apply_actions
+        stretches = torch.stack(stretches)  # (DOWN_STEPS, n)
+        blocked = stretches[-BLOCKED_STEPS:]
+        clamp_margin = margin
+        tip_height = term.tool_pose()[0][:, 2]
+        # -- restart after contact: lift; the applied step changes by at most the step-change limit
+        prev = term.processed_actions[:, :3].clone()
+        lift_change = torch.zeros(n, device=device)
+        for _ in range(LIFT_STEPS):
+            step(-down, track_tilt=False)
+            lift_change = torch.maximum(lift_change, (term.processed_actions[:, :3] - prev).norm(dim=-1))
+            prev = term.processed_actions[:, :3].clone()
 
         follows = all(
             bool((m["follow"] <= FOLLOW_TOL).all())
@@ -192,10 +294,9 @@ def main() -> None:
             and bool((m["drift"] <= DRIFT_TOL).all())
             for m in moves
         )
-        commanded = args_cli.steps * max_step
         results = {
             "shapes": (
-                obs_shape[0] == n and action_shape == (n, 6) and finite,
+                obs_shape == (n, OBS_DIM) and action_shape == (n, 6) and finite,
                 f"observation {obs_shape}, action {action_shape}, all finite: {finite}",
             ),
             "start pose": (
@@ -205,21 +306,58 @@ def main() -> None:
             ),
             "holds still": (hold_move < HOLD_TOL, f"tool tip moved {hold_move * 1e3:.2f} mm in the 2nd half of the hold"),
             "follows the actions": (
-                follows and max_angle < ORIENTATION_TOL,
+                follows and max_angle < ORIENTATION_TOL and moves_margin >= JOINT_MARGIN_MIN,
                 "; ".join(
                     f"{'xyz'[a]}: travel {float(m['travel'].min()) * 1e3:.1f} mm, following "
-                    f"{float(m['follow'].max()) * 1e3:.2f} mm (start peak {float(m['peak'].max()) * 1e3:.2f}), overshoot {float(m['overshoot'].max()) * 1e3:.2f} mm, "
+                    f"{float(m['follow'].max()) * 1e3:.2f} mm, overshoot {float(m['overshoot'].max()) * 1e3:.2f} mm, "
                     f"end {float(m['end_error'].max()) * 1e3:.2f} mm, drift {float(m['drift'].max()) * 1e3:.2f} mm"
                     for a, m in enumerate(moves)
                 )
-                + f"; commanded {commanded * 1e3:.1f} mm; max orientation error {math.degrees(max_angle):.2f} deg",
+                + f"; max orientation error {math.degrees(max_angle):.2f} deg; joint margin {moves_margin:.2f} rad",
             ),
             "step limits": (
-                bool(((diagonal_step - max_step).abs() < 1e-6).all())
-                and bool(((diagonal_rot - max_rot_step).abs() < 1e-5).all()),
-                f"action (1, ..., 1): target step {float(diagonal_step.max()) * 1e3:.3f} mm (max_step "
-                f"{max_step * 1e3:.3f}), rotation {math.degrees(float(diagonal_rot.max())):.3f} deg (max_rot_step "
-                f"{math.degrees(max_rot_step):.3f})",
+                bool(((first[:, :3].norm(dim=-1) - FIRST_STEP).abs() < 1e-6).all())
+                and bool(((first_rot[:, 3:].norm(dim=-1) - FIRST_ROT_STEP).abs() < 1e-6).all())
+                and bool(((last[:, :3].norm(dim=-1) - CAP_STEP).abs() < 1e-6).all())
+                and bool(((last_rot[:, 3:].norm(dim=-1) - CAP_ROT_STEP).abs() < 1e-5).all())
+                and min(ramp_margin, rot_ramp_margin) >= JOINT_MARGIN_MIN,
+                f"+y from rest: first step {float(first[:, :3].norm(dim=-1).max()) * 1e3:.3f} mm (expected "
+                f"{FIRST_STEP * 1e3:.3f}), after {ramp_steps} steps "
+                f"{float(last[:, :3].norm(dim=-1).min()) * 1e3:.3f} mm (cap {CAP_STEP * 1e3:.3f}); about +z: first "
+                f"{math.degrees(float(first_rot[:, 3:].norm(dim=-1).max())):.3f} deg (expected "
+                f"{math.degrees(FIRST_ROT_STEP):.3f}), after {rot_ramp_steps} steps "
+                f"{math.degrees(float(last_rot[:, 3:].norm(dim=-1).min())):.3f} deg "
+                f"(cap {math.degrees(CAP_ROT_STEP):.3f}); joint margin {min(ramp_margin, rot_ramp_margin):.2f} rad",
+            ),
+            "follows at full speed": (
+                float(ramp_follow["pos"].max()) <= FOLLOW_TOL
+                and float(rot_ramp_follow["angle"].max()) <= ROT_FOLLOW_TOL
+                and float(rot_ramp_follow["drift"].max()) <= ROT_DRIFT_TOL
+                and min(ramp_margin, rot_ramp_margin) >= JOINT_MARGIN_MIN,
+                f"+y ramp to {CAP_STEP / env.step_dt * 100:.0f} cm/s ({FULL_SPEED_STEPS} steps at the cap): following "
+                f"{float(ramp_follow['pos'].max()) * 1e3:.2f} mm; rotation ramp to 45 deg/s: angle following "
+                f"{math.degrees(float(rot_ramp_follow['angle'].max())):.2f} deg, tool-tip drift "
+                f"{float(rot_ramp_follow['drift'].max()) * 1e3:.2f} mm",
+            ),
+            "target clamp": (
+                bool((stretches <= CLAMP_OFFSET + 1e-6).all())
+                and bool(((blocked - CLAMP_OFFSET).abs() < 1e-6).all())
+                and clamp_margin >= JOINT_MARGIN_MIN,
+                f"moving down into the ground: largest target-tool distance {float(stretches.max()) * 1e3:.4f} mm "
+                f"(bound {CLAMP_OFFSET * 1e3:.1f} mm), while blocked {float(blocked.min()) * 1e3:.4f}-"
+                f"{float(blocked.max()) * 1e3:.4f} mm, tool tip at z {float(tip_height.min()) * 1e3:.1f}-"
+                f"{float(tip_height.max()) * 1e3:.1f} mm; joint margin {clamp_margin:.2f} rad",
+            ),
+            "restart after contact": (
+                bool((lift_change <= FIRST_STEP + 1e-6).all()),
+                f"lifting off: largest change of the applied step {float(lift_change.max()) * 1e3:.4f} mm per step "
+                f"(limit {FIRST_STEP * 1e3:.2f} mm)",
+            ),
+            "applied step within the caps": (
+                max_applied[0] <= CAP_STEP + 1e-6 and max_applied[1] <= CAP_ROT_STEP + 1e-5,
+                f"largest applied step over all phases {max_applied[0] * 1e3:.3f} mm / "
+                f"{math.degrees(max_applied[1]):.3f} deg (caps {CAP_STEP * 1e3:.1f} mm / "
+                f"{math.degrees(CAP_ROT_STEP):.2f} deg)",
             ),
         }
         rot_ok = (
@@ -227,13 +365,15 @@ def main() -> None:
             and float(rot_overshoot.clamp(min=0).max()) <= ROT_OVERSHOOT_TOL
             and float(tip_drift.max()) <= ROT_DRIFT_TOL
             and float(rot_end.max()) <= ORIENTATION_TOL
+            and rot_margin >= JOINT_MARGIN_MIN
         )
         results["follows the rotation"] = (
             rot_ok,
-            f"about +z, {math.degrees(commanded_angle):.1f} deg at {math.degrees(max_rot_step):.2f} deg/step: following "
-            f"{math.degrees(float(rot_follow.max())):.2f} deg, overshoot "
+            f"about +z, {math.degrees(float(turned.min())):.1f} deg at up to {math.degrees(rot_speed):.2f} deg/step: "
+            f"following {math.degrees(float(rot_follow.max())):.2f} deg, overshoot "
             f"{math.degrees(float(rot_overshoot.clamp(min=0).max())):.2f} deg, tool-tip drift "
-            f"{float(tip_drift.max()) * 1e3:.2f} mm, end {math.degrees(float(rot_end.max())):.2f} deg",
+            f"{float(tip_drift.max()) * 1e3:.2f} mm, end {math.degrees(float(rot_end.max())):.2f} deg; joint margin "
+            f"{rot_margin:.2f} rad",
         )
         print(f"\n=== check_push_env ({n} envs, policy at {1 / env.step_dt:.2f} Hz, damping {term.cfg.damping}) ===")
         for name, (ok, info) in results.items():
