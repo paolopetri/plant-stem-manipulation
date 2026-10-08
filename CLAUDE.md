@@ -19,7 +19,7 @@ For the full motivation, research question, and scope, read `docs/project-propos
 - RL framework: Isaac Lab (PPO)
 - Reference robot: Franka Research 3. Actions are defined in end-effector space so the skill is not tied to one arm.
 - End-effector: `fork_v2` (`assets/fr3/end_effectors/fork_v2/`). `fork` is the first design, kept but not used.
-- Stem model: deformable linear object. Implemented: Newton cable (`cable`, M1) and a chain of rigid segments with bending/twist spring joints as a PhysX articulation (`chain`, M1b), which shares one solver with the robot. The supervisors chose `chain` for the training (2026-10-06); `cable` is kept for comparison. Stem models are kept modular (selectable by name, like the end-effectors). Background: `docs/TODO.md`, open questions (stem model, contact handling).
+- Stem model: deformable linear object. Implemented: Newton cable (`cable`, M1) and a chain of rigid segments with bending/twist spring joints as a PhysX articulation (`chain`, M1b), which shares one solver with the robot. The supervisors chose `chain` for the training (2026-10-06); `cable` is kept for comparison. Stem models are kept modular (selectable by name, like the end-effectors). Background: `docs/TODO.md`, section "Parked: Newton cable path" (stem model, contact handling).
 - Assets are managed as USD files.
 
 ## Task stages (in order)
@@ -66,7 +66,7 @@ Isaac Lab 3 source checkout expected at `../IsaacLab`.
 - List tasks: `uv run isaaclab list_envs`
 - Unit tests: `uv run pytest`
 - Simulation checks (headless by default, no `--headless` flag in Isaac Lab 3): `uv run --extra isaacsim python scripts/check_<name>.py`, e.g. `check_fr3.py`
-- Train / play: added once the first task is registered (docs/TODO.md, M5).
+- Train / play: added with the first training run (docs/TODO.md, M5).
 
 ## Git workflow
 

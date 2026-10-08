@@ -2,7 +2,7 @@
 
 Requirements:
 - End-effector (tool_tip) pose, stem segment positions (and orientations) in the robot root frame,
-  point-of-interest position, target position, last action.
+  point-of-interest position, target position, the action term's applied step and target offset.
 - Shapes fixed per task; values in meters / normalized quaternions.
 
 Implemented: tool-tip position and orientation, the applied action step and the target offset (the action term's
