@@ -1,0 +1,752 @@
+% How fast may the pushing policy move the fork? Tracking error, apparent mass and sim-to-real transfer.
+% Written for the supervisors (robotics/Franka background, little RL background). Content-only section, included by
+% main.tex (\input{open_questions/action_limits_problem}) or compiled alone via action_limits_report.tex.
+% Uses amsmath, booktabs and array (added to main.tex for this section). Numbers: scripts/sweep_action_poses.py
+% (default and --full_speed), scripts/check_push_env.py and docs/notes/2026-10-07.md, 2026-10-08.md in the project repo.
+
+% ======================================= BEGIN CONTENT =======================================
+\section{Open problem: how fast may the policy move the fork?}
+\label{sec:al}
+
+\paragraph{Status (7--8 October 2026).} Problem identified in simulation; values for the first training runs set
+on 7 October (option B1) and revised on 8 October after longer test moves (Section~\ref{sec:al-plan}); the
+long-term solution is open. We ask for feedback on the analysis and on the
+questions at the end (Section~\ref{sec:al-questions}).
+
+\paragraph{In one paragraph.} The policy commands the fork through a Cartesian impedance controller, the same in
+simulation and on the FR3. What blocks us is a trade-off between \emph{agility} and a \emph{small tracking error}.
+A small error transfers better~\cite{al-aljalbout2024}, because then the fork's motion is set by our controller
+(identical on both sides) rather than by the arm's dynamics (not identical, not yet identified). But an impedance
+controller is a spring of stiffness $K$ between the commanded and the actual tool position, and it can only
+accelerate the arm by being stretched: while the commanded motion accelerates at $a$, the tool lags behind by about
+$\Lambda a/K$, where $\Lambda$ is the arm's apparent mass at the tool tip (8--22\,kg depending on pose and direction,
+half of it from the motors' reflected inertia). With a small lag (2\,mm) and a stiffness we consider acceptable near a
+plant (400--1000\,N/m), the fork may accelerate only at about 0.04--0.09\,m/s$^2$; we use 0.08\,m/s$^2$ at
+1000\,N/m. This section explains the
+trade-off, what we measured, and every design choice that moves it.
+
+% ---------------------------------------------------------------------------------------------------------------------
+\subsection{Background}
+\label{sec:al-background}
+
+\paragraph{What the policy does.} The policy is a neural network trained by reinforcement learning (RL) in
+simulation. At 31.25\,Hz (every 32\,ms, one ``policy step'') it reads the state (fork pose, stem shape, target) and
+outputs a small displacement and rotation of the fork's \emph{target} pose $x_d$. The next target is the previous
+target plus this step, so commanded steps are not lost even if the tool lags behind. Within the 32\,ms the target
+moves at constant velocity $\dot x_d$ from the old to the new value. A Cartesian impedance controller at 1\,kHz
+(2\,ms in simulation) turns the target into joint torques:
+\begin{equation}
+  \tau = J^\top\!\left[\,K\,(x_d - x) + D\,(\dot x_d - \dot x)\,\right] + \tau_\text{null} + \tau_\text{Coriolis}.
+  \label{eq:al-law}
+\end{equation}
+$x$ is the measured tool pose, $J$ the tool-tip Jacobian, $K$ the stiffness and $D$ the damping (written here for
+the position; the orientation has its own stiffness $K_o$). This is the law of Franka's example controllers, with
+two changes: the target velocity $\dot x_d$ is fed forward (Franka's examples use $\dot x_d = 0$), and the damping
+$D = 2\sqrt{K}\,\Lambda^{1/2}$ is chosen critical for the arm's actual inertia $\Lambda$ (Section~\ref{sec:al-problem})
+instead of Franka's $2\sqrt K$, which is critical only for a 1\,kg tool.
+
+\paragraph{Null-space spring $\tau_\text{null}$.} The FR3 has 7 joints, but the tool pose has only 6 degrees of
+freedom. For every tool pose there is therefore a one-parameter family of arm postures (the elbow can swing about the
+line from shoulder to wrist without moving the tool): the \emph{null space}. The first term of
+Eq.~\eqref{eq:al-law} does not act in this direction, so the elbow would drift freely. A weak joint-space spring
+(0.5\,N\,m/rad, as in Franka's examples) pulls the posture towards a rest posture; it is projected so that it does
+not push the tool. It plays no role in the problem below (we checked: switching it off does not change the lag).
+
+\paragraph{What RL learns, and why the action space matters for the transfer.} During training the policy tries
+millions of commands in simulation and keeps what earns reward. It learns \emph{how the simulated fork reacts to its
+commands}, including any lag, overshoot or coupling, and relies on it. If the real robot reacts differently, the
+learned behaviour is wrong by that difference: this is the sim-to-real (``reality'') gap. The policy cannot correct
+what it never saw in simulation. The usual tools against the gap are:
+\begin{center}
+{\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{>{\raggedright\arraybackslash}p{0.24\textwidth}>{\raggedright\arraybackslash}p{0.42\textwidth}>{\raggedright\arraybackslash}p{0.24\textwidth}}
+  \toprule
+  Tool & What it does & Status \\
+  \midrule
+  A. Action-space design & choose commands whose result depends little on what differs between sim and real
+    (same controller, small tracking error) & controller matched; this section \\
+  \addlinespace
+  B. Identification & measure the real robot and correct the simulation & planned, before the first real run \\
+  \addlinespace
+  C. Domain randomization & vary unknown parameters in training, so the policy works over a range & planned \\
+  \addlinespace
+  D. Model the robot's safety layer & limits and reflexes of the FR3 become terminations/penalties in sim, so the
+    policy does not learn motions the robot refuses & planned \\
+  \addlinespace
+  E. Adaptation & infer differences online or fine-tune on the robot & not planned \\
+  \bottomrule
+\end{tabular}}
+\end{center}
+A large study of action spaces on a Franka arm~\cite{al-aljalbout2024} (13 action spaces, about 250 policies,
+reaching and pushing, transferred to the real robot) concludes that \emph{``an action space which yields or
+naturally limits the tracking error transfers better''}; torque actions, whose result is set by the robot's
+dynamics alone, could not be transferred safely. The same study warns that a limiter which acts on the robot but is
+not visible to the policy in simulation (they tried a rate limiter) made learning collapse. A caveat: their controllers were joint
+impedance controllers (Cartesian actions were converted to joint targets by inverse kinematics), with gains that
+the paper does not report, and the tasks were reaching and pushing a box. The conclusion carries over in principle,
+since in every impedance-type controller a larger tracking error means more dependence on the arm's dynamics; the
+numbers do not, and the paper does not test a soft Cartesian impedance controller like ours.
+
+\paragraph{Where the gap enters our system.} The chain from a policy output to the stem, step by step:
+\begin{center}
+{\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{>{\raggedright\arraybackslash}p{0.32\textwidth}>{\raggedright\arraybackslash}p{0.20\textwidth}>{\raggedright\arraybackslash}p{0.38\textwidth}}
+  \toprule
+  Step & Same in sim and real? & Source of differences \\
+  \midrule
+  policy step $\to$ target pose & yes (same code) & none \\
+  target $\to$ torques, law~\eqref{eq:al-law} & yes (ported to C++, checked) & port errors; $J$, $M$ from different
+    models \\
+  \textbf{torques $\to$ fork motion} & \textbf{no} & arm inertia, joint friction, motor inertia, delays, 1 vs.\ 2\,ms
+    control period \\
+  fork $\leftrightarrow$ stem contact & no & friction, stem stiffness and damping (randomized) \\
+  stem $\to$ observation & no & camera noise, latency \\
+  FR3 safety layer & \textbf{missing in sim} & reflexes stop the robot \\
+  \bottomrule
+\end{tabular}}
+\end{center}
+The step ``torques $\to$ fork motion'' is where the arm's dynamics act. How much of it reaches the fork's motion
+depends on the tracking error: if the tool follows the target within a small error, its motion is essentially the
+target's motion, which our code computes identically in sim and real; the larger the error, the more the motion is
+shaped by the arm's dynamics, which differ.
+
+% ---------------------------------------------------------------------------------------------------------------------
+\subsection{The problem}
+\label{sec:al-problem}
+
+\paragraph{What blocks us: agility versus a small tracking error.} We want two things from the fork's motion:
+\begin{enumerate}
+  \item \textbf{Small lag behind the commanded target}, so that the fork's motion is set by our controller, which
+        is the same in simulation and on the FR3, and not by the arm's dynamics, which differ and are not yet
+        identified. Action spaces that keep the tracking error small transfer better~\cite{al-aljalbout2024}.
+  \item \textbf{Agility}: reach the stem well within the 10\,s episode, brake late before contact, and react quickly
+        to how the stem moves.
+\end{enumerate}
+With an impedance controller the two conflict. The lag grows with how quickly the commanded motion accelerates, so
+a small lag allows only gentle accelerations. In numbers: with $K = 1000$\,N/m and at most 2\,mm of lag, the fork may
+accelerate at only about 0.09\,m/s$^2$ where the arm is heaviest; at the 0.08\,m/s$^2$ we use, it needs 1.25\,s to
+reach 10\,cm/s and 6\,cm to stop from that speed (2.5\,s and 25\,cm for 20\,cm/s). Either
+we accept this sluggishness, or we accept more lag (and with it a larger dependence on the real arm), or we change
+the controller. This is the decision we need help with. The rest of this section explains where the conflict comes
+from, how severe it is for the task, and how severe it will be on the real robot.
+
+\paragraph{Why the tool lags: the impedance law as a mass on a spring.} Consider one direction, free space,
+gravity compensated. The controller makes the tool tip behave like a mass $\Lambda$ (the arm's inertia felt at the
+tool tip, explained in the next paragraph) attached by a spring $K$ and a damper $D$ to the moving target:
+\begin{equation}
+  \Lambda\,\ddot x = K\,(x_d - x) + D\,(\dot x_d - \dot x).
+\end{equation}
+Write the lag as $e = x_d - x$ (target minus tool). Then $\ddot x = \ddot x_d - \ddot e$, and substituting gives
+\begin{equation}
+  \Lambda\,\ddot e + D\,\dot e + K\,e = \Lambda\,\ddot x_d.
+  \label{eq:al-error}
+\end{equation}
+The lag itself behaves like a damped mass-spring system, driven by the force $\Lambda \ddot x_d$, i.e.\ by the
+\emph{acceleration of the target}. Three cases follow:
+\begin{enumerate}
+  \item \textbf{Target at rest or moving at constant speed} ($\ddot x_d = 0$): the right-hand side is zero, so any lag
+        dies out and $e \to 0$. Physically: moving at constant speed in free space needs no force (no friction, no
+        gravity), so the spring does not need to be stretched. This holds only because the target velocity is fed
+        forward. Without it the damper pulls back with $D\dot x$ all the time, and the spring must balance it:
+        $e = D\dot x_d / K$. With $D = 2\sqrt{K\Lambda} = 180$\,N\,s/m ($K = 400$\,N/m, $\Lambda = 20$\,kg) and
+        20\,cm/s this gives 90\,mm; we measured 82\,mm (Table~\ref{tab:al-time}).
+  \item \textbf{Target accelerating at constant $a$}: the right-hand side is the constant force $\Lambda a$. Once the
+        transient has died out ($\ddot e = \dot e = 0$), $K e = \Lambda a$, so
+        \begin{equation}
+          e = \frac{\Lambda\, a}{K}.
+          \label{eq:al-lag}
+        \end{equation}
+        Physically: Newton's law. To accelerate the mass $\Lambda$ at $a$, the force $\Lambda a$ is needed, and its only
+        source is the stretched spring. Example: $\Lambda = 20$\,kg, $a = 0.1$\,m/s$^2$, $K = 1000$\,N/m: $e = 2$\,mm.
+        The same holds when braking (the tool then runs ahead of the target, which shows up as overshoot).
+  \item \textbf{How fast the lag builds up and dies out}: Eq.~\eqref{eq:al-error} is critically damped, with the time
+        constant $\sqrt{\Lambda/K}$: 0.14\,s for 20\,kg and 1000\,N/m, 0.22\,s for 400\,N/m, i.e.\ 4--7 policy steps.
+        The lag reaches the value of Eq.~\eqref{eq:al-lag} if the acceleration lasts longer than about three time
+        constants, and it disappears again within a similar time once the target moves at constant speed. This
+        matters for testing: short test moves end before the lag has settled. Our first sweep (20 policy steps per
+        segment, reversals that only braked) therefore showed 1.9\,mm at 0.1\,m/s$^2$; moves that brake \emph{and}
+        reverse, or that run up to the speed cap, accelerate long enough and reached 2.15\,mm
+        (Table~\ref{tab:al-final}).
+\end{enumerate}
+
+\paragraph{The mass in this equation: the apparent mass $\Lambda$ (``8--20\,kg at the tool tip'').} The trade-off
+is severe because the mass that the spring has to accelerate is large. If one pushes the tool tip of
+the arm (joints free, gravity compensated) with a force $F$, the tip starts to accelerate with $\ddot x = \Lambda^{-1}
+F$. $\Lambda$ is the arm's inertia as seen at the tool tip, the \emph{apparent mass} (or operational-space inertia):
+\begin{equation}
+  \Lambda = \left(J M^{-1} J^\top\right)^{-1},
+  \label{eq:al-lambda}
+\end{equation}
+with $M$ the $7\times7$ joint-space mass matrix and $J$ the $6\times7$ tool-tip Jacobian. $\Lambda$ is a $6\times6$
+matrix (force and moment versus linear and angular acceleration) and depends on the pose. Its translational
+diagonal entries say how heavy the arm feels when the tip is pushed along $x$, $y$ or $z$. At the start pose (tool
+tip at $(0.30, 0, 0.55)$\,m in front of the robot, fork horizontal), computed from the simulated FR3:
+\begin{center}
+{\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{lrrr}
+  \toprule
+  Apparent mass, start pose & along $x$ (forward) & along $y$ (sideways) & along $z$ (up) \\
+  \midrule
+  links only & 11.9\,kg & 4.2\,kg & 5.1\,kg \\
+  links + motors' reflected inertia (our simulation) & 20.5\,kg & 7.6\,kg & 10.6\,kg \\
+  \bottomrule
+\end{tabular}}
+\end{center}
+Pushing the tip forward with 20\,N accelerates it at about 1\,m/s$^2$, as if it were a 20\,kg mass; the same push
+sideways gives 2.6\,m/s$^2$. Forward motion needs the heavy shoulder and elbow joints, sideways motion mostly the
+base rotation and the wrist. The second row includes the motors' reflected inertia $n^2 I_\text{motor}$ ($n$: gear
+ratio), which we add to $M$ from Franka's description files: 0.61, 0.61, 0.46, 0.46, 0.21, 0.21, 0.21\,kg\,m$^2$ for
+joints 1--7 (at the wrist about 100 times the link's own inertia). Without these terms the simulated arm oscillated
+and pressed the stem 5 times harder. The lag measurements below give the same value independently: from
+Eq.~\eqref{eq:al-lag}, $\Lambda = K e / a \approx 16$--20\,kg along $x$ at the start pose, and up to 21.5\,kg
+at the far, high start points of the sweep ($x$ 0.60, $z$ 0.45\,m).
+
+\paragraph{How severe the trade-off is for the task.} Turning Eq.~\eqref{eq:al-lag} around: for a largest acceptable lag $e_\text{max}$, the
+target may accelerate at most at
+\begin{equation}
+  a_\text{max} \approx \frac{K\, e_\text{max}}{\Lambda}.
+  \label{eq:al-amax}
+\end{equation}
+With $\Lambda = 21.5$\,kg (the heaviest pose and direction) and $e_\text{max} = 2$\,mm: 0.04\,m/s$^2$ at
+$K = 400$\,N/m and 0.09\,m/s$^2$ at 1000\,N/m. We use 0.08\,m/s$^2$, which leaves about 15\,\% margin (lag
+$\le 1.72$\,mm; measured 1.68\,mm, Table~\ref{tab:al-final}). What this means for the task (the
+target speeds up at $a_\text{max}$ until the speed cap, then brakes at $a_\text{max}$):
+\begin{center}
+{\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{rrrrr}
+  \toprule
+  largest acceleration & time from rest & braking distance & 31\,cm, rest to rest & 31\,cm, rest to rest \\
+  $a_\text{max}$ & to 20\,cm/s & from 20\,cm/s & (20\,cm/s cap) & (10\,cm/s cap) \\
+  \midrule
+  0.05\,m/s$^2$ & 4.0\,s & 40\,cm & 5.0\,s & 5.1\,s \\
+  \textbf{0.08\,m/s}$^\mathbf{2}$ & 2.5\,s & 25\,cm & 3.9\,s & \textbf{4.4\,s} \\
+  0.10\,m/s$^2$ & 2.0\,s & 20\,cm & 3.5\,s & 4.1\,s \\
+  0.25\,m/s$^2$ & 0.8\,s & 8\,cm  & 2.3\,s & 3.5\,s \\
+  0.50\,m/s$^2$ & 0.4\,s & 4\,cm  & 1.9\,s & 3.3\,s \\
+  \bottomrule
+\end{tabular}}
+\end{center}
+31\,cm is the distance from the start pose to the farthest stem tip. The episode lasts 10\,s, and the stem must
+still be pushed after the approach. The cost of a small $a_\text{max}$ is therefore not the top speed but agility:
+the policy must start braking long before it touches the stem and cannot react quickly to how the stem moves.
+
+\paragraph{Why not simply make the episode longer?} A longer episode gives a slow policy time to finish, but it is
+not free. RL learns from simulated experience, so the training time grows roughly in proportion to the simulated
+time per episode: a 20\,s episode costs about twice the training time of a 10\,s episode for the same number of
+attempts. In addition, the reward for reaching the target arrives later after the actions that caused it, which
+makes it harder for the policy to learn which actions were good. We therefore keep 10\,s as long as the task fits,
+and lengthen it only if the trained policy demonstrably runs out of time.
+
+\paragraph{Rotations: the same effect, plus a coupling.} Turning the fork works in the same way: the orientation
+spring $K_o$ must twist to give the rotational inertia an angular acceleration $\alpha$, so the angle lags by about
+$\Lambda_o \alpha / K_o$ ($\Lambda_o$: the rotational part of $\Lambda$). In addition, $\Lambda$ is a full $6\times6$
+matrix: its off-diagonal blocks couple translation and rotation. The reason is geometric: the tool tip is 10--20\,cm
+away from the wrist's joint axes, and the joints that turn the fork also move the tip, while those that move the
+tip also turn the fork. The control law, however, treats position and orientation as two independent springs.
+Two consequences, both measured:
+\begin{itemize}
+  \item \textbf{Tilt while translating.} Accelerating the tip at $a$ needs, besides the force, a moment
+        $\Lambda_{op}\, a$ ($\Lambda_{op}$: off-diagonal block). It comes from the orientation spring, which must twist:
+        the fork tilts by about $\Lambda_{op} a / K_o$. Table~\ref{tab:al-diag} shows the tilt falling with $1/K_o$
+        (2.0$^\circ$ at $K_o = 30$, 0.26$^\circ$ at 300\,N\,m/rad).
+  \item \textbf{Tip drift while turning.} Turning the fork at angular acceleration $\alpha$ needs, besides the moment, a
+        force at the tip, which the position spring supplies by stretching: the tip moves away from its target by
+        about $\Lambda_{po}\,\alpha / K$, although the position command is constant (Tables~\ref{tab:al-rot}
+        and~\ref{tab:al-b1}).
+\end{itemize}
+Both effects scale with the acceleration, like the lag. A controller with inertia feedforward (operational-space
+control, option B3 below) would supply these coupling forces and moments from the model and remove both.
+
+\paragraph{Contact.} When the tool is blocked (e.g.\ pressed against the stem), the target keeps moving and the
+lag becomes force: $K e$. Small lags therefore also mean small unintended forces. A hard bound is added by
+clamping the target: at every control step, $\lVert x_d - x \rVert \le 4$\,mm (spring force $\le 4$\,N at
+$K = 1000$\,N/m) and the angle between target and tool orientation $\le 3^\circ$ (moment $\le 5.2$\,N\,m at
+$K_o = 100$\,N\,m/rad). In free motion the clamp is inactive, because the lag stays below 2\,mm. While it holds the
+target, the target moves with the tool, so the target velocity fed forward is the tool's own velocity: the damper
+then adds no force to the bounded spring force, and the controller does not switch back and forth between holding and
+releasing. Not bounded by the clamp: the momentum of the arm when the moving fork first hits something (as with any
+impedance controller); the policy is meant to learn to approach gently (contact-force and smoothness penalties).
+
+\paragraph{How severe the trade-off will be on the real robot: which $\Lambda$ does the FR3 have?} All numbers above
+use the simulated $\Lambda$. The real arm's $\Lambda$ is not known yet, and two observations from Franka's software
+suggest that it may differ:
+\begin{itemize}
+  \item libfranka (current version, September 2026) computes its model (\texttt{franka::Model::mass}) with the
+        Pinocchio library from the URDF that the robot provides. The FR3 URDF shipped with libfranka's tests has
+        the same link inertias as Franka's description files but \emph{no} motor-inertia entries, and libfranka never
+        sets Pinocchio's rotor-inertia (``armature'') term. So libfranka's mass matrix most likely \emph{excludes}
+        the motors' reflected inertia. (Read in the source code, not yet checked on our robot.)
+  \item The FR3 executes commanded torques with an internal joint torque controller that uses the link-side
+        torque sensors. On the DLR lightweight arms, from which Franka's design derives, such torque feedback
+        reduces the apparent motor inertia. If the FR3 does the same, the real arm feels lighter than our
+        simulation (between the two rows of the table above), and libfranka's model would be the right one.
+\end{itemize}
+How much this matters depends on the option chosen (Section~\ref{sec:al-choices}):
+\begin{center}
+{\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{>{\raggedright\arraybackslash}p{0.24\textwidth}>{\raggedright\arraybackslash}p{0.66\textwidth}}
+  \toprule
+  Option & Role of the real $\Lambda$ \\
+  \midrule
+  B1 (small lag, now) & \textbf{Little}, and this is exactly why small lags transfer well: the unknown $\Lambda$
+    acts on the motion only through the lag. The acceleration limit was sized for $\le 2$\,mm with the simulated
+    $\le 21.5$\,kg; a real arm of 12\,kg would lag 1\,mm, a heavier one (30\,kg) 2.4\,mm. The policy is then wrong by about a
+    millimetre. \textbf{One exception: the damping} $D = 2\sqrt K \Lambda^{1/2}$ is computed from a model of $\Lambda$.
+    Before the first real run we must decide which mass matrix the controller on the robot uses (libfranka's, or
+    libfranka's plus the motor terms); with the wrong one the tool is under- or over-damped. \\
+  \addlinespace
+  B2 (larger lag) & \textbf{More}: with 5\,mm of lag set by the arm, a 40\,\% error in $\Lambda$ shifts the motion by
+    2\,mm. \\
+  \addlinespace
+  B3 (inertia feedforward, later) & \textbf{Central}: the controller supplies the accelerating force from the model
+    of $\Lambda$, so the remaining lag is set by the model error. Requires the identification first. \\
+  \bottomrule
+\end{tabular}}
+\end{center}
+
+% ---------------------------------------------------------------------------------------------------------------------
+\subsection{Measurements}
+\label{sec:al-measurements}
+
+\paragraph{Setup.} Simulation (Isaac Lab, PhysX) of the FR3 with the fork, gravity compensated, no joint friction,
+control period 2\,ms, policy step 32\,ms, no stem (free space). Every test commands the fork with the same commands
+a policy could send, through the full controller.
+
+\paragraph{Commands and limits.} A command is a target step per policy step. Three limits act on it:
+\begin{itemize}
+  \item \emph{speed cap}: the largest step, e.g.\ 3.2\,mm per 32\,ms = 10\,cm/s (rotation: 1.44$^\circ$ = 45$^\circ$/s);
+  \item \emph{acceleration limit}: the largest change of the step from one policy step to the next. A change of
+        0.1\,mm per step means $a = 0.1\,\text{mm}/(32\,\text{ms})^2 \approx 0.1$\,m/s$^2$, 0.08\,mm per step
+        0.08\,m/s$^2$ (rotation: 0.02$^\circ$ per step $\approx$ 20$^\circ$/s$^2$). Commanding ``full speed'' from rest therefore makes the target speed up at
+        this acceleration until the speed cap; commanding ``stop'' makes it brake at the same rate;
+  \item the first design (Table~\ref{tab:al-first}) had a speed cap only, so the target jumped from rest to full
+        speed in one step.
+\end{itemize}
+
+\paragraph{Test moves.} \emph{Straight move}: full command along one axis of the robot base frame ($\pm x$, $\pm y$,
+$\pm z$) for a number of policy steps, then zero command (``hold'') for 45 steps (1.4\,s), during which the target
+brakes and stops. \emph{Reversal}: full command along $+x$, then immediately along $-x$ (same for $y$, $z$), then hold;
+this contains the largest change of velocity. Since 8 October the second segment is twice as long, so that the
+target brakes \emph{and} reverses (before, it only braked to rest). \emph{Full-speed move} (since 8 October): from
+rest up to the speed cap, 10 steps at the cap, then braking to rest (about 16\,cm; rotations about 120$^\circ$),
+one per axis, in a direction with room for it (towards the middle of the workspace; up along $z$).
+\emph{Rotation moves}: the same about the base axes, with zero position command. \emph{Start points}: either the
+start pose only, or 9 points spanning the workspace in which the stems stand (tool tip at $x$ = 0.35 and 0.60\,m,
+$y = \pm0.20$\,m, $z$ = 0.20 and 0.45\,m, plus the start pose). Moves that come within 0.25\,rad of a joint limit
+are reported but not counted (decision 8 October): there the arm, not the controller, limits the motion. This
+concerns the two start points low and close to the robot ($x$ 0.35, $z$ 0.20\,m), where joint 4 is within
+0.21\,rad of its limit.
+
+\paragraph{What is measured (all tables).}
+\begin{itemize}
+  \item \emph{Lag} (following error): the largest distance between the target position and the actual tool-tip
+        position during the move and the hold. The quantity of Eq.~\eqref{eq:al-lag}.
+  \item \emph{Overshoot}: how far the tool tip goes past the target's final position after it stops.
+  \item \emph{Tilt}: the largest change of the fork's orientation during a straight move, although no rotation is
+        commanded.
+  \item \emph{Angle lag}: during rotation moves, the largest angle between the target and the actual orientation.
+  \item \emph{Tip drift}: during rotation moves, the largest displacement of the tool tip, although no translation is
+        commanded.
+\end{itemize}
+Each table reports the worst value over all moves (and start points). The criterion used so far: lag $\le 2$\,mm,
+overshoot $\le 5$\,mm, tilt $\le 1^\circ$; angle lag $\le 2^\circ$, tip drift $\le 2$\,mm.
+
+\begin{table}[h]
+  \centering
+  \caption{\textbf{First design}: speed cap only, no acceleration limit, $K = 400$\,N/m, $K_o = 30$\,N\,m/rad. Straight
+  moves of 30 policy steps at full command from 9 start points, so each move starts with a jump from rest to full speed.
+  Lag measured over the last quarter of each move (as defined at the time), overshoot after it. Worst case over all
+  moves and start points. This design kept the lag below 2\,mm by limiting the speed to 5.5\,cm/s.}
+  \label{tab:al-first}
+  {\renewcommand{\arraystretch}{1.15}
+  \begin{tabular}{rrrr}
+    \toprule
+    speed cap (step per 32\,ms) & speed & lag & overshoot \\
+    \midrule
+    2.0\,mm  & 6.3\,cm/s & 2.25\,mm & 3.9\,mm \\
+    1.75\,mm & 5.5\,cm/s & 1.94\,mm & 3.4\,mm \\
+    1.5\,mm  & 4.7\,cm/s & 1.63\,mm & 2.9\,mm \\
+    \bottomrule
+  \end{tabular}}
+
+  \smallskip
+  {\small Reading: with a cap of 5.5\,cm/s and 7.8$^\circ$/s the approach to a far stem took more than half of the
+  episode, and a 90$^\circ$ turn did not fit in one. We therefore raised the caps to 20\,cm/s and 45$^\circ$/s and
+  added the acceleration limit; Tables~\ref{tab:al-time}--\ref{tab:al-b1} show what that does.}
+\end{table}
+
+\begin{table}[h]
+  \centering
+  \caption{\textbf{How the lag evolves over time} (illustrates Eq.~\eqref{eq:al-error}). Start pose, $K = 400$\,N/m,
+  $K_o = 30$\,N\,m/rad. One straight move along $+x$ at full command for 40 policy steps. With the acceleration limit
+  of 0.49\,m/s$^2$ the target speeds up during the first 13 steps (0.42\,s) and then moves at constant speed.
+  Lag of the tool tip behind the target after 10, 20, 30 and 40 policy steps.}
+  \label{tab:al-time}
+  {\renewcommand{\arraystretch}{1.15}
+  \begin{tabular}{lrrrr}
+    \toprule
+    & \multicolumn{4}{c}{lag after $n$ policy steps} \\
+    \cmidrule(lr){2-5}
+    & 10 (0.32\,s) & 20 (0.64\,s) & 30 (0.96\,s) & 40 (1.28\,s) \\
+    & accelerating & constant speed & constant speed & constant speed \\
+    \midrule
+    20\,cm/s, velocity feedforward on  & 9.4\,mm & 10.4\,mm & 4.7\,mm & 1.9\,mm \\
+    10\,cm/s, velocity feedforward on  & 7.7\,mm & 4.7\,mm  & 2.0\,mm & 0.7\,mm \\
+    20\,cm/s, velocity feedforward off & 23\,mm  & 59\,mm   & 75\,mm  & 82\,mm \\
+    \bottomrule
+  \end{tabular}}
+
+  \smallskip
+  {\small With feedforward the lag builds up while the target accelerates and dies out at constant speed (case 1 and 2
+  of Section~\ref{sec:al-problem}); without it, the lag grows towards $D\dot x_d/K$. Switching off the null-space
+  spring gave the same numbers.}
+\end{table}
+
+\begin{table}[h]
+  \centering
+  \caption{\textbf{Effect of the stiffnesses $K$ and $K_o$.} Start pose, speed cap 20\,cm/s. A straight move along $+x$
+  at full command for 25 policy steps (0.8\,s, enough to reach about the speed cap), hold for 45 steps, then the same
+  along $-x$ and hold. Two acceleration limits (columns). Largest lag of the tool tip and largest tilt of the fork
+  over the whole test.}
+  \label{tab:al-diag}
+  {\renewcommand{\arraystretch}{1.15}
+  \begin{tabular}{rrrrrr}
+    \toprule
+    & & \multicolumn{2}{c}{acceleration 0.24\,m/s$^2$} & \multicolumn{2}{c}{acceleration 0.49\,m/s$^2$} \\
+    \cmidrule(lr){3-4} \cmidrule(lr){5-6}
+    $K$ [N/m] & $K_o$ [N\,m/rad] & lag & tilt & lag & tilt \\
+    \midrule
+    400  & 30  & 9.7\,mm  & 1.80$^\circ$ & 13.6\,mm & 2.40$^\circ$ \\
+    400  & 100 & 10.5\,mm & 0.66$^\circ$ & 14.4\,mm & 0.84$^\circ$ \\
+    400  & 300 & 10.6\,mm & 0.23$^\circ$ & 14.8\,mm & 0.29$^\circ$ \\
+    1000 & 30  & 4.0\,mm  & 2.03$^\circ$ & 6.4\,mm  & 2.69$^\circ$ \\
+    1000 & 100 & 4.6\,mm  & 0.73$^\circ$ & 7.1\,mm  & 1.00$^\circ$ \\
+    1000 & 300 & 4.8\,mm  & 0.26$^\circ$ & 7.5\,mm  & 0.37$^\circ$ \\
+    \bottomrule
+  \end{tabular}}
+
+  \smallskip
+  {\small Reading: the lag depends on $K$ (2.5 times stiffer, about 2.4 times less lag) and on the acceleration, hardly
+  on $K_o$; the tilt depends on $K_o$ (10 times stiffer, about 8 times less tilt). Every entry fails the 2\,mm criterion.}
+\end{table}
+
+\begin{table}[h]
+  \centering
+  \caption{\textbf{Workspace sweep at $K = 1000$\,N/m, $K_o = 30$\,N\,m/rad}, caps 20\,cm/s and 45$^\circ$/s. At each
+  start point: straight moves along $\pm x, \pm y, \pm z$ and reversals in $x, y, z$ (30 policy steps per segment, then
+  hold), then the same as rotations about the base axes. Each row is one pair of acceleration limits (translation,
+  rotation). Worst case over all moves and over the five start points closest to the robot: from the start points at
+  $x = 0.60$\,m these moves of up to 20\,cm ran to the edge of the arm's reach, which is a flaw of the test, not of the
+  controller.}
+  \label{tab:al-rot}
+  {\renewcommand{\arraystretch}{1.15}
+  \begin{tabular}{rrrrrr}
+    \toprule
+    \multicolumn{3}{c}{translation moves} & \multicolumn{3}{c}{rotation moves} \\
+    \cmidrule(lr){1-3} \cmidrule(lr){4-6}
+    acceleration limit & lag & tilt & angular acceleration limit & angle lag & tip drift \\
+    \midrule
+    0.24\,m/s$^2$ & 5.0\,mm  & 3.0$^\circ$ & 20$^\circ$/s$^2$  & 9.9$^\circ$$^*$ & 14.0\,mm$^*$ \\
+    0.49\,m/s$^2$ & 8.5\,mm  & 5.0$^\circ$ & 49$^\circ$/s$^2$  & 4.7$^\circ$ & 4.0\,mm \\
+    0.73\,m/s$^2$ & 11.0\,mm & 5.7$^\circ$ & 98$^\circ$/s$^2$  & 6.8$^\circ$ & 7.0\,mm \\
+    0.98\,m/s$^2$ & 12.6\,mm & 6.1$^\circ$ & 195$^\circ$/s$^2$ & 9.4$^\circ$ & 14.3\,mm \\
+    \bottomrule
+  \end{tabular}}
+
+  \smallskip
+  {\small Reading: all rows fail the criterion; the lag grows with the acceleration as expected, the tilt is large
+  because $K_o$ is soft. $^*$ one start point ($x$ 0.35, $y$ 0.20, $z$ 0.45\,m), reversal about $x$; at the other four
+  points at most 4.1$^\circ$ / 3.7\,mm. Not yet understood (likely a wrist joint near its limit).}
+\end{table}
+
+\begin{table}[h]
+  \centering
+  \caption{\textbf{Workspace sweep for the interim choice of 7 October: $K = 1000$\,N/m, $K_o = 100$\,N\,m/rad}, caps
+  20\,cm/s and 45$^\circ$/s, smaller acceleration limits. Same moves as Table~\ref{tab:al-rot} but 20 policy steps per
+  segment (moves of at most about 6\,cm, so all 9 start points are valid). Worst case over all moves and all 9 start
+  points. \emph{Superseded by Table~\ref{tab:al-final}}: these moves reached at most 2\,mm per step (6.25\,cm/s), not
+  the caps, and the reversals only braked, so the lag had not settled.}
+  \label{tab:al-b1}
+  {\renewcommand{\arraystretch}{1.15}
+  \begin{tabular}{rrrrrrr}
+    \toprule
+    \multicolumn{4}{c}{translation moves} & \multicolumn{3}{c}{rotation moves} \\
+    \cmidrule(lr){1-4} \cmidrule(lr){5-7}
+    acceleration limit & lag & overshoot & tilt & angular accel.\ limit & angle lag & tip drift \\
+    \midrule
+    0.05\,m/s$^2$ & 1.3\,mm & 0.9\,mm & 0.17$^\circ$ & 10$^\circ$/s$^2$ & 0.30$^\circ$ & 0.55\,mm \\
+    \textbf{0.10\,m/s}$^\mathbf{2}$ & \textbf{1.9\,mm} (2.4$^*$) & \textbf{1.8\,mm} & \textbf{0.33}$^\circ$ &
+      \textbf{20}$^\circ$\textbf{/s}$^\mathbf{2}$ & \textbf{0.51}$^\circ$ & \textbf{1.35\,mm} \\
+    0.15\,m/s$^2$ & 2.9\,mm (3.5$^*$) & 2.6\,mm & 0.47$^\circ$ & 39$^\circ$/s$^2$ & 1.31$^\circ$ & 4.41\,mm \\
+    \bottomrule
+  \end{tabular}}
+
+  \smallskip
+  {\small Reading: the criterion (lag $\le 2$\,mm, tilt $\le 1^\circ$, angle lag $\le 2^\circ$, tip drift $\le 2$\,mm)
+  is met at 0.1\,m/s$^2$ and 20$^\circ$/s$^2$ (bold, chosen) and fails at 0.15\,m/s$^2$ / 39$^\circ$/s$^2$. The lag
+  of 1.9\,mm matches Eq.~\eqref{eq:al-lag} with $\Lambda \approx 20$\,kg. $^*$ at the two start points low and close
+  to the robot ($x$ 0.35, $z$ 0.20\,m), where joint 4 is within 0.21\,rad of its limit; the task will keep the tool
+  away from there.}
+\end{table}
+
+\begin{table}[h]
+  \centering
+  \caption{\textbf{Revised sweep (8 October): real reversals and full-speed moves.} $K = 1000$\,N/m,
+  $K_o = 100$\,N\,m/rad, rotation limits unchanged (45$^\circ$/s, 20$^\circ$/s$^2$). \emph{Short moves}: as in
+  Table~\ref{tab:al-b1}, but reversals that brake and reverse. \emph{Full speed}: one move per axis up to the cap and
+  back to rest. Worst case over the counted moves of the 9 start points (moves within 0.25\,rad of a joint limit are
+  not counted).}
+  \label{tab:al-final}
+  {\renewcommand{\arraystretch}{1.15}
+  \begin{tabular}{rrrrrrrr}
+    \toprule
+    & & \multicolumn{3}{c}{short moves, real reversals} & \multicolumn{3}{c}{full speed} \\
+    \cmidrule(lr){3-5} \cmidrule(lr){6-8}
+    accel.\ limit & speed cap & lag & overshoot & tilt & lag & overshoot & moves counted \\
+    \midrule
+    0.10\,m/s$^2$ & 20\,cm/s & 2.15\,mm & 1.65\,mm & 0.35$^\circ$ & 3.35\,mm$^*$ & 3.01\,mm & 7 of 27 \\
+    0.10\,m/s$^2$ & 10\,cm/s & 2.15\,mm & 1.65\,mm & 0.35$^\circ$ & 2.00\,mm & 1.93\,mm & 21 of 27 \\
+    \textbf{0.08\,m/s}$^\mathbf{2}$ & \textbf{10\,cm/s} & \textbf{1.68\,mm} & \textbf{1.32\,mm} & \textbf{0.27}$^\circ$ &
+      \textbf{1.65\,mm} & \textbf{1.58\,mm} & 21 of 27 \\
+    \bottomrule
+  \end{tabular}}
+
+  \smallskip
+  {\small Reading: at 0.1\,m/s$^2$ the real reversals at the far, high points ($x$ 0.60, $z$ 0.45\,m) lag 2.15\,mm,
+  i.e.\ $\Lambda \approx 21.5$\,kg in Eq.~\eqref{eq:al-lag}, just above the criterion. At 20\,cm/s a full-speed move is
+  about 42\,cm long and leaves the comfortable workspace: only 7 of 27 moves stay clear of the joint limits, and the
+  counted ones lag up to 3.35\,mm ($^*$ start pose, $+y$, while braking far out; two further moves ran beyond the
+  arm's reach). At 10\,cm/s all full-speed moves of the 7 counted start points fit. \textbf{0.08\,m/s$^2$ and
+  10\,cm/s} (bold, chosen) meet the criterion everywhere with about 15\,\% margin. Rotations at the same limits: angle
+  lag $\le 0.62^\circ$, tip drift $\le 1.23$\,mm (full-speed turns of about 120$^\circ$ about $x$ and $y$ reach the
+  wrist's joint limits at most points, so only 1--2 of 3 turns per point are counted). Not counted: the two points
+  near joint 4's limit lag up to 2.3\,mm.}
+\end{table}
+
+\clearpage
+% ---------------------------------------------------------------------------------------------------------------------
+\subsection{Design choices and their trade-offs}
+\label{sec:al-choices}
+These are the building blocks of the design. Every one moves the balance between \emph{transfer robustness}
+(small lag, so that the motion is set by the controller), \emph{agility} (how fast the policy can move and react),
+\emph{gentleness} (forces on the plant) and \emph{effort} (implementation, identification, training time). The
+current value is given in the first column.
+
+\paragraph{Controller (what turns the target into torques).}
+\begin{center}
+{\small\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{>{\raggedright\arraybackslash}p{0.16\textwidth}>{\raggedright\arraybackslash}p{0.23\textwidth}>{\raggedright\arraybackslash}p{0.245\textwidth}>{\raggedright\arraybackslash}p{0.245\textwidth}}
+  \toprule
+  Building block (current) & What it is & Gains & Costs \\
+  \midrule
+  Translational stiffness $K$ \newline (\textbf{1000\,N/m}, was 400)
+    & spring between target and tool position. Franka's examples use 150--400\,N/m; Franka's internal Cartesian
+      impedance accepts up to 3000\,N/m
+    & lag $\propto 1/K$, so $a_\text{max} \propto K$ (Eq.~\ref{eq:al-amax}); less position error from joint friction on
+      the real arm (error $\approx$ friction$/K$)
+    & more force per mm of lag on contact; the damping grows with $\sqrt K$, so encoder noise and loop delay matter
+      more; stability margin on the real robot to be checked \\
+  \addlinespace\cmidrule(lr){1-4}\addlinespace
+  Rotational stiffness $K_o$ \newline (\textbf{100\,N\,m/rad}, was 30)
+    & spring between target and tool orientation (10--300\,N\,m/rad)
+    & tilt $\propto 1/K_o$ while translating (Table~\ref{tab:al-diag}); smaller angle lag when turning
+    & twists a stem caught in the fork more stiffly; same noise/stability caveat as $K$ \\
+  \addlinespace\cmidrule(lr){1-4}\addlinespace
+  Damping $D$ \newline (\textbf{$2\sqrt K\Lambda^{1/2}$})
+    & damper between target and tool velocity
+    & critical in every pose and direction; Franka's $2\sqrt K$ (critical only for 1\,kg) overshot by up to 7\,mm
+    & uses the model of $\Lambda$ (only for the damping) \\
+  \addlinespace\cmidrule(lr){1-4}\addlinespace
+  Velocity feedforward $\dot x_d$ \newline (\textbf{on})
+    & the damper acts on the velocity \emph{difference}, not on the tool velocity; while the clamp holds the target,
+      $\dot x_d$ is the tool's velocity (the held target moves with the tool)
+    & no lag at constant speed (without it: 82\,mm at 20\,cm/s, Table~\ref{tab:al-time}); no damping force on top of
+      the clamp's bound
+    & none found \\
+  \addlinespace\cmidrule(lr){1-4}\addlinespace
+  Inertia feedforward \newline $J^\top\Lambda\ddot x_d$ \newline (\textbf{off}; option B3)
+    & the controller supplies the force needed to accelerate the arm from the model (operational-space
+      control~\cite{al-khatib1987}) instead of waiting for the spring to stretch
+    & lag drops to $\Delta\Lambda\, a / K$, set only by the \emph{model error} $\Delta\Lambda$ (20\,\% error: 5 times less
+      lag); also removes the tilt and tip drift from the coupling
+    & the motion now depends on the model of $\Lambda$ (libfranka on the robot); needs the motor-inertia question
+      settled and the model checked (identification) \\
+  \addlinespace\cmidrule(lr){1-4}\addlinespace
+  Control period \newline (\textbf{2\,ms} sim, 1\,ms robot)
+    & how often the law is evaluated
+    & 1\,ms in sim matches the robot exactly
+    & simulation twice as slow, so training twice as long \\
+  \bottomrule
+\end{tabular}}
+\end{center}
+
+\clearpage
+\paragraph{Commands (what the policy outputs, and the limits on it).}
+\begin{center}
+{\small\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{>{\raggedright\arraybackslash}p{0.16\textwidth}>{\raggedright\arraybackslash}p{0.23\textwidth}>{\raggedright\arraybackslash}p{0.245\textwidth}>{\raggedright\arraybackslash}p{0.245\textwidth}}
+  \toprule
+  Building block (current) & What it is & Gains & Costs \\
+  \midrule
+  Speed cap \newline (\textbf{10\,cm/s, 45$^\circ$/s}; 20\,cm/s until 8 Oct.)
+    & largest target step per policy step
+    & the policy can approach and turn within one episode; 10\,cm/s is reached and left again within about 13\,cm,
+      i.e.\ within the stem area
+    & 20\,cm/s needed 42\,cm to reach and leave, more than the stem area, and lagged up to 3.35\,mm on such moves
+      (Table~\ref{tab:al-final}) \\
+  \addlinespace\cmidrule(lr){1-4}\addlinespace
+  Acceleration limit \newline (\textbf{0.08\,m/s$^2$, 20$^\circ$/s$^2$}; 0.1\,m/s$^2$ until 8 Oct.)
+    & largest change of the target step from one policy step to the next
+    & \emph{the} knob for the lag (Eq.~\ref{eq:al-lag}); part of the policy-side code, so identical in sim and on the
+      robot; the policy sees the applied step, so it can learn the limit
+    & less agility: long time to speed and long braking distance (table in Section~\ref{sec:al-problem}) \\
+  \addlinespace\cmidrule(lr){1-4}\addlinespace
+  Lag criterion $e_\text{max}$ \newline (\textbf{2\,mm, 2$^\circ$})
+    & how much lag we accept; sets the acceleration limit via Eq.~\eqref{eq:al-amax}
+    & smaller: the motion depends less on the arm's dynamics (better transfer~\cite{al-aljalbout2024})
+    & smaller $a_\text{max}$; a larger value (e.g.\ 5\,mm, option B2) gives 2.5 times more acceleration \\
+  \addlinespace\cmidrule(lr){1-4}\addlinespace
+  Low-pass filter on the commands \newline (\textbf{not used})
+    & smooths the commands instead of limiting their change
+    & smooth motion; common in sim-to-real
+    & adds hidden state; Ref.~\cite{al-aljalbout2024} saw learning collapse with a limiter the policy could not see;
+      no hard bound on the acceleration \\
+  \addlinespace\cmidrule(lr){1-4}\addlinespace
+  Target clamp \newline $\lVert x_d - x\rVert \le e_\text{clamp}$ \newline (\textbf{4\,mm, 3$^\circ$}, every control
+    step)
+    & the target is never further than $e_\text{clamp}$ from the measured tool; checked at every control step, not
+      once per policy step (which would also cut steps in free motion)
+    & hard bound on the spring force when the tool is blocked: 4\,mm $\times$ 1000\,N/m = 4\,N (about 3 times the
+      measured push forces of 0.8--1.4\,N), 3$^\circ \times$ 100\,N\,m/rad = 5.2\,N\,m (43\,\% of the FR3's 12\,N\,m
+      wrist torque limit; 10$^\circ$ would exceed it), even if the policy keeps pushing
+    & must stay above the free-space lag (2\,mm), otherwise it acts while moving; while it acts, the target does not
+      follow the commands (the policy sees this in the applied step); runs in the 1\,kHz loop on the robot \\
+  \addlinespace\cmidrule(lr){1-4}\addlinespace
+  Policy rate \newline (\textbf{31.25\,Hz})
+    & how often the policy sends a new step
+    & higher: finer commands, quicker reaction
+    & more policy evaluations per second of simulation, so longer training; more sensitive to latency \\
+  \addlinespace\cmidrule(lr){1-4}\addlinespace
+  Action space \newline (\textbf{Cartesian steps on the previous target})
+    & alternatives: joint velocities, Cartesian velocities, absolute poses, joint torques
+    & joint velocities transferred best in Ref.~\cite{al-aljalbout2024} (stiff joint-level tracking)
+    & joint velocities: no Cartesian compliance at contact, which matters for a fragile stem; torques: motion set by
+      the dynamics alone, could not be transferred safely~\cite{al-aljalbout2024} \\
+  \bottomrule
+\end{tabular}}
+\end{center}
+
+\clearpage
+\paragraph{Task and training.}
+\begin{center}
+{\small\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{>{\raggedright\arraybackslash}p{0.16\textwidth}>{\raggedright\arraybackslash}p{0.23\textwidth}>{\raggedright\arraybackslash}p{0.245\textwidth}>{\raggedright\arraybackslash}p{0.245\textwidth}}
+  \toprule
+  Building block (current) & What it is & Gains & Costs \\
+  \midrule
+  Episode length \newline (\textbf{10\,s})
+    & how long the policy has per attempt
+    & longer: a slow approach still leaves time to push the stem
+    & training time grows about in proportion; the reward comes later after the actions that earned it, which makes
+      learning harder \\
+  \addlinespace\cmidrule(lr){1-4}\addlinespace
+  Workspace bound \newline (\textbf{planned})
+    & keep the tool away from poses near joint limits and the edge of the reach
+    & there the lag grows and the real FR3 stops with a reflex
+    & excludes some stem placements \\
+  \addlinespace\cmidrule(lr){1-4}\addlinespace
+  Reward terms \newline (\textbf{planned}: contact force, action rate, joint-limit margin)
+    & penalties the policy learns to avoid, instead of hard limits
+    & the policy learns gentle motion itself, where it matters
+    & soft: no guarantee on the robot \\
+  \addlinespace\cmidrule(lr){1-4}\addlinespace
+  Domain randomization \newline (\textbf{planned}, after a first baseline run)
+    & vary $K$, $K_o$, $\Lambda$ (motor inertia, link masses), latency and friction in training
+    & policy robust to the remaining differences between sim and real~\cite{al-peng2018}
+    & ranges must be realistic; too wide makes the policy cautious and slow to train \\
+  \addlinespace\cmidrule(lr){1-4}\addlinespace
+  Identification \newline (\textbf{planned}, before the first real run)
+    & compare libfranka's model with the simulation; record the real arm's response to the same commands
+    & tells how large the dynamics gap is; prerequisite for inertia feedforward and for loosening the criterion
+    & robot time \\
+  \addlinespace\cmidrule(lr){1-4}\addlinespace
+  FR3 safety layer in sim \newline (\textbf{planned})
+    & joint velocity, torque and torque-rate limits and the collision reflex as terminations/penalties
+    & the policy does not learn motions the robot refuses
+    & thresholds must match the robot's configuration \\
+  \bottomrule
+\end{tabular}}
+\end{center}
+
+\paragraph{Main options, in short.}
+\begin{center}
+{\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{>{\raggedright\arraybackslash}p{0.24\textwidth}>{\raggedright\arraybackslash}p{0.18\textwidth}>{\raggedright\arraybackslash}p{0.22\textwidth}>{\raggedright\arraybackslash}p{0.26\textwidth}}
+  \toprule
+  Option & $a_\text{max}$ at 2\,mm lag & Depends on the arm model & Main cost \\
+  \midrule
+  B1: $K$ 1000, $K_o$ 100, no inertia feedforward & 0.08\,m/s$^2$ (measured; 0.1 lags 2.15\,mm) & only through the
+    damping & sluggish \\
+  \addlinespace
+  B2: B1 with a 5\,mm criterion & $\approx 0.25$\,m/s$^2$ & yes: 5\,mm of lag are set by the arm & against the transfer
+    evidence \\
+  \addlinespace
+  B3: B1 + inertia feedforward & $\approx 0.5$\,m/s$^2$ or more (not run) & yes: model of $\Lambda$ & identification
+    first \\
+  \addlinespace
+  Stiffer $K$ (3000\,N/m), no inertia feedforward & $\approx 0.3$\,m/s$^2$ & only through the damping & real-robot
+    stability, contact forces \\
+  \bottomrule
+\end{tabular}}
+\end{center}
+
+% ---------------------------------------------------------------------------------------------------------------------
+\subsection{Plan}
+\label{sec:al-plan}
+Decision (7 October 2026, revised 8 October): \textbf{B1 for the first training and transfer}, B3 (inertia
+feedforward) once a policy trains successfully and the robot's $\Lambda$ has been checked. Values from
+Table~\ref{tab:al-final}: $K = 1000$\,N/m, $K_o = 100$\,N\,m/rad, speed caps 10\,cm/s (3.2\,mm per step) and
+45$^\circ$/s, acceleration limits 0.08\,m/s$^2$ (0.08\,mm per step) and 20$^\circ$/s$^2$ (0.02$^\circ$ per step),
+target clamp 4\,mm and 3$^\circ$ at every control step. On 8 October the speed cap was halved and the acceleration
+limit lowered from 0.1\,m/s$^2$, after moves that run up to the cap and reversals that really reverse showed lags of
+up to 3.35\,mm and 2.15\,mm (Table~\ref{tab:al-final}).
+
+\paragraph{Is this fast enough for the task?} With these limits (speed up, then brake, from rest to rest): the
+farthest stem tip, 31\,cm from the start pose, is reached in 4.4\,s (1.25\,s to reach 10\,cm/s, 1.85\,s at
+10\,cm/s, 1.25\,s braking); a 90$^\circ$ turn takes 4.3\,s (peak 42$^\circ$/s), and turning can happen while
+approaching. That leaves about 5.5\,s of the 10\,s episode for pushing. Braking from 10\,cm/s takes 6\,cm and 1.25\,s.
+We consider this sufficient for a first training. If the trained policy runs out of time, we lengthen the episode
+first (cost: training time) and loosen the limits only after the identification.
+
+% ---------------------------------------------------------------------------------------------------------------------
+\subsection{Questions}
+\label{sec:al-questions}
+\begin{enumerate}
+  \item Is the analysis right: is the lag of a Cartesian impedance controller on the FR3 set by its apparent mass
+        (8--22\,kg at the tool in simulation, half of it from the motors' reflected inertia)?
+  \item Does the FR3's internal joint torque controller reduce the apparent motor inertia (as on the DLR
+        lightweight arms), and is that why libfranka's model leaves the motor inertia out? This decides how the
+        simulation must model the motors, and which mass matrix the damping of our controller should use on the
+        robot.
+  \item Stiffness: is $K = 1000$\,N/m (and $K_o = 100$\,N\,m/rad) in a libfranka torque loop acceptable on our FR3
+        next to a plant? Has the lab run similar gains, and with which velocity filtering?
+  \item Inertia feedforward (option B3): how accurate is libfranka's model in your experience? Has the lab used
+        operational-space control with acceleration feedforward on the FR3?
+  \item Is an acceleration of about 0.08\,m/s$^2$ (1.25\,s to 10\,cm/s) a reasonable limit near a plant, or would
+        you accept larger tracking errors for more agility?
+  \item Which reflexes and thresholds (collision behaviour, joint velocity limits) does the lab configure, so that we
+        model the same ones in simulation?
+\end{enumerate}
+
+{\raggedright
+\begin{thebibliography}{9}
+\bibitem{al-aljalbout2024} E.~Aljalbout, F.~Frank, M.~Karl, P.~van der Smagt. On the role of the action space in
+  robot manipulation learning and sim-to-real transfer. \emph{IEEE Robotics and Automation Letters}, 2024.
+  arXiv:2312.03673.
+\bibitem{al-khatib1987} O.~Khatib. A unified approach for motion and force control of robot manipulators: the
+  operational space formulation. \emph{IEEE Journal on Robotics and Automation}, 3(1), 1987.
+\bibitem{al-peng2018} X.~B.~Peng, M.~Andrychowicz, W.~Zaremba, P.~Abbeel. Sim-to-real transfer of robotic control
+  with dynamics randomization. \emph{IEEE ICRA}, 2018.
+\end{thebibliography}
+}
+% ======================================== END CONTENT ========================================

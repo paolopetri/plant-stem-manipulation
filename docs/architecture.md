@@ -85,12 +85,15 @@ Each model module provides the same functions:
 ## Data flow per step (stage 1)
 
 1. **Action** (6-D): tool-tip translation and rotation step in the robot base frame, integrated into a target pose
-   (at most 1.75 mm and 0.25 deg per policy step) and executed by Franka's Cartesian impedance law with
-   apparent-mass damping (`stem_manip.utils.impedance`, action term `ToolTipImpedanceAction`); the arm is torque
-   controlled, as on the real FR3. Details: `docs/overleaf_folder/open_questions/impedance_action_study.tex`.
+   (speed caps 10 cm/s and 45 deg/s, acceleration limits 0.08 m/s^2 and 20 deg/s^2 per policy step) and executed by
+   Franka's Cartesian impedance law with apparent-mass damping (`stem_manip.utils.impedance`, action term
+   `ToolTipImpedanceAction`); at every physics step the target is kept within 4 mm / 3 deg of the tool
+   (`substep_command`: bounds the contact force to 4 N). The arm is torque controlled, as on the real FR3. Details:
+   `docs/overleaf_folder/open_questions/action_limits_problem.tex`.
 2. **Simulation:** PhysX steps robot and stem (`chain`) together in one solver.
 3. **Observation** (stem state read from the simulation; on the real robot it will come from cameras):
-   tool_tip position and orientation (2 rotation-matrix columns), stem segment poses, position of the stem point of interest, target position, last action.
+   tool_tip position and orientation (2 rotation-matrix columns), applied step and target offset (implemented),
+   stem segment poses, position of the stem point of interest, target position.
    No contact forces. To be reduced to what the perception can deliver.
 4. **Reward / termination:** distance of the stem point to the target, curvature penalty, action
    penalties; terminate on curvature limit, time out, out of bounds. Contact forces (contact sensor) and
