@@ -29,10 +29,47 @@ uv run --extra isaacsim python scripts/check_fr3.py     # FR3 + fork (fork_v2): 
 uv run --extra isaacsim python scripts/check_stem.py    # stem (--stem_model, default cable): pass/fail check
 uv run --extra isaacsim python scripts/sweep_stem_solver.py --test kick   # stem: measure one test (see below)
 uv run --extra isaacsim python scripts/check_contact.py --test slot       # FR3 + fork push the chain stem (see below)
+uv run --extra isaacsim python scripts/check_push_env.py  # push task: controller and action limits (see below)
+uv run --extra isaacsim python scripts/sweep_action_poses.py  # push task: following over the workspace (see below)
+uv run --extra isaacsim isaaclab zero_agent --task StemManip-Push-Position-FR3-v0 --num_envs 4 --max_steps 700
+uv run --extra isaacsim isaaclab random_agent --task StemManip-Push-Position-FR3-v0 --num_envs 4 --max_steps 700
 ```
 
 Simulation scripts run without a window unless a viewer is requested with `--viz newton_gl`.
-Training commands are added once the first task is registered (docs/TODO.md, M4/M5).
+The zero / random agents must be started through the `isaaclab` CLI as above: Isaac Lab's
+`scripts/environments/zero_agent.py` run directly does not register this project's tasks.
+Training commands are added with the first training run (docs/TODO.md, M5).
+
+## Push task: controller checks
+
+`StemManip-Push-Position-FR3-v0` (stage 1). The policy's action is a tool-tip translation and rotation step,
+executed by Franka's Cartesian impedance law with speed caps (10 cm/s, 45 deg/s), acceleration limits (0.08 m/s^2,
+20 deg/s^2) and a target clamp (4 mm / 3 deg, at every physics step). Values and reasons:
+`docs/overleaf_folder/open_questions/action_limits_problem.tex`. Both scripts test the controller without the stem:
+the fork never touches it (the stem stands at x 0.5 m; the clamp test pushes the fork into the ground instead).
+
+```bash
+uv run --extra isaacsim python scripts/check_push_env.py                                       # pass/fail
+uv run --extra isaacsim python scripts/check_push_env.py --num_envs 1 --viz kit --slow_motion 3  # watch it
+uv run --extra isaacsim python scripts/sweep_action_poses.py                # 9 start points, short moves + reversals
+uv run --extra isaacsim python scripts/sweep_action_poses.py --full_speed   # one move per axis up to the caps
+```
+
+| Check (`check_push_env.py`) | Passes if |
+|---|---|
+| shapes | observation (n, 21), action (n, 6), all finite |
+| start pose, holds still | tool tip within 5 mm / 1 deg of the start pose, moves < 1 mm while holding |
+| follows the actions / the rotation | lag <= 2 mm (2 deg), overshoot <= 5 mm (2 deg), tool-tip drift <= 2 mm |
+| step limits | from rest the first step is 0.08 mm / 0.02 deg, then exactly the caps 3.2 mm / 1.44 deg |
+| follows at full speed | lag <= 2 mm at 10 cm/s, angle lag <= 2 deg and drift <= 2 mm at 45 deg/s |
+| target clamp | fork pushed into the ground: target-tool distance <= 4 mm at every physics step, exactly 4 mm while blocked |
+| restart after contact | lifting off, the step changes by at most 0.08 mm per policy step |
+| applied step within the caps | in every phase |
+
+The expected limits are the decided values, not read from the cfg: with an override flag (`--max_step`, ...) those
+checks fail on purpose. A check that comes within 0.25 rad of a joint limit fails as invalid. The sweep uses the same
+criteria; start points (default mode) or moves (`--full_speed`) within 0.25 rad of a joint limit are reported but
+not counted.
 
 ## Stem tests
 
