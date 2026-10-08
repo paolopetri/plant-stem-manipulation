@@ -73,7 +73,7 @@ class ActionsCfg:
 
 @configclass
 class ObservationsCfg:
-    """Policy observations (tool-tip pose and last action so far; stem state and target follow)."""
+    """Policy observations (tool-tip pose, applied step and target offset so far; stem state and target follow)."""
 
     @configclass
     class PolicyCfg(ObsGroup):
@@ -83,7 +83,8 @@ class ObservationsCfg:
         tool_tip_rot = ObsTerm(
             func=mdp.tool_tip_rot6d, params={"body_name": END_EFFECTOR, "offset": tool_tip_offset(END_EFFECTOR)}
         )
-        actions = ObsTerm(func=mdp.last_action)
+        applied_step = ObsTerm(func=mdp.applied_step)
+        target_offset = ObsTerm(func=mdp.target_offset)
 
         def __post_init__(self):
             self.enable_corruption = False

@@ -45,6 +45,7 @@ Much of this code is simulation and RL, where unit tests don't cover everything.
 - Observation/action shapes and value ranges match expectations.
 - Physics sanity: the stem sags under gravity, springs back after release, and deflects when pushed.
 - Reward terms and terminations fire in the cases they should (e.g. curvature limit exceeded).
+- Checks first: set the expected values of `check_*.py`, sweeps and unit tests from the decided values (configs, write-ups, daily notes) before changing the code; never loosen a criterion to make a run pass without the user's decision.
 
 ## Repo layout
 

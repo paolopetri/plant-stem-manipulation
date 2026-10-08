@@ -59,6 +59,11 @@ def rotvec_from_quat(quat: torch.Tensor) -> torch.Tensor:
     return quat[..., :3] * scale
 
 
+def rotvec_between(quat_a: torch.Tensor, quat_b: torch.Tensor) -> torch.Tensor:
+    """Rotation vector (n, 3) [rad], base frame, that turns orientation b into orientation a (a = R b)."""
+    return rotvec_from_quat(_quat_mul(quat_a, _quat_conj(quat_b)))
+
+
 def _limit_norm(vector: torch.Tensor, max_norm: float) -> torch.Tensor:
     """Vectors (n, 3) scaled down to length `max_norm` where they are longer (direction kept)."""
     return vector * (max_norm / vector.norm(dim=-1, keepdim=True).clamp(min=max_norm))
@@ -68,10 +73,12 @@ def _limited_step(
     action: torch.Tensor, max_step: float, prev_step: torch.Tensor | None, max_change: float | None
 ) -> torch.Tensor:
     """Action (n, 3) clipped to [-1, 1] per axis, scaled by max_step, its length limited to max_step; then, if
-    `prev_step` is given, its change from `prev_step` limited to length `max_change`."""
+    `prev_step` and `max_change` are given, its change from `prev_step` limited to length `max_change`. The cap has
+    priority: the result is at most max_step long even after a longer `prev_step` (e.g. where the clamp dragged the
+    target)."""
     step = _limit_norm(action.clamp(-1.0, 1.0) * max_step, max_step)
-    if prev_step is not None:
-        step = prev_step + _limit_norm(step - prev_step, max_change)
+    if prev_step is not None and max_change is not None:
+        step = _limit_norm(prev_step + _limit_norm(step - prev_step, max_change), max_step)
     return step
 
 
@@ -85,9 +92,9 @@ def integrate_target(
     """New target = previous target + step (IndustReal's policy-level action integrator, PLAI).
 
     The action (n, 3) is clipped to [-1, 1] per axis and scaled by `max_step` [m]; the step's length is then
-    limited to `max_step` (speed cap). With `prev_step` (n, 3) [m] the change of the step per policy step is limited
-    to length `max_change` [m] (acceleration limit: keeps the tracking error small; Overleaf controller section).
-    Returns (new target, step).
+    limited to `max_step` (speed cap). With `prev_step` (n, 3) [m] and `max_change` the change of the step per policy
+    step is limited to length `max_change` [m] (acceleration limit: keeps the tracking error small; Overleaf
+    controller section). Returns (new target, step).
     """
     step = _limited_step(action, max_step, prev_step, max_change)
     return target + step, step
@@ -103,29 +110,74 @@ def integrate_orientation(
     """New target orientation = rotation step applied to the previous target orientation (PLAI for rotation).
 
     The action (n, 3) is a rotation vector in the robot base frame, clipped to [-1, 1] per axis and scaled by
-    `max_rot_step` [rad]; its angle is then limited to `max_rot_step`. With `prev_step` (n, 3) [rad] the change of the
-    rotation vector per policy step is limited to `max_change` [rad]. Returns (new target quaternion, rotation
-    step (n, 3) [rad]).
+    `max_rot_step` [rad]; its angle is then limited to `max_rot_step`. With `prev_step` (n, 3) [rad] and `max_change`
+    the change of the rotation vector per policy step is limited to `max_change` [rad]. Returns (new target
+    quaternion, rotation step (n, 3) [rad]).
     """
     step = _limited_step(action, max_rot_step, prev_step, max_change)
     quat = _quat_mul(quat_from_rotvec(step), target_quat)  # base-frame rotation: applied from the left
     return quat / quat.norm(dim=-1, keepdim=True), step
 
 
-def clamp_target_offset(target: torch.Tensor, pos: torch.Tensor, max_offset: float) -> torch.Tensor:
+def clamp_target_offset(
+    target: torch.Tensor, pos: torch.Tensor, max_offset: float
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Target position (n, 3) moved towards the tool position `pos` so that it is at most `max_offset` [m] away.
 
     Bounds the spring force of the law to K_p * max_offset when the tool is blocked (e.g. pushed against something).
+    Returns (clamped target, held (n,) bool: where the clamp acted).
     """
-    return pos + _limit_norm(target - pos, max_offset)
+    offset = target - pos
+    distance = offset.norm(dim=-1, keepdim=True)
+    held = distance > max_offset
+    return torch.where(held, pos + offset * (max_offset / distance), target), held.squeeze(-1)
 
 
-def clamp_target_rot_offset(target_quat: torch.Tensor, quat: torch.Tensor, max_angle: float) -> torch.Tensor:
+def clamp_target_rot_offset(
+    target_quat: torch.Tensor, quat: torch.Tensor, max_angle: float
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Target orientation (n, 4) turned towards the tool orientation `quat` so that the rotation between them is at
-    most `max_angle` [rad] (bounds the spring moment to K_o * max_angle)."""
-    offset = rotvec_from_quat(_quat_mul(target_quat, _quat_conj(quat)))  # base frame: tool -> target
-    clamped = _quat_mul(quat_from_rotvec(_limit_norm(offset, max_angle)), quat)
-    return clamped / clamped.norm(dim=-1, keepdim=True)
+    most `max_angle` [rad] (bounds the spring moment to K_o * max_angle). Returns (clamped target, held (n,) bool)."""
+    offset = rotvec_between(target_quat, quat)  # base frame: tool -> target
+    angle = offset.norm(dim=-1, keepdim=True)
+    held = angle > max_angle
+    clamped = _quat_mul(quat_from_rotvec(offset * (max_angle / angle.clamp(min=max_angle))), quat)
+    return torch.where(held, clamped / clamped.norm(dim=-1, keepdim=True), target_quat), held.squeeze(-1)
+
+
+def substep_command(
+    target_start: torch.Tensor,
+    target_quat_start: torch.Tensor,
+    step: torch.Tensor,
+    fraction: float,
+    pos: torch.Tensor,
+    quat: torch.Tensor,
+    tool_vel: torch.Tensor,
+    tool_ang_vel: torch.Tensor,
+    policy_dt: float,
+    max_offset: float,
+    max_rot_offset: float,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Target pose and velocity the law uses at one physics (torque-loop) step within a policy step.
+
+    The target moves linearly (turns at constant rate) from (`target_start`, `target_quat_start`) by `step` (n, 6:
+    translation [m], rotation vector [rad]) over the policy step; `fraction` in (0, 1] is the elapsed part. It is then
+    clamped to `max_offset` [m] / `max_rot_offset` [rad] from the measured tool pose (`pos`, `quat`): bounds the
+    spring force and moment when the tool is blocked, inactive in free motion (the distance is the lag there). The
+    feedforward velocity is the step's velocity; where the clamp holds the target, the target moves with the tool,
+    so its velocity is the tool's (`tool_vel`, `tool_ang_vel`): the damping then adds no force to the bounded spring
+    force. Runs at the physics rate in simulation and in the 1 kHz loop on the real FR3.
+    Returns (target position (n, 3), target orientation (n, 4), target velocity (n, 3), target angular velocity
+    (n, 3)).
+    """
+    target_pos, held = clamp_target_offset(target_start + fraction * step[:, :3], pos, max_offset)
+    target_quat = _quat_mul(quat_from_rotvec(fraction * step[:, 3:]), target_quat_start)
+    target_quat, held_rot = clamp_target_rot_offset(
+        target_quat / target_quat.norm(dim=-1, keepdim=True), quat, max_rot_offset
+    )
+    target_vel = torch.where(held.unsqueeze(-1), tool_vel, step[:, :3] / policy_dt)
+    target_ang_vel = torch.where(held_rot.unsqueeze(-1), tool_ang_vel, step[:, 3:] / policy_dt)
+    return target_pos, target_quat, target_vel, target_ang_vel
 
 
 def _sqrtm_spd(matrix: torch.Tensor) -> torch.Tensor:

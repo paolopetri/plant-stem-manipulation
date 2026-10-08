@@ -5,15 +5,19 @@ import math
 import torch
 
 from stem_manip.utils.impedance import (
+    _quat_conj,
+    _quat_mul,
     apparent_mass_damping,
     cartesian_impedance_torque,
     clamp_target_offset,
     clamp_target_rot_offset,
     integrate_orientation,
     integrate_target,
-    quat_from_rotvec,
     limit_torque_rate,
+    quat_from_rotvec,
+    rotvec_between,
     rotvec_from_quat,
+    substep_command,
 )
 
 N, M = 2, 7
@@ -185,6 +189,17 @@ def test_rotation_step_change_is_limited():
     assert torch.allclose(step, prev - torch.tensor([[0.0, 0.0, max_change]]), atol=1e-9)
 
 
+def test_speed_cap_holds_after_a_longer_previous_step():
+    """The cap has priority over the step-change limit: after a step longer than the cap (the clamp dragged the
+    target along with a fast tool), the next step is at most the cap, for translation and rotation."""
+    prev = torch.tensor([[0.01, 0.0, 0.0], [0.0, 0.0, -0.008]])
+    action = torch.tensor([[1.0, 0.0, 0.0], [0.0, 0.0, -1.0]])
+    _, step = integrate_target(torch.zeros(N, 3), action, 0.0064, prev, 1e-4)
+    assert (step.norm(dim=-1) <= 0.0064 + 1e-9).all()
+    _, rot_step = integrate_orientation(torch.tensor([[0.0, 0.0, 0.0, 1.0]] * N), action, 0.02513, 3 * prev, 0.000349)
+    assert (rot_step.norm(dim=-1) <= 0.02513 + 1e-9).all()
+
+
 def test_rotvec_from_quat_inverts_quat_from_rotvec():
     """Round trip for zero, small and large rotations; q and -q give the same rotation vector."""
     rotvec = torch.tensor([[0.0, 0.0, 0.0], [1e-8, 0.0, 0.0], [0.3, -0.2, 0.1], [0.0, 3.0, 0.0]])
@@ -197,7 +212,8 @@ def test_clamp_target_offset():
     """Offsets inside the bound are kept; outside, the target is pulled back along the offset to the bound."""
     pos = torch.tensor([[0.1, 0.2, 0.3], [0.1, 0.2, 0.3]])
     target = pos + torch.tensor([[0.005, 0.0, 0.0], [0.0, 0.03, 0.04]])
-    clamped = clamp_target_offset(target, pos, 0.01)
+    clamped, held = clamp_target_offset(target, pos, 0.01)
+    assert held.tolist() == [False, True]
     assert torch.allclose(clamped[0], target[0])
     assert torch.allclose(clamped[1] - pos[1], torch.tensor([0.0, 0.006, 0.008]), atol=1e-7)
 
@@ -206,10 +222,64 @@ def test_clamp_target_rot_offset():
     """A 30 deg target offset about x is reduced to 10 deg about the same axis; a 5 deg offset is kept."""
     tool = quat_from_rotvec(torch.tensor([[0.0, 0.0, 0.7], [0.0, 0.0, 0.7]]))
     offsets = torch.tensor([[math.radians(5.0), 0.0, 0.0], [math.radians(30.0), 0.0, 0.0]])
-    from stem_manip.utils.impedance import _quat_mul, _quat_conj
-
     target = _quat_mul(quat_from_rotvec(offsets), tool)
-    clamped = clamp_target_rot_offset(target, tool, math.radians(10.0))
+    clamped, held = clamp_target_rot_offset(target, tool, math.radians(10.0))
+    assert held.tolist() == [False, True]
     remaining = rotvec_from_quat(_quat_mul(clamped, _quat_conj(tool)))
     assert torch.allclose(remaining[0], offsets[0], atol=1e-6)
     assert torch.allclose(remaining[1], torch.tensor([math.radians(10.0), 0.0, 0.0]), atol=1e-6)
+
+
+def test_rotvec_between():
+    """Rotation vector (base frame) from orientation b to orientation a: a = R(v) b."""
+    b = quat_from_rotvec(torch.tensor([[0.0, 0.0, 0.7], [0.3, -0.2, 0.1]]))
+    v = torch.tensor([[0.1, 0.0, 0.0], [0.0, -0.05, 0.02]])
+    assert torch.allclose(rotvec_between(_quat_mul(quat_from_rotvec(v), b), b), v, atol=1e-6)
+
+
+def test_integrate_target_without_change_limit():
+    """`prev_step` without `max_change` means no change limit (not an error)."""
+    target, step = integrate_target(torch.zeros(N, 3), torch.ones(N, 3), 0.0032, torch.zeros(N, 3))
+    assert torch.allclose(step.norm(dim=-1), torch.full((N,), 0.0032))
+    assert torch.allclose(target, step)
+
+
+SUBSTEP = {"policy_dt": 0.032, "max_offset": 0.004, "max_rot_offset": math.radians(3.0)}
+
+
+def test_substep_command_free_motion():
+    """Free motion: the target is interpolated through the step, the clamp is inactive and the feedforward velocity
+    is the step's velocity (the tool lags 0.5 mm, far below the bound)."""
+    start = torch.zeros(N, 3)
+    start_quat = quat_from_rotvec(torch.zeros(N, 3))
+    step = torch.tensor([[0.0032, 0.0, 0.0, 0.0, 0.0, 0.0251], [0.0, 0.002, 0.0, 0.01, 0.0, 0.0]])
+    pos = start - torch.tensor([0.0005, 0.0, 0.0])
+    tool_vel = torch.full((N, 3), 0.05)  # must not be used: the target is not held
+    pos_t, quat_t, vel, ang_vel = substep_command(
+        start, start_quat, step, 0.5, pos, start_quat, tool_vel, tool_vel, **SUBSTEP
+    )
+    assert torch.allclose(pos_t, start + 0.5 * step[:, :3])
+    assert torch.allclose(rotvec_between(quat_t, start_quat), 0.5 * step[:, 3:], atol=1e-6)
+    assert torch.allclose(vel, step[:, :3] / 0.032)
+    assert torch.allclose(ang_vel, step[:, 3:] / 0.032)
+
+
+def test_substep_command_blocked():
+    """Blocked tool: the target is held at the bound (4 mm / 3 deg from the tool) and moves with the tool, so the
+    feedforward velocity is the tool's (the damping adds no force on top of the spring); env 1 stays free."""
+    pos = torch.zeros(N, 3)
+    quat = quat_from_rotvec(torch.zeros(N, 3))
+    start = torch.tensor([[0.003, 0.0, 0.0], [0.0, 0.0, 0.0]])  # env 0: target already 3 mm ahead
+    start_quat = quat_from_rotvec(torch.tensor([[0.0, 0.0, math.radians(2.5)], [0.0, 0.0, 0.0]]))
+    step = torch.tensor([[0.0032, 0.0, 0.0, 0.0, 0.0, math.radians(1.44)], [0.001, 0.0, 0.0, 0.0, 0.0, 0.0]])
+    tool_vel = torch.tensor([[0.01, 0.0, 0.0], [0.05, 0.0, 0.0]])
+    tool_ang_vel = torch.tensor([[0.0, 0.0, 0.02], [0.0, 0.0, 0.0]])
+    pos_t, quat_t, vel, ang_vel = substep_command(
+        start, start_quat, step, 1.0, pos, quat, tool_vel, tool_ang_vel, **SUBSTEP
+    )
+    assert torch.allclose(pos_t[0], torch.tensor([0.004, 0.0, 0.0]))
+    assert torch.allclose(rotvec_between(quat_t, quat)[0], torch.tensor([0.0, 0.0, math.radians(3.0)]), atol=1e-6)
+    assert torch.allclose(vel[0], tool_vel[0])
+    assert torch.allclose(ang_vel[0], tool_ang_vel[0])
+    assert torch.allclose(pos_t[1], torch.tensor([0.001, 0.0, 0.0]))  # env 1: free
+    assert torch.allclose(vel[1], step[1, :3] / 0.032)
