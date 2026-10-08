@@ -2,7 +2,8 @@
 % and the measurements behind the chosen values. Written for the supervisors; kept short on purpose.
 % Included by main.tex (\input{open_questions/impedance_action_study}); uses only packages loaded there
 % (amsmath, booktabs). Numbers: scripts/sweep_impedance.py, scripts/sweep_action_poses.py,
-% scripts/check_push_env.py and docs/notes/2026-10-06.md, 2026-10-07.md in the project repo.
+% scripts/check_push_env.py and docs/notes/2026-10-06.md to 2026-10-08.md in the project repo. Current values and
+% their derivation: action_limits_problem.tex (Section sec:al).
 
 % ======================================= BEGIN CONTENT =======================================
 \section{Open question: robot controller and action space}
@@ -12,27 +13,35 @@
 command for the fork (``move a little this way, turn a little''), and a low-level controller turns these commands
 into motor torques at 1\,kHz. The policy learns how the fork reacts to its commands, so two things must hold for it
 to work on the real robot: (1) the controller in simulation must be the one that runs on the real FR3, with the same
-values, otherwise the fork reacts differently after the transfer; (2) every commanded step must actually be carried
-out within a small, known error, otherwise the policy's commands and the fork's motion drift apart. This section
-proposes the controller, the form of the commands, and how large a step may be.
+values, otherwise the fork reacts differently after the transfer; (2) the fork should follow the commanded steps with
+a small lag. This is not strictly required, since the policy could learn a lag, but with a small lag the motion is
+set by the controller, which is identical in simulation and on the robot, rather than by the arm's dynamics, which
+are not; action spaces that keep the tracking error small transfer better~\cite{aljalbout2024action}. The price is
+agility (Section~\ref{sec:al}). This section proposes the controller, the form of the commands, and how large a step
+may be.
 
 \paragraph{Summary.} The policy commands small steps of the tool's position and orientation. They are executed by
 Franka's Cartesian impedance controller, with one change in the damping, and the \emph{same} controller with the
 \emph{same} values runs in simulation and on the real FR3 (Section~\ref{sec:controller-what}). Successful sim-to-real
-work on Franka robots does the same~\cite{tang2023industreal,frankatwin}. In simulation the tool follows every
-commanded step within 2\,mm at up to 5.5\,cm/s and turns at up to 7.8$^\circ$/s over the workspace
-(Section~\ref{sec:controller-results}). We ask the supervisors to
+work on Franka robots does the same~\cite{tang2023industreal,frankatwin}. In simulation the tool follows the
+commands within 2\,mm (1.68\,mm measured) over the workspace at up to 10\,cm/s and 45$^\circ$/s, with the speed-up
+limited to 0.08\,m/s$^2$ and 20$^\circ$/s$^2$ (Section~\ref{sec:al}; the first design, Section~\ref{sec:controller-results},
+was limited to 5.5\,cm/s and 7.8$^\circ$/s). We ask the supervisors to
 confirm the controller and to tell us about the lab's FR3 setup (end of this section).
 
 \subsection{What we use}
 \label{sec:controller-what}
 
 \paragraph{Action.} Every policy step (31.25\,Hz) the policy outputs a displacement of the tool tip (at most
-1.75\,mm) and a rotation of the fork (rotation vector, at most 0.25$^\circ$), both in the robot's base frame. They
-are applied to the \emph{previous target} pose, not to the measured tool pose (IndustReal's policy-level action
-integrator~\cite{tang2023industreal}), so commanded steps are never lost. Within the policy step the target moves
-and turns at constant rate, and its velocities $\dot x_d$, $\omega_d$ are passed to the controller. The fork
-starts horizontal; its orientation is then free.
+3.2\,mm, i.e.\ 10\,cm/s) and a rotation of the fork (rotation vector, at most 1.44$^\circ$, i.e.\ 45$^\circ$/s), both in
+the robot's base frame. The step may change by at most 0.08\,mm (0.02$^\circ$) from one policy step to the next, which
+limits the acceleration to 0.08\,m/s$^2$ (20$^\circ$/s$^2$) and with it the lag (Section~\ref{sec:al}). The steps are
+applied to the \emph{previous target} pose, not to the measured tool pose (IndustReal's policy-level action
+integrator~\cite{tang2023industreal}), so commanded steps are not lost while the tool moves freely. Within the policy
+step the target moves and turns at constant rate, and its velocities $\dot x_d$, $\omega_d$ are passed to the
+controller. At every control step the target is kept within 4\,mm and 3$^\circ$ of the measured tool pose, which bounds
+the spring force to 4\,N and the moment to 5.2\,N\,m when the fork is blocked; while held, the target moves with the
+tool and its velocity is the tool's. The fork starts horizontal; its orientation is then free.
 
 \paragraph{Control law.} Every control step the joint torques are
 \begin{equation}
@@ -48,8 +57,9 @@ Franka's example controllers~\cite{libfranka,frankaros}, with one change: Franka
 $D = 2\sqrt{K}$, which is critically damped only for a tool of 1\,kg. The arm's inertia felt at the tool,
 $\Lambda = (J M^{-1} J^\top)^{-1}$, is several kilograms and depends on pose and direction. We therefore use
 $D = \Lambda^{1/2} K^{1/2} + K^{1/2} \Lambda^{1/2}$~\cite{albu2003cartesian}, i.e.\ $2\sqrt{K}\,\Lambda^{1/2}$,
-critically damped everywhere. Values: $K_p = 400$\,N/m, $K_o = 30$\,N\,m/rad, $k_\text{ns} = 0.5$\,N\,m/rad (the
-range of Franka's examples), torque change at most 1\,N\,m per ms (Franka's limit).
+critically damped everywhere. Values: $K_p = 1000$\,N/m, $K_o = 100$\,N\,m/rad (stiffer than Franka's examples,
+which use up to 400\,N/m and 30\,N\,m/rad, to keep the lag small; Section~\ref{sec:al}), $k_\text{ns} = 0.5$\,N\,m/rad,
+torque change at most 1\,N\,m per ms (Franka's limit).
 
 \paragraph{Simulation and real robot.}
 \begin{center}
@@ -64,7 +74,9 @@ range of Franka's examples), torque change at most 1\,N\,m per ms (Franka's limi
   Gravity & switched off for the robot & compensated by the robot (fork mass entered as load) \\
   Motor inertia & added to every joint (gear ratio$^2\times$motor inertia, from Franka's description files)
     & physical; whether libfranka's $M$ includes it is to be checked \\
-  Policy & same process, every 32\,ms & Python process, sends targets to the C++ loop every 32\,ms \\
+  Target clamp, feedforward & every 2\,ms, function \texttt{substep\_command} & the same function in C++ in the 1\,kHz loop \\
+  Speed cap, acceleration limit & policy side, every 32\,ms & the same Python code, every 32\,ms \\
+  Policy & same process, every 32\,ms & Python process, sends the step to the C++ loop every 32\,ms \\
   \bottomrule
 \end{tabular}
 \end{center}
@@ -84,6 +96,9 @@ lagged 0.2\,s behind its targets and has no counterpart on the real robot.
 
 \subsection{Results in simulation}
 \label{sec:controller-results}
+
+\emph{These results led to the first design (speed cap only, $K_p = 400$\,N/m, $K_o = 30$\,N\,m/rad, at most
+5.5\,cm/s). They are kept as history; the current values and measurements are in Section~\ref{sec:al}.}
 
 Criterion for ``the step is followed'': while moving, the tool trails the commanded path by at most 2\,mm, and it
 overshoots the end point by at most 5\,mm (fork tilt at most 1$^\circ$); while turning, the angle lags and overshoots
@@ -145,13 +160,12 @@ hold the tool is within 0.5\,mm of the commanded end point in all tests.
   \item The simulated FR3 initially had no motor inertia. Without it the arm oscillated and pressed the stem with
         5\,N instead of 0.85\,N; at the wrist the motor inertia is about 100 times the link inertia.
   \item Turning the fork moves the tool tip: the law treats position and orientation as independent springs, but
-        the arm's dynamics couple them. With the criterion (tip drift $\le 2$\,mm, angles $\le 2^\circ$) rotations are
-        limited to 7.8$^\circ$/s, so a 90$^\circ$ turn takes longer than one 10\,s episode. Decoupling
-        rotation and translation (operational-space control with inertia feedforward~\cite{khatib1987}; needs only
-        the mass matrix, also on the robot), is \textbf{being investigated now} (status 7 October 2026): how much
-        faster the fork can turn, and how robust this is to errors in the robot model. Deciding before the first
-        training avoids retraining after the transfer; the risk is that the real robot's model is less accurate than
-        the simulator's.
+        the arm's dynamics couple them. With the criterion (tip drift $\le 2$\,mm, angles $\le 2^\circ$) the first
+        design limited rotations to 7.8$^\circ$/s. The acceleration limit (Section~\ref{sec:al}) now allows
+        45$^\circ$/s within the criterion. Decoupling rotation and translation by inertia feedforward
+        (operational-space control~\cite{khatib1987}) is option B3 of Section~\ref{sec:al}: planned only after a
+        policy trains successfully and the robot's model has been checked (identification), because it makes the
+        motion depend on the model.
   \item Close to a joint limit the arm lags more; there the real robot would stop. The task will keep the tool away
         from these poses (workspace bound or penalty).
   \item When pushing the stem, contact force (0.8 to 1.4\,N) and curvature (2.0 to 3.2\,1/m, limit 5) depend on
@@ -163,7 +177,8 @@ robot; no joint friction; control period 2\,ms instead of 1\,ms.
 
 \paragraph{Questions.}
 \begin{enumerate}
-  \item Is this controller acceptable next to a plant ($K_p = 400$\,N/m, at most 5.5\,cm/s and 7.8$^\circ$/s)?
+  \item Is this controller acceptable next to a plant ($K_p = 1000$\,N/m, $K_o = 100$\,N\,m/rad, at most 10\,cm/s and
+        45$^\circ$/s, contact force bounded to 4\,N)?
   \item Lab setup: is the Franka Control Interface (torque control) enabled on our FR3, with which system and
         libfranka versions; is there a real-time PC for it; does the lab already use a control stack
         (franka\_ros2, frankapy, own C++) that this controller should be added to?
