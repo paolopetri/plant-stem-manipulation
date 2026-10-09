@@ -3,6 +3,8 @@
 Spawns the model's `stem_cfg()` in a few envs on a ground plane, and checks that the values of
 `stem_params(model)` (`assets/stem/stem.yaml` + `assets/stem/<model>/<model>.yaml`) arrive in the simulator:
 - number of segments; start poses (segment centres on a vertical line above the base, tangent = local +Z up);
+- chain: start poses after a reset to the default state as Isaac Lab's `reset_scene_to_default` writes it (default
+  root pose + env origin): the segment centres stay where they started (the root body's frame is the stem base);
 - total mass against rho * A * L;
 - per-joint stiffness against E I / l (bend), G J / l (twist) and, for the cable, E A / l (stretch, shear)
   (l = segment length);
@@ -80,6 +82,7 @@ PUSH_REL_TOL = 0.10
 FREQUENCY_REL_TOL = 0.15
 DAMPING_RATIO_TOL = 0.02
 SAG_REL_TOL = 0.05
+RESET_SETTLE_TIME = 0.1  # [s] simulated time after the reset to default (chain), before the poses are compared
 RENDER_DT = 1.0 / 30.0  # [s] simulated time between rendered frames with a viewer
 HORIZONTAL_BASE = (0.3, 0.3, 0.5)  # [m] clamped end of the horizontal stem in the env frame
 HORIZONTAL_ROT = (0.0, math.sqrt(0.5), 0.0, math.sqrt(0.5))  # (x, y, z, w): +90 deg about y, stem along +x
@@ -214,6 +217,21 @@ def main() -> None:
                     time.sleep(max(0.0, frame_time - (time.perf_counter() - frame_start)))
                     frame_start = time.perf_counter()
                 yield poses()
+
+        # -- chain: reset to the default state as Isaac Lab's `reset_scene_to_default` does (root pose = default root
+        # pose + env origin, default joints); the stem must come back to its start poses, not move
+        if args_cli.stem_model == "chain":
+            root_pose = stem.data.default_root_pose.torch.clone()
+            root_pose[:, :3] += scene.env_origins
+            stem.write_root_pose_to_sim_index(root_pose=root_pose)
+            stem.write_root_velocity_to_sim_index(root_velocity=stem.data.default_root_vel.torch.clone())
+            stem.write_joint_position_to_sim_index(position=stem.data.default_joint_pos.torch.clone())
+            stem.write_joint_velocity_to_sim_index(velocity=stem.data.default_joint_vel.torch.clone())
+            for _ in run(RESET_SETTLE_TIME):
+                pass
+            reset_err = float((poses()[..., :3] - expected_pos).norm(dim=-1).max())
+            results["start poses after reset"] = (reset_err < POS_TOL, f"max centre error {reset_err:.1e} m")
+            start_poses = poses().clone()
 
         model_module.write_kick(stem, KICK_TIP_SPEED / ((num_segments - 1.5) * segment_length))
 

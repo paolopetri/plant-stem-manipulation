@@ -1,8 +1,10 @@
 """Stem model `chain`: the plant stem as a PhysX articulation of rigid capsule segments with spring joints.
 
-Segment 0 is clamped to the world by a fixed joint. Every other joint connects two neighbouring segments at their
-common end and only rotates (D6 joint, translations locked; PhysX treats it as a spherical joint with 3 DOFs,
-named `joint_<i>:0` twist, `:1` and `:2` bend). Each rotation has a spring and a damper, set as Isaac Lab
+Segment 0 is clamped to the world by a fixed joint. Each segment's body frame sits at its lower end, so segment 0's
+frame (the root body) is the stem base and `init_state.pos` = base position holds at spawn and at a reset;
+`segment_poses` returns the segment centres (the stem interface). Every other joint connects two neighbouring
+segments at their common end and only rotates (D6 joint, translations locked; PhysX treats it as a spherical joint
+with 3 DOFs, named `joint_<i>:0` twist, `:1` and `:2` bend). Each rotation has a spring and a damper, set as Isaac Lab
 implicit actuators: bend E I / l, twist G J / l, damping = `material.damping_time` * stiffness, plus the joint
 `armature` of `chain.yaml`. The chain cannot stretch or shear by construction. Parameters: `stem_params("chain")`,
 i.e. `assets/stem/stem.yaml` + `assets/stem/chain/chain.yaml`. PhysX only: the scene must use `physics_cfg()`.
@@ -38,6 +40,7 @@ import isaaclab.sim as sim_utils
 from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets import Articulation, ArticulationCfg
 from isaaclab.utils import configclass
+from isaaclab.utils.math import quat_apply
 
 from stem_manip.assets.stem import STEM_DIR, stem_params
 
@@ -45,7 +48,13 @@ BUILD_DIR = STEM_DIR / "chain" / "build"
 
 
 def write_chain_usd(path: str, num_segments: int, length: float, diameter: float, density: float) -> None:
-    """Write the chain USD: an upright stem with its base at the origin, segment i centred at (i + 1/2) l."""
+    """Write the chain USD: an upright stem with its base at the origin, segment i from i l to (i + 1) l.
+
+    Each segment's body frame sits at its lower end (the joint below it), with the centre of mass and the capsule
+    l/2 above it: segment 0's frame, the articulation's root body, is the stem base and coincides with the root prim.
+    Isaac Lab writes the default root pose (`init_state.pos` = base position) onto the root body at a reset, so the
+    reset keeps the stem in place (with the frame at the segment centre it moved the stem l/2 down, 2026-10-08).
+    """
     from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics  # needs the running app (Kit's USD), so imported here
 
     segment_length, radius = length / num_segments, diameter / 2
@@ -63,11 +72,11 @@ def write_chain_usd(path: str, num_segments: int, length: float, diameter: float
 
     for i in range(num_segments):
         segment = UsdGeom.Xform.Define(stage, f"/Stem/seg_{i:02d}")
-        segment.AddTranslateOp().Set(Gf.Vec3d(0.0, 0.0, (i + 0.5) * segment_length))
+        segment.AddTranslateOp().Set(Gf.Vec3d(0.0, 0.0, i * segment_length))  # frame at the lower end
         UsdPhysics.RigidBodyAPI.Apply(segment.GetPrim())
         mass_api = UsdPhysics.MassAPI.Apply(segment.GetPrim())
         mass_api.CreateMassAttr(mass)
-        mass_api.CreateCenterOfMassAttr(Gf.Vec3f(0.0))
+        mass_api.CreateCenterOfMassAttr(Gf.Vec3f(0.0, 0.0, 0.5 * segment_length))
         mass_api.CreateDiagonalInertiaAttr(Gf.Vec3f(inertia_bend, inertia_bend, mass * radius**2 / 2))
         # round ends centred on the joints (see the module docstring); the end segments stop at the base / the tip
         capsule = UsdGeom.Capsule.Define(stage, f"/Stem/seg_{i:02d}/collision")
@@ -75,20 +84,19 @@ def write_chain_usd(path: str, num_segments: int, length: float, diameter: float
         capsule.CreateRadiusAttr(radius)
         end_shift = 0.5 * radius if i == 0 else -0.5 * radius if i == num_segments - 1 else 0.0
         capsule.CreateHeightAttr(segment_length - abs(2 * end_shift))  # cylinder part
-        if end_shift:
-            capsule.AddTranslateOp().Set(Gf.Vec3d(0.0, 0.0, end_shift))
+        capsule.AddTranslateOp().Set(Gf.Vec3d(0.0, 0.0, 0.5 * segment_length + end_shift))
         UsdPhysics.CollisionAPI.Apply(capsule.GetPrim())
 
         if i == 0:  # clamp: fixed joint from the world to the bottom end of segment 0
             joint = UsdPhysics.FixedJoint.Define(stage, "/Stem/joints/base")
             joint.CreateBody1Rel().SetTargets([segment.GetPath()])
-            joint.CreateLocalPos1Attr(Gf.Vec3f(0.0, 0.0, -0.5 * segment_length))
+            joint.CreateLocalPos1Attr(Gf.Vec3f(0.0))
             continue
         joint = UsdPhysics.Joint.Define(stage, f"/Stem/joints/joint_{i:02d}")
         joint.CreateBody0Rel().SetTargets([Sdf.Path(f"/Stem/seg_{i - 1:02d}")])
         joint.CreateBody1Rel().SetTargets([segment.GetPath()])
-        joint.CreateLocalPos0Attr(Gf.Vec3f(0.0, 0.0, 0.5 * segment_length))
-        joint.CreateLocalPos1Attr(Gf.Vec3f(0.0, 0.0, -0.5 * segment_length))
+        joint.CreateLocalPos0Attr(Gf.Vec3f(0.0, 0.0, segment_length))  # upper end of the segment below
+        joint.CreateLocalPos1Attr(Gf.Vec3f(0.0))
         joint.CreateLocalRot0Attr(joint_rot)
         joint.CreateLocalRot1Attr(joint_rot)
         for axis in ("transX", "transY", "transZ"):  # low > high: locked
@@ -179,9 +187,14 @@ def fix_stem_base(stem: Articulation) -> None:
 
 
 def segment_poses(stem: Articulation) -> torch.Tensor:
-    """Segment poses (num_envs, num_segments, 7): position + quaternion (x, y, z, w), world frame."""
+    """Segment poses (num_envs, num_segments, 7): position of the segment centre + quaternion (x, y, z, w), world
+    frame (the stem interface; the body frames sit at the segments' lower ends, see `write_chain_usd`)."""
     segment_ids, _ = stem.find_bodies("seg_.*")
-    return stem.data.body_link_pose_w.torch[:, segment_ids]
+    poses = stem.data.body_link_pose_w.torch[:, segment_ids].clone()
+    up = torch.zeros_like(poses[..., :3])
+    up[..., 2] = 0.5 * float(stem.cfg.spawn.length) / stem.cfg.spawn.num_segments
+    poses[..., :3] += quat_apply(poses[..., 3:], up)
+    return poses
 
 
 def segment_masses(stem: Articulation) -> torch.Tensor:
