@@ -12,8 +12,10 @@ Requirements:
 
 Implemented (M4, part 1): scene, 6-D impedance action, horizontal start pose, tool-tip pose observation, reset,
 time out. Step 1 (2026-10-08): target command for the stem tip, stem-state observations (stem base, 5 points with
-the previous policy step, target), obs 57. Step 2: stem spawn area (reset event `spawn_stem`).
-Verify: `scripts/check_push_env.py`; zero/random agent runs headless with few envs. See docs/TODO.md -> M4.
+the previous policy step, target), obs 57. Step 2: stem spawn area (reset event `spawn_stem`). Step 3 (2026-10-09):
+rewards and terminations, contact sensor on the stem (forces for rewards / terminations only, not observed).
+Verify: `scripts/check_push_env.py`, `scripts/check_push_terms.py`; zero/random agent runs headless with few envs.
+See docs/TODO.md -> M4.
 """
 
 import isaaclab.sim as sim_utils
@@ -22,9 +24,11 @@ from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
+from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
+from isaaclab.sensors import ContactSensorCfg
 from isaaclab.utils import configclass
 
 from stem_manip.assets.fr3 import fr3_cfg, tool_tip_offset
@@ -57,6 +61,21 @@ STEM_SPAWN_X = (0.50, 0.65)
 STEM_SPAWN_Y = (-0.15, 0.15)
 # The spawn event ignores the stem's `init_state.pos`: to place the stem elsewhere, also set `events.spawn_stem = None`.
 
+# Rewards and terminations (user, 2026-10-09; docs/notes/2026-10-09.md). Damage limits come from `stem.yaml`.
+DAMAGE = stem_params(STEM_MODEL)["damage"]
+DISTANCE_STD = (0.05, 0.01)  # [m] stem tip to target: coarse (targets 3-10 cm away), fine (success within 1 cm)
+# [m] height error alone. One term, no coarse / fine pair (user, 2026-10-09): height errors span only ~0-23 mm (bowl
+# drop up to ~15 mm + up to 8.3 mm deeper); the side-push gap of 0-8.3 mm lies on this tanh's slope, and larger
+# height errors occur only before the push, where the 3-D coarse term already gives the gradient.
+HEIGHT_STD = 0.003
+APPROACH_STD = 0.1  # [m] tool tip to the nearest stem point (start: the fork is 0.2-0.4 m from the stem)
+CURVATURE_SOFT_FRACTION = 0.8  # curvature penalty above 0.8 x the limit (= the targets' curvature budget)
+# [N] contact penalty above it, on the largest single contact (normal pushes 0.8-1.4 N measured; clamp bound 4 N)
+CONTACT_FREE_FORCE = 2.0
+MIN_JOINT_MARGIN = 0.25  # [rad] terminate closer to any FR3 joint limit (the sweeps' rule, 2026-10-08)
+ARM_JOINTS = ["fr3_joint[1-7]"]
+ROBOT_LINKS = [f"fr3_link{i}" for i in range(8)] + [END_EFFECTOR]  # all robot bodies that can touch the stem
+
 
 @configclass
 class StemPushSceneCfg(InteractiveSceneCfg):
@@ -70,6 +89,13 @@ class StemPushSceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Robot", init_state=ArticulationCfg.InitialStateCfg(joint_pos=START_JOINT_POS)
     )
     stem = stem_model(STEM_MODEL).stem_cfg().replace(prim_path="{ENV_REGEX_NS}/Stem")
+    # force of the robot (fork and arm links) on each stem segment, normal and friction, at every physics step;
+    # history = one policy step (set in the env cfg's __post_init__). As in `scripts/check_contact.py`.
+    stem_contact = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Stem/seg_.*",
+        filter_prim_paths_expr=[f"{{ENV_REGEX_NS}}/Robot/.*{link}" for link in ROBOT_LINKS],
+        track_friction_forces=True,
+    )
 
 
 @configclass
@@ -78,7 +104,7 @@ class ActionsCfg:
 
     tool_tip = mdp.ToolTipImpedanceActionCfg(
         asset_name="robot",
-        joint_names=["fr3_joint[1-7]"],
+        joint_names=ARM_JOINTS,
         body_name=END_EFFECTOR,
         tool_offset=tool_tip_offset(END_EFFECTOR),
     )
@@ -141,14 +167,57 @@ class EventCfg:
 
 @configclass
 class RewardsCfg:
-    """No reward terms yet (step 3)."""
+    """Task (stem tip to target), approach (fork to stem), damage penalties below the limits, smooth motion, early
+    terminations. Weights: a first guess for the baseline (user, 2026-10-09)."""
+
+    distance_coarse = RewTerm(func=mdp.stem_point_distance_tanh, weight=1.0, params={"std": DISTANCE_STD[0]})
+    distance_fine = RewTerm(func=mdp.stem_point_distance_tanh, weight=1.0, params={"std": DISTANCE_STD[1]})
+    # off for the baseline: switch on if the policy stalls on the bowl (side push, `height_error` metric stays > 0)
+    height = RewTerm(func=mdp.stem_point_height_tanh, weight=0.0, params={"std": HEIGHT_STD})
+    approach = RewTerm(
+        func=mdp.approach_tanh,
+        weight=0.5,
+        params={
+            "std": APPROACH_STD,
+            "model": STEM_MODEL,
+            "body_name": END_EFFECTOR,
+            "offset": tool_tip_offset(END_EFFECTOR),
+        },
+    )
+    curvature = RewTerm(
+        func=mdp.curvature_penalty,
+        weight=-1.0,
+        params={
+            "model": STEM_MODEL,
+            "max_curvature": DAMAGE["max_curvature"],
+            "soft_fraction": CURVATURE_SOFT_FRACTION,
+        },
+    )
+    contact_force = RewTerm(
+        func=mdp.contact_force_penalty,
+        weight=-1.0,
+        params={"threshold": CONTACT_FREE_FORCE, "sensor_cfg": SceneEntityCfg("stem_contact")},
+    )
+    action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
+    terminated = RewTerm(func=mdp.is_terminated, weight=-10.0)
 
 
 @configclass
 class TerminationsCfg:
-    """Time out only (curvature limit and out of bounds: step 3)."""
+    """Time out; damage limits (curvature, contact force); joint margin. No tool-tip bound (user, 2026-10-09)."""
 
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
+    curvature_limit = DoneTerm(
+        func=mdp.curvature_limit, params={"model": STEM_MODEL, "max_curvature": DAMAGE["max_curvature"]}
+    )
+    contact_force_limit = DoneTerm(
+        func=mdp.contact_force_limit,
+        params={"max_force": DAMAGE["max_contact_force"], "sensor_cfg": SceneEntityCfg("stem_contact")},
+    )
+    joint_margin = DoneTerm(
+        func=mdp.joint_limit_margin,
+        params={"min_margin": MIN_JOINT_MARGIN, "asset_cfg": SceneEntityCfg("robot", joint_names=ARM_JOINTS)},
+    )
 
 
 @configclass
@@ -168,5 +237,6 @@ class StemPushPositionEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.dt = solver["sim_dt"]  # [s] the step the stem model was checked with (2 ms)
         self.decimation = 16  # policy at 1 / (16 * 2 ms) = 31.25 Hz
         self.sim.render_interval = self.decimation
+        self.scene.stem_contact.history_length = self.decimation  # the contact terms average over one policy step
         self.sim.physics = stem_model(STEM_MODEL).physics_cfg()
         self.episode_length_s = 10.0

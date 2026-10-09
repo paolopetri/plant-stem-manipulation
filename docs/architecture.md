@@ -96,9 +96,12 @@ Each model module provides the same functions:
    step and target offset (21); stem base (3); 5 points along the stem at 0.08 ... 0.40 m, the last one the tip,
    for the previous and the current policy step (30); target position of the tip (3). The stem-state terms are in
    `tasks/push_position/mdp/stem_state.py`. No contact forces. To be reduced to what the perception can deliver.
-4. **Reward / termination:** distance of the stem point to the target, curvature penalty, action
-   penalties; terminate on curvature limit, time out, out of bounds. Contact forces (contact sensor) and
-   joint forces may be used here, not in the observation.
+4. **Reward / termination** (`mdp/rewards.py`, `mdp/terminations.py`, weights and thresholds in the env cfg):
+   distance of the stem point to the target (coarse / fine tanh; height term at weight 0), fork-to-stem approach,
+   curvature and contact-force penalties, action rate, early-termination penalty; terminate on time out, curvature
+   limit, contact-force limit (both from `damage` in `stem.yaml`) and joint margin, no tool-tip bound. Contact forces
+   (sensor `stem_contact` on the stem segments, filtered to the robot) and joint forces are used here, not in the
+   observation.
 
 The **stem point of interest** is given by a segment index + an offset along that segment (task cfg, `CommandsCfg`):
 the tip. Its **target** is sampled once per episode around the tip's rest position (`stem_manip.utils.stem_target`):

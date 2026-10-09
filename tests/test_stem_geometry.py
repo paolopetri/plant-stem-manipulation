@@ -9,6 +9,8 @@ Requirements:
 - `point_pose` at segment index / offset matches the analytic point on the rod.
 - `stem_points` at given arc lengths (base, segment ends, tip) lies on the straight rod / on the arc's nodes;
   arc lengths outside [0, stem length] raise a ValueError.
+- `distance_to_centre_line`: beside / above / below the straight rod the distance to the rod or its nearest end;
+  on the arc's nodes zero, at the circle's centre the distance to the chords.
 
 Test rods: segment frames as in the Newton cable (origin at the segment centre, local +Z = tangent),
 poses as position + quaternion (x, y, z, w). Two envs, the second one shifted, to cover batching.
@@ -155,3 +157,29 @@ def test_stem_points_on_arc():
 def test_stem_points_outside_the_stem_raise(arc_length: float):
     with pytest.raises(ValueError):
         stem_geometry.stem_points(_straight_rod(), (arc_length,), SEGMENT_LENGTH)
+
+
+def test_distance_to_centre_line_on_straight_rod():
+    """Beside the rod: the horizontal distance; above the tip / below the base: the distance to that end."""
+    length = NUM_SEGMENTS * SEGMENT_LENGTH
+    points = torch.tensor(
+        [[0.1, 0.0, 0.2], [0.0, 0.0, length + 0.05], [0.0, -0.03, -0.04], [0.0, 0.0, 0.13]], dtype=DTYPE
+    )
+    expected = torch.tensor([0.1, 0.05, 0.05, 0.0], dtype=DTYPE)
+    batch = torch.stack([points, points + ENV_SHIFT])
+    distance = stem_geometry.distance_to_centre_line(_straight_rod(), batch, SEGMENT_LENGTH)
+    assert distance.shape == (2, len(points))
+    torch.testing.assert_close(distance, torch.stack([expected, expected]), rtol=0.0, atol=1e-9)
+
+
+def test_distance_to_centre_line_on_arc_nodes():
+    """The arc's nodes lie on the centre line; the circle's centre is R minus the chord sag from the nearest chord."""
+    nodes, phi = _arc_nodes()
+    centre = torch.tensor([[ARC_RADIUS, 0.0, 0.0]], dtype=DTYPE)
+    points = torch.cat([nodes, centre])
+    distance = stem_geometry.distance_to_centre_line(
+        _arc_rod(), torch.stack([points, points + ENV_SHIFT]), SEGMENT_LENGTH
+    )
+    expected = torch.zeros(len(points), dtype=DTYPE)
+    expected[-1] = ARC_RADIUS * math.cos(0.5 * phi)  # distance from the centre to a chord's midpoint
+    torch.testing.assert_close(distance, torch.stack([expected, expected]), rtol=0.0, atol=1e-9)
