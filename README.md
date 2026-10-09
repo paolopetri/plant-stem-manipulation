@@ -31,6 +31,7 @@ uv run --extra isaacsim python scripts/sweep_stem_solver.py --test kick   # stem
 uv run --extra isaacsim python scripts/check_contact.py --test slot       # FR3 + fork push the chain stem (see below)
 uv run --extra isaacsim python scripts/check_push_env.py  # push task: controller and action limits (see below)
 uv run --extra isaacsim python scripts/sweep_action_poses.py  # push task: following over the workspace (see below)
+uv run --extra isaacsim python scripts/check_push_obs.py  # push task: target command and stem observations (see below)
 uv run --extra isaacsim isaaclab zero_agent --task StemManip-Push-Position-FR3-v0 --num_envs 4 --max_steps 700
 uv run --extra isaacsim isaaclab random_agent --task StemManip-Push-Position-FR3-v0 --num_envs 4 --max_steps 700
 ```
@@ -57,7 +58,7 @@ uv run --extra isaacsim python scripts/sweep_action_poses.py --full_speed   # on
 
 | Check (`check_push_env.py`) | Passes if |
 |---|---|
-| shapes | observation (n, 21), action (n, 6), all finite |
+| shapes | observation (n, 57), action (n, 6), all finite |
 | start pose, holds still | tool tip within 5 mm / 1 deg of the start pose, moves < 1 mm while holding |
 | follows the actions / the rotation | lag <= 2 mm (2 deg), overshoot <= 5 mm (2 deg), tool-tip drift <= 2 mm |
 | step limits | from rest the first step is 0.08 mm / 0.02 deg, then exactly the caps 3.2 mm / 1.44 deg |
@@ -70,6 +71,29 @@ The expected limits are the decided values, not read from the cfg: with an overr
 checks fail on purpose. A check that comes within 0.25 rad of a joint limit fails as invalid. The sweep uses the same
 criteria; start points (default mode) or moves (`--full_speed`) within 0.25 rad of a joint limit are reported but
 not counted.
+
+## Push task: target and stem observations
+
+The target is a position for the stem's tip, sampled once per episode 3-10 cm sideways from its rest position, at the
+height of a pushed tip or below it (C / S bends that need the fork's slot, up to 0.8 x the curvature limit). The policy observes 57 values (robot base frame, meters): tool tip 21, stem
+base 3, 5 points along the stem (0.08 ... 0.40 m) for the previous and the current policy step 30, target 3.
+
+```bash
+uv run --extra isaacsim python scripts/check_push_obs.py                                       # pass/fail
+uv run --extra isaacsim python scripts/check_push_obs.py --num_envs 4 --viz kit --slow_motion 3  # watch it
+```
+
+In the viewer: the target is a red sphere (green within 1 cm of the tip), the tip and the 5 observed points are
+blue spheres; the stem is pushed sideways (+x) by a force on its tip, then released.
+
+| Check (`check_push_obs.py`) | Passes if |
+|---|---|
+| shapes | observation (n, 57), all finite |
+| stem at rest | base point at the stem base, the 5 points on the upright stem, within 1 mm |
+| observed tip = tip from segment poses | within 0.01 mm (frame and point helper) |
+| previous step | the previous-step block equals the step before |
+| pushed stem | every point moves in +x, higher points more, the tip > 1 cm, sideways < 1 mm |
+| target in the region | 3-10 cm from the rest tip, on or below the bowl within the curvature budget, fixed in the episode, new after a reset |
 
 ## Stem tests
 
