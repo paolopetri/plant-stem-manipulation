@@ -7,10 +7,12 @@ Requirements:
 - Actions: relative tool-tip pose (position and rotation step, robot base frame), executed by Franka's Cartesian
   impedance law (`mdp.ToolTipImpedanceAction`, the same controller as on the real FR3); robot in torque mode.
 - Managers from `mdp/` (commands, observations, rewards, terminations, events); weights and ranges as cfg fields.
-- The point of interest (segment index + offset) and the curvature limit come from cfg / `assets/stem/stem.yaml`.
+- The stem point (segment index + offset, the tip) is a task-cfg field (`CommandsCfg`); the curvature limit comes from
+  `assets/stem/stem.yaml`.
 
 Implemented (M4, part 1): scene, 6-D impedance action, horizontal start pose, tool-tip pose observation, reset,
-time out.
+time out. Step 1 (2026-10-08): target command for the stem tip, stem-state observations (stem base, 5 points with
+the previous policy step, target), obs 57.
 Verify: `scripts/check_push_env.py`; zero/random agent runs headless with few envs. See docs/TODO.md -> M4.
 """
 
@@ -72,8 +74,19 @@ class ActionsCfg:
 
 
 @configclass
+class CommandsCfg:
+    """Target position of the stem tip, sampled once per episode (decided values: cfg defaults, user 2026-10-08)."""
+
+    # resampling time far above the episode length: the target is sampled only at reset
+    stem_target = mdp.StemTipTargetCommandCfg(stem_model=STEM_MODEL, resampling_time_range=(1e9, 1e9), debug_vis=True)
+
+
+@configclass
 class ObservationsCfg:
-    """Policy observations (tool-tip pose, applied step and target offset so far; stem state and target follow)."""
+    """Policy observations, 57 values in this order: tool tip (position 3, orientation 6, applied step 6, target
+    offset 6), stem base 3, 5 stem points of the previous and the current policy step 30 (oldest first), target 3.
+    All positions in the robot base frame [m]. The stem-state terms (`mdp/stem_state.py`) are to be changed to what
+    the perception delivers; no contact forces (decision 2026-10-06)."""
 
     @configclass
     class PolicyCfg(ObsGroup):
@@ -85,6 +98,14 @@ class ObservationsCfg:
         )
         applied_step = ObsTerm(func=mdp.applied_step)
         target_offset = ObsTerm(func=mdp.target_offset)
+        stem_base = ObsTerm(func=mdp.stem_points, params={"arc_lengths": (0.0,), "model": STEM_MODEL})
+        # 5 points up to the tip, plus the same points one policy step earlier (the stem's motion; user, 2026-10-08)
+        stem_points = ObsTerm(
+            func=mdp.stem_points,
+            params={"arc_lengths": (0.08, 0.16, 0.24, 0.32, 0.40), "model": STEM_MODEL},
+            history_length=2,
+        )
+        target_pos = ObsTerm(func=mdp.generated_commands, params={"command_name": "stem_target"})
 
         def __post_init__(self):
             self.enable_corruption = False
@@ -118,6 +139,7 @@ class StemPushPositionEnvCfg(ManagerBasedRLEnvCfg):
     """Stage 1: push the stem so that a selected stem point reaches a target position."""
 
     scene: StemPushSceneCfg = StemPushSceneCfg(num_envs=64, env_spacing=2.0)
+    commands: CommandsCfg = CommandsCfg()
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
     events: EventCfg = EventCfg()

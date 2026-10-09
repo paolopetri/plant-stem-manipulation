@@ -7,6 +7,8 @@ Requirements:
 - Uniformly stretched rod -> the imposed axial strain, zero curvature and twist.
 - Bent but unstretched rod (circular arc) -> zero axial strain.
 - `point_pose` at segment index / offset matches the analytic point on the rod.
+- `stem_points` at given arc lengths (base, segment ends, tip) lies on the straight rod / on the arc's nodes;
+  arc lengths outside [0, stem length] raise a ValueError.
 
 Test rods: segment frames as in the Newton cable (origin at the segment centre, local +Z = tangent),
 poses as position + quaternion (x, y, z, w). Two envs, the second one shifted, to cover batching.
@@ -16,6 +18,7 @@ float32 positions limit the strain resolution; see docs/TODO.md).
 
 import math
 
+import pytest
 import torch
 
 from stem_manip.utils import stem_geometry
@@ -127,3 +130,28 @@ def test_point_pose_matches_analytic_point():
     expected_position = torch.stack([nodes[segment_index + 1], nodes[segment_index + 1] + ENV_SHIFT])
     torch.testing.assert_close(end[:, :3], expected_position, rtol=0.0, atol=1e-9)
     torch.testing.assert_close(end[:, 3:], poses[:, segment_index, 3:])
+
+
+STEM_POINT_ARC_LENGTHS = (0.0, 0.08, 0.16, 0.24, 0.32, 0.40)  # [m] base + the 5 observed points (user, 2026-10-08)
+
+
+def test_stem_points_on_straight_rod():
+    points = stem_geometry.stem_points(_straight_rod(), STEM_POINT_ARC_LENGTHS, SEGMENT_LENGTH)
+    assert points.shape == (2, len(STEM_POINT_ARC_LENGTHS), 3)
+    expected = torch.zeros(len(STEM_POINT_ARC_LENGTHS), 3, dtype=DTYPE)
+    expected[:, 2] = torch.tensor(STEM_POINT_ARC_LENGTHS, dtype=DTYPE)
+    torch.testing.assert_close(points, torch.stack([expected, expected + ENV_SHIFT]), rtol=0.0, atol=1e-9)
+
+
+def test_stem_points_on_arc():
+    """The arc lengths are multiples of the segment length, so the points are the arc's nodes."""
+    nodes, _ = _arc_nodes()
+    points = stem_geometry.stem_points(_arc_rod(), STEM_POINT_ARC_LENGTHS, SEGMENT_LENGTH)
+    expected = nodes[[round(s / SEGMENT_LENGTH) for s in STEM_POINT_ARC_LENGTHS]]
+    torch.testing.assert_close(points, torch.stack([expected, expected + ENV_SHIFT]), rtol=0.0, atol=1e-9)
+
+
+@pytest.mark.parametrize("arc_length", [-0.01, NUM_SEGMENTS * SEGMENT_LENGTH + 0.01])
+def test_stem_points_outside_the_stem_raise(arc_length: float):
+    with pytest.raises(ValueError):
+        stem_geometry.stem_points(_straight_rod(), (arc_length,), SEGMENT_LENGTH)

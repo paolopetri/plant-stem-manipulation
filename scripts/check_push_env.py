@@ -9,7 +9,7 @@ translation and rotation step, robot base frame) is Franka's Cartesian impedance
 integrated target, speed cap, step-change limit and target-offset clamp (`mdp.ToolTipImpedanceAction`). With the
 step-change limit the target ramps up at the start of a move and brakes during the hold.
 Checks:
-- shapes: observation (num_envs, 21) and action (num_envs, 6), all observations finite;
+- shapes: observation (num_envs, 57) and action (num_envs, 6), all observations finite;
 - start pose: tool tip within 5 mm of (0.30, 0, 0.55) m and within 1 deg of its orientation at reset after the hold;
 - holds still: the tool tip moves less than 1 mm during the last half of the hold;
 - follows the actions: following error (largest distance to the target over the move and the hold; at the end of
@@ -79,7 +79,8 @@ OVERSHOOT_TOL = 5e-3  # [m]
 END_TOL = 1e-3  # [m] after the hold following a move
 DRIFT_TOL = 2e-3  # [m]
 ROT_FOLLOW_TOL, ROT_OVERSHOOT_TOL, ROT_DRIFT_TOL = math.radians(2.0), math.radians(2.0), 2e-3  # user, 2026-10-07
-OBS_DIM = 21  # tool-tip position 3, orientation 6, applied step 6, target offset 6
+OBS_DIM = 57  # tool tip: position 3, orientation 6, applied step 6, target offset 6; stem base 3, 5 stem points x 2
+# policy steps 30, target 3 (user, 2026-10-08)
 # decided action limits (option B1, user 2026-10-07/08; docs/overleaf_folder/open_questions/action_limits_problem.tex);
 # fixed here, not read from the cfg, so that a wrong cfg value fails (with an override flag these checks fail too)
 FIRST_STEP, FIRST_ROT_STEP = 8e-5, 0.000349  # [m], [rad] step-change limits 0.08 mm (2026-10-08) / 0.02 deg

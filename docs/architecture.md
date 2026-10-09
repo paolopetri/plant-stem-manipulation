@@ -92,14 +92,18 @@ Each model module provides the same functions:
    `docs/overleaf_folder/open_questions/action_limits_problem.tex`.
 2. **Simulation:** PhysX steps robot and stem (`chain`) together in one solver.
 3. **Observation** (stem state read from the simulation; on the real robot it will come from cameras):
-   tool_tip position and orientation (2 rotation-matrix columns), applied step and target offset (implemented),
-   stem segment poses, position of the stem point of interest, target position.
-   No contact forces. To be reduced to what the perception can deliver.
+   57 values, robot base frame, raw meters: tool_tip position and orientation (2 rotation-matrix columns), applied
+   step and target offset (21); stem base (3); 5 points along the stem at 0.08 ... 0.40 m, the last one the tip,
+   for the previous and the current policy step (30); target position of the tip (3). The stem-state terms are in
+   `tasks/push_position/mdp/stem_state.py`. No contact forces. To be reduced to what the perception can deliver.
 4. **Reward / termination:** distance of the stem point to the target, curvature penalty, action
    penalties; terminate on curvature limit, time out, out of bounds. Contact forces (contact sensor) and
    joint forces may be used here, not in the observation.
 
-The **stem point of interest** is given by a segment index + an offset along that segment (task cfg).
+The **stem point of interest** is given by a segment index + an offset along that segment (task cfg, `CommandsCfg`):
+the tip. Its **target** is sampled once per episode around the tip's rest position (`stem_manip.utils.stem_target`):
+3-10 cm sideways in any direction, height on the "bowl" the tip reaches when pushed (drop 0.6 r^2 / s) or below it,
+down to the deepest stem shape within 0.8 x the curvature limit (C / S bends, which need a moment from the fork's slot).
 
 ## Stem interface (keeps the stem model swappable)
 
