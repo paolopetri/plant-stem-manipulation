@@ -1,4 +1,5 @@
-"""Stem geometry from per-segment poses: bending, twist and stretch per joint, pose of the selected stem point.
+"""Stem geometry from per-segment poses: bending, twist and stretch per joint, pose of the selected stem point,
+points at given arc lengths.
 
 Input convention (as `CableObject.data.segment_pose_w` of the Newton cable):
 - `segment_poses`: shape `(num_envs, num_segments, 7)`, position [m] + quaternion (x, y, z, w), world frame.
@@ -10,6 +11,8 @@ connects segments i and i + 1 and represents the stem length L_dual = 0.5 * (L_i
 
 Batched over envs, no simulator needed. Tests: `tests/test_stem_geometry.py`.
 """
+
+from collections.abc import Sequence
 
 import torch
 
@@ -84,3 +87,25 @@ def point_pose(segment_poses: torch.Tensor, segment_index: int, offset: float) -
     pose = segment_poses[:, segment_index]
     position = pose[:, :3] + offset * _tangents(pose[:, 3:])
     return torch.cat([position, pose[:, 3:]], dim=-1)
+
+
+def stem_points(segment_poses: torch.Tensor, arc_lengths: Sequence[float], segment_length: float) -> torch.Tensor:
+    """Points on the stem's centre line at the given arc lengths, shape `(num_envs, len(arc_lengths), 3)` [m].
+
+    Args:
+        segment_poses: Segment poses, shape `(num_envs, num_segments, 7)`.
+        arc_lengths: Distances from the base along the stem [m], in [0, num_segments * segment_length]
+            (0 = base, the stem length = tip); outside that range a ValueError is raised.
+        segment_length: Rest length of each segment [m] (all segments equally long).
+
+    Returns:
+        The positions, in the frame of `segment_poses`.
+    """
+    num_segments = segment_poses.shape[1]
+    points = []
+    for s in arc_lengths:
+        if not 0.0 <= s <= num_segments * segment_length + 1e-9:
+            raise ValueError(f"Arc length {s} m outside the stem [0, {num_segments * segment_length}] m.")
+        index = min(int(s // segment_length), num_segments - 1)
+        points.append(point_pose(segment_poses, index, s - (index + 0.5) * segment_length)[:, :3])
+    return torch.stack(points, dim=1)

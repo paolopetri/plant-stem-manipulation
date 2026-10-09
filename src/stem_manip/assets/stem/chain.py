@@ -29,6 +29,7 @@ import json
 import math
 import os
 from collections.abc import Callable
+from functools import lru_cache
 
 import numpy as np
 import torch
@@ -186,10 +187,16 @@ def fix_stem_base(stem: Articulation) -> None:
     """Nothing to do: the base is clamped by the fixed joint in the USD."""
 
 
+@lru_cache
+def _segment_ids(stem: Articulation) -> list[int]:
+    """Body indices of the segments (regex lookup once per stem, not at every policy step)."""
+    return stem.find_bodies("seg_.*")[0]
+
+
 def segment_poses(stem: Articulation) -> torch.Tensor:
     """Segment poses (num_envs, num_segments, 7): position of the segment centre + quaternion (x, y, z, w), world
     frame (the stem interface; the body frames sit at the segments' lower ends, see `write_chain_usd`)."""
-    segment_ids, _ = stem.find_bodies("seg_.*")
+    segment_ids = _segment_ids(stem)
     poses = stem.data.body_link_pose_w.torch[:, segment_ids].clone()
     up = torch.zeros_like(poses[..., :3])
     up[..., 2] = 0.5 * float(stem.cfg.spawn.length) / stem.cfg.spawn.num_segments
@@ -199,7 +206,7 @@ def segment_poses(stem: Articulation) -> torch.Tensor:
 
 def segment_masses(stem: Articulation) -> torch.Tensor:
     """Segment masses (num_envs, num_segments) [kg]."""
-    segment_ids, _ = stem.find_bodies("seg_.*")
+    segment_ids = _segment_ids(stem)
     return stem.data.body_mass.torch[:, segment_ids]
 
 
@@ -219,7 +226,7 @@ def joint_wrenches(stem: Articulation) -> torch.Tensor:
     Force (x, y, z) [N] and moment (x, y, z) [N m] in the joint frame, x along the stem axis: x force > 0 is
     compression, the x moment is the twisting moment, the y and z moments bend. Entry 0 is the base clamp.
     """
-    segment_ids, _ = stem.find_bodies("seg_.*")
+    segment_ids = _segment_ids(stem)
     wrenches = stem.root_view.get_link_incoming_joint_force()
     return torch.as_tensor(wrenches.torch if hasattr(wrenches, "torch") else wrenches)[:, segment_ids]
 
@@ -234,7 +241,7 @@ def write_kick(stem: Articulation, angular_velocity: float) -> None:
 def segment_force_setter(stem: Articulation) -> Callable[[int, torch.Tensor | None], None]:
     """Returns `set_force(segment, force)`: constant force (num_envs, 3) [N, world frame] at the segment's centre
     of mass, replacing any previous one; `None` removes it. Applied from the next `scene.write_data_to_sim()`."""
-    segment_ids, _ = stem.find_bodies("seg_.*")
+    segment_ids = _segment_ids(stem)
 
     def set_force(segment: int, force: torch.Tensor | None) -> None:
         stem.permanent_wrench_composer.reset()
