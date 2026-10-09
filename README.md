@@ -33,6 +33,7 @@ uv run --extra isaacsim python scripts/check_push_env.py  # push task: controlle
 uv run --extra isaacsim python scripts/sweep_action_poses.py  # push task: following over the workspace (see below)
 uv run --extra isaacsim python scripts/check_push_obs.py  # push task: target command and stem observations (see below)
 uv run --extra isaacsim python scripts/check_push_terms.py  # push task: rewards and terminations (see below)
+uv run --extra isaacsim python scripts/check_push_agents.py  # push task: zero / random agent, shapes and ranges (see below)
 uv run --extra isaacsim isaaclab zero_agent --task StemManip-Push-Position-FR3-v0 --num_envs 4 --max_steps 700
 uv run --extra isaacsim isaaclab random_agent --task StemManip-Push-Position-FR3-v0 --num_envs 4 --max_steps 700
 ```
@@ -126,6 +127,38 @@ uv run --extra isaacsim python scripts/check_push_terms.py --phases push --viz k
 | joint margin | moving straight down from the start pose fires it in every env |
 | no unexpected reset | no reset outside the intended firings (the scripted phases run without a time out) |
 | every step: terms = formulas | every reward and termination matches its formula of the independent values, `height_error` = dz |
+
+## Push task: zero / random agent
+
+The task run as Isaac Lab's `zero_agent` / `random_agent` do (zero actions; uniform random actions in [-1, 1],
+seeded), 2 episodes each, every policy step checked against the decided values. Fixed step counts, a progress line
+every 100 steps, and a failure after `--max_minutes` (default 15; checked between policy steps, so a hang inside a
+step is not caught: run it under `timeout 20m ...` when unattended). About 3 min with 4 envs.
+
+```bash
+uv run --extra isaacsim python scripts/check_push_agents.py                                          # pass/fail
+uv run --extra isaacsim python scripts/check_push_agents.py --agents random --num_envs 16            # more envs
+uv run --extra isaacsim python scripts/check_push_agents.py --agents random --num_envs 4 --viz kit --slow_motion 2  # watch it
+```
+
+| Check (`check_push_agents.py`) | Passes if |
+|---|---|
+| shapes | observation (num_envs, 57), action (num_envs, 6), term sizes 3 / 6 / 6 / 6 / 3 / 30 / 3 |
+| finite | observations, rewards and done flags finite at every step |
+| start pose after reset | tool tip within 5 mm of (0.40, 0, 0.50) m and 1 deg (rotation angle) of the first reset's orientation |
+| stem base in the spawn area | x 0.50-0.65 m, y +-0.15 m, z 0 after every reset |
+| target_offset / applied_step | each part's norm <= 1 (clamp 4 mm / 3 deg; speed caps, except where the clamp holds the target) |
+| stem points | each point no farther from the base than its arc length (+1 mm) |
+| constant within an episode | stem base (1e-6 m, see below) and target |
+| reward ranges | distance / approach in [0, weight], penalties <= 0, height 0 (only confirms weight 0: Isaac Lab skips the term) |
+| reset only with a done flag | the episode length counts up by one or restarts after a done flag |
+| tool_tip_rot | both columns unit length and orthogonal (1e-4) |
+| zero agent | only the time out fires, exactly at step 469; the tool tip holds (2 mm); penalties 0 |
+
+The random agent's terminations are reported, not checked. Observations in the robot base frame jump by up to
+5e-8 m on the first physics step after a reset: the robot root pose PhysX returns then differs from the written one
+(about 1e-8 in the quaternion, up to one float32 rounding step in position); hence the 1e-6 m tolerance.
+The Isaac Lab agents in the command list need `--max_steps`: without it they run until the process is killed.
 
 ## Stem tests
 
