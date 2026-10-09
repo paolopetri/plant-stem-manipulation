@@ -46,7 +46,9 @@ class ToolTipImpedanceActionCfg(ActionTermCfg):
     """Largest change of the translation step per policy step [m] (0.08 mm = 0.08 m/s^2; acceleration limit, user
     2026-10-08): under constant acceleration the lag settles at Lambda a / K <= 1.72 mm (Lambda <= 21.5 kg), below the
     2 mm criterion (lag criterion after Aljalbout et al.); 0.1 m/s^2 (2026-10-07) reached 2.15 mm in real reversals.
-    Overshoot <= 5 mm and fork tilt <= 1 deg hold too (`scripts/sweep_action_poses.py`, both modes)."""
+    Overshoot <= 5 mm and fork tilt <= 1 deg hold too (`scripts/sweep_action_poses.py`, both modes). This holds up to
+    x 0.60 m; at the far edge (x 0.75 m) Lambda grows to 40-76 kg and the lag to ~4 mm (known limit until the inertia
+    feedforward B3, user 2026-10-09)."""
     max_rot_step_change: float = 0.000349
     """Largest change of the rotation step per policy step [rad] (0.02 deg = 20 deg/s^2, user 2026-10-07): angle
     following and overshoot <= 2 deg, tool-tip drift <= 2 mm (write-up Table "tab:al-b1")."""

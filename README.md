@@ -54,7 +54,7 @@ clamp test pushes the fork into the ground instead).
 ```bash
 uv run --extra isaacsim python scripts/check_push_env.py                                       # pass/fail
 uv run --extra isaacsim python scripts/check_push_env.py --num_envs 1 --viz kit --slow_motion 3  # watch it
-uv run --extra isaacsim python scripts/sweep_action_poses.py                # 9 start points, short moves + reversals
+uv run --extra isaacsim python scripts/sweep_action_poses.py                # 17 start points, short moves + reversals
 uv run --extra isaacsim python scripts/sweep_action_poses.py --full_speed   # one move per axis up to the caps
 ```
 

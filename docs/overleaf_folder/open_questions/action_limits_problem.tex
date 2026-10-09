@@ -200,6 +200,9 @@ joints 1--7 (at the wrist about 100 times the link's own inertia). Without these
 and pressed the stem 5 times harder. The lag measurements below give the same value independently: from
 Eq.~\eqref{eq:al-lag}, $\Lambda = K e / a \approx 16$--20\,kg along $x$ at the start pose, and up to 21.5\,kg
 at the far, high start points of the sweep ($x$ 0.60, $z$ 0.45\,m).
+Near the arm's reach, $\Lambda$ along $x$ grows to 40--76\,kg (tool tip at $x$ 0.75\,m, $y$ $\pm0.25$\,m, where the
+fork works for stems at the far edge of the spawn area, 9 October), so the lag there reaches 2.3--4.2\,mm; we accept
+this as a known limit until the inertia feedforward (B3).
 
 \paragraph{How severe the trade-off is for the task.} Turning Eq.~\eqref{eq:al-lag} around: for a largest acceptable lag $e_\text{max}$, the
 target may accelerate at most at
@@ -332,7 +335,8 @@ rest up to the speed cap, 10 steps at the cap, then braking to rest (about 16\,c
 one per axis, in a direction with room for it (towards the middle of the workspace; up along $z$).
 \emph{Rotation moves}: the same about the base axes, with zero position command. \emph{Start points}: either the
 start pose only, or 9 points spanning the workspace in which the stems stand (tool tip at $x$ = 0.35 and 0.60\,m,
-$y = \pm0.20$\,m, $z$ = 0.20 and 0.45\,m, plus the start pose). Moves that come within 0.25\,rad of a joint limit
+$y = \pm0.20$\,m, $z$ = 0.20 and 0.45\,m, plus the start pose); since 9 October 8 more at the far edge ($x$ = 0.60
+and 0.75\,m, $y = \pm0.25$\,m, $z$ = 0.30 and 0.45\,m), where $x$ 0.75\,m is a known limit (see above). Moves that come within 0.25\,rad of a joint limit
 are reported but not counted (decision 8 October): there the arm, not the controller, limits the motion. This
 concerns the two start points low and close to the robot ($x$ 0.35, $z$ 0.20\,m), where joint 4 is within
 0.21\,rad of its limit.

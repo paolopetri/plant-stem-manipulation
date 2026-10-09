@@ -2,8 +2,9 @@
 
 Uses the env of `StemManip-Push-Position-FR3-v0` itself (its action term: Franka's Cartesian impedance law with an
 integrated target, speed cap, step-change limit and target-offset clamp), with the stem moved out of reach behind the
-robot. Each env first drives the tool tip to its own start point (the 8 corners of the box below, plus the env's start
-pose; step-change limit and clamp switched off for this) and holds. Two modes:
+robot. Each env first drives the tool tip to its own start point (the 8 corners of the box below, the 8 corners of the
+far box at the stem-tip height, plus the env's start pose; step-change limit and clamp switched off for this) and
+holds. Two modes:
 - default: translation moves (`--steps` full steps along +x, -x, +y, -y, +z, -z, and reversals +x then -x etc., whose
   second segment is twice as long so that the target brakes *and* reverses) and rotation moves (`--rot_steps`, about
   the same base axes), each followed by a hold, one after the other. With the step-change limit the target ramps up
@@ -12,7 +13,8 @@ pose; step-change limit and clamp switched off for this) and holds. Two modes:
 - `--full_speed`: one straight move per axis (translation, then rotation) that ramps up to the cap, stays there for
   `FULL_SPEED_STEPS` policy steps and brakes to rest in the hold (at the cfg defaults about 16 cm / 120 deg); each
   env goes back to its start point before every move. Directions with room for this: x and y towards the middle of
-  the box, z up (down from the high start points would come close to the ground), rotations positive.
+  the box, z up (down from the high start points would come close to the ground), rotations positive. The far box
+  uses the same centre, so its points move -x (towards the robot) and y towards 0.
 Measured per start point and move, against the criteria of docs/overleaf_folder/open_questions/
 action_limits_problem.tex (decisions 2026-10-07):
 - following error: largest distance to the target over the whole move and the hold (<= 2 mm);
@@ -25,6 +27,9 @@ Joint limits (user, 2026-10-08): there the arm, not the controller, limits the m
 not counted in pass/fail: default mode, start points within 0.25 rad of a joint limit after settling ("near joint
 limit, not counted"); `--full_speed`, moves that come within 0.25 rad of a joint limit anywhere (the count of counted
 moves is printed per start point).
+Known limit (user, 2026-10-09): the far-box corners at x 0.75 m fail (lag up to ~4 mm along x, the apparent mass
+grows to 40-76 kg near the arm's reach); accepted until the inertia feedforward (B3, docs/TODO.md). They are
+reported with the verdict "known limit (B3)" and do not count towards "all passed" (`KNOWN_LIMIT`).
 
 Usage (from the repo root; headless unless a visualizer is requested):
     uv run --extra isaacsim python scripts/sweep_action_poses.py
@@ -67,7 +72,10 @@ from stem_manip.utils.impedance import rotvec_between
 
 TASK = "StemManip-Push-Position-FR3-v0"
 BOX_X, BOX_Y, BOX_Z = (0.35, 0.60), (-0.20, 0.20), (0.20, 0.45)  # [m] tool-tip start points, robot base frame
-BOX_CENTER = (0.475, 0.0, 0.325)  # [m] full-speed moves in x and y head towards it
+# far edge (2026-10-09): spawn area up to x 0.65 m plus targets up to 10 cm beyond, at the stem-tip height
+FAR_X, FAR_Y, FAR_Z = (0.60, 0.75), (-0.25, 0.25), (0.30, 0.45)  # [m] tool-tip start points, robot base frame
+KNOWN_LIMIT = {(0.75, y, z) for y in FAR_Y for z in FAR_Z}  # fail without inertia feedforward (user, 2026-10-09)
+BOX_CENTER = (0.475, 0.0, 0.325)  # [m] full-speed moves in x and y head towards it (both boxes)
 START_POSE = (0.40, 0.0, 0.50)  # [m] the env's start pose
 STEM_AWAY = (-0.8, 0.8, 0.0)  # [m] stem base, out of the fork's reach behind the robot
 FOLLOW_TOL, OVERSHOOT_TOL, END_TOL, TILT_TOL = 2e-3, 5e-3, 1e-3, math.radians(1.0)
@@ -90,7 +98,7 @@ MOVES = {
 
 def main() -> None:
     """Run all start points in parallel envs and print a table plus one RESULT line per start point."""
-    starts = [*itertools.product(BOX_X, BOX_Y, BOX_Z), START_POSE]
+    starts = [*itertools.product(BOX_X, BOX_Y, BOX_Z), *itertools.product(FAR_X, FAR_Y, FAR_Z), START_POSE]
     env_cfg = StemPushPositionEnvCfg()
     env_cfg.scene.num_envs = len(starts)
     env_cfg.sim.device = args_cli.device or env_cfg.sim.device
@@ -251,6 +259,8 @@ def main() -> None:
             if counted == 0:
                 return "near joint limit, not counted"
             label = "PASS" if ok else "FAIL"
+            if starts[i] in KNOWN_LIMIT:
+                label += ", known limit (B3), not counted"
             return f"{label} ({counted}/{len(table)} moves counted)" if args_cli.full_speed else label
 
         mode = (
@@ -275,7 +285,7 @@ def main() -> None:
             end, _ = worst(results, "end", i)
             peak_tilt, tilt_dir = worst(results, "tilt", i)
             ok = follow <= FOLLOW_TOL and overshoot <= OVERSHOOT_TOL and end <= END_TOL and peak_tilt <= TILT_TOL
-            all_ok = all_ok and (ok or not any_counted(results, i))
+            all_ok = all_ok and (ok or not any_counted(results, i) or start in KNOWN_LIMIT)
             label = "(" + ", ".join(f"{v:.2f}" for v in start) + ")"
             print(
                 f"{label:<22} {float(settle[i]) * 1e3:7.2f} {follow * 1e3:8.2f} ({follow_dir}) "
@@ -305,7 +315,7 @@ def main() -> None:
             drift, drift_dir = worst(rot_results, "drift", i)
             label = "(" + ", ".join(f"{v:.2f}" for v in start) + ")"
             ok = follow <= ROT_FOLLOW_TOL and overshoot <= ROT_OVERSHOOT_TOL and drift <= ROT_DRIFT_TOL
-            all_ok = all_ok and (ok or not any_counted(rot_results, i))
+            all_ok = all_ok and (ok or not any_counted(rot_results, i) or start in KNOWN_LIMIT)
             print(
                 f"{label:<22} {math.degrees(follow):8.2f} ({follow_dir}) {math.degrees(overshoot):8.2f} "
                 f"({overshoot_dir}) {math.degrees(end):7.2f} {drift * 1e3:8.2f} ({drift_dir})  "
@@ -315,7 +325,7 @@ def main() -> None:
                 f"RESULT_ROT start={label} follow_deg={math.degrees(follow):.2f} overshoot_deg="
                 f"{math.degrees(overshoot):.2f} end_deg={math.degrees(end):.2f} drift_mm={drift * 1e3:.2f} ok={ok}"
             )
-        print("=== all passed ===" if all_ok else "=== FAILED ===")
+        print(f"=== all passed ({len(KNOWN_LIMIT)} known-limit points not counted) ===" if all_ok else "=== FAILED ===")
         env.close()
 
 
