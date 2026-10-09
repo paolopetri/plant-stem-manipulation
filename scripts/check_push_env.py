@@ -10,7 +10,7 @@ integrated target, speed cap, step-change limit and target-offset clamp (`mdp.To
 step-change limit the target ramps up at the start of a move and brakes during the hold.
 Checks:
 - shapes: observation (num_envs, 57) and action (num_envs, 6), all observations finite;
-- start pose: tool tip within 5 mm of (0.30, 0, 0.55) m and within 1 deg of its orientation at reset after the hold;
+- start pose: tool tip within 5 mm of (0.40, 0, 0.50) m and within 1 deg of its orientation at reset after the hold;
 - holds still: the tool tip moves less than 1 mm during the last half of the hold;
 - follows the actions: following error (largest distance to the target over the move and the hold; at the end of
   a policy step the interpolated target equals the step's end target) <= 2 mm; the tool passes the target's final
@@ -71,7 +71,7 @@ from stem_manip.utils.impedance import rotvec_between
 
 TASK = "StemManip-Push-Position-FR3-v0"
 STEM_AWAY = (-0.8, 0.8, 0.0)  # [m] stem base, out of the fork's reach behind the robot (as in sweep_action_poses.py)
-START_POS = (0.30, 0.0, 0.55)  # [m] tool tip of the start pose (env_cfg.START_JOINT_POS)
+START_POS = (0.40, 0.0, 0.50)  # [m] tool tip of the start pose (env_cfg.START_JOINT_POS)
 START_TOL = 5e-3  # [m]
 ORIENTATION_TOL = math.radians(1.0)
 HOLD_TOL = 1e-3  # [m]
@@ -89,7 +89,7 @@ CAP_STEP, CAP_ROT_STEP = 0.0032, 0.02513  # [m], [rad] speed caps 10 cm/s (2026-
 CLAMP_OFFSET = 4e-3  # [m] target clamp, 4 N at K_p 1000 (2026-10-08)
 JOINT_MARGIN_MIN = 0.25  # [rad] closer to a joint limit, a check is invalid (user, 2026-10-08)
 # clamp test path (test setup, not a criterion): +x first, so that the way down stays clear of joint 4's limit
-# (at 10 cm/s the tool reaches the ground after ~186 down steps; DOWN_STEPS leaves the blocked window well after it)
+# (DOWN_STEPS leaves the blocked window well after the tool has reached the ground)
 CLAMP_APPROACH_STEPS, DOWN_STEPS, BLOCKED_STEPS, LIFT_STEPS = 40, 260, 20, 10
 FULL_SPEED_STEPS = 10  # policy steps at the translation cap at the end of the +y ramp
 
@@ -100,6 +100,8 @@ def main() -> None:
     env_cfg.scene.num_envs = args_cli.num_envs
     env_cfg.sim.device = args_cli.device or env_cfg.sim.device
     env_cfg.episode_length_s = 1e4  # no time-out reset in the middle of the phases
+    # no joint-margin reset in the middle of a phase: the check guards the margin itself (JOINT_MARGIN_MIN)
+    env_cfg.terminations.joint_margin = None
     env_cfg.events.spawn_stem = None  # the fork must not touch the stem: no spawn area, stem out of reach
     env_cfg.scene.stem.init_state.pos = STEM_AWAY
     if args_cli.rot_stiffness is not None:

@@ -38,17 +38,18 @@ from . import mdp
 
 STEM_MODEL = "chain"
 END_EFFECTOR = "fork_v2"
-# Start pose (user, 2026-10-06): fork horizontal, pointing forward, tool tip at (0.30, 0, 0.55) m in the base frame,
-# above and behind the stem area. Joint angles solved once with differential IK (2026-10-07); smallest distance to a
-# joint limit 0.54 rad (joint 4).
+# Start pose (user, 2026-10-09; was (0.30, 0, 0.55) m, 2026-10-06): fork horizontal, pointing forward, tool tip at
+# (0.40, 0, 0.50) m in the base frame, 10 cm above the stem tip and behind the stem area, so that less of the episode
+# goes into the approach. Joint angles solved once with differential IK (2026-10-09); smallest distance to a joint
+# limit 0.58 rad (joint 4).
 START_JOINT_POS = {
     "fr3_joint1": -0.013,
-    "fr3_joint2": -1.013,
-    "fr3_joint3": 0.008,
-    "fr3_joint4": -2.540,
+    "fr3_joint2": -0.689,
+    "fr3_joint3": 0.011,
+    "fr3_joint4": -2.496,
     "fr3_joint5": 0.007,
-    "fr3_joint6": 1.527,
-    "fr3_joint7": 0.776,
+    "fr3_joint6": 1.808,
+    "fr3_joint7": 0.779,
 }
 
 # Stem spawn area (user, 2026-10-09): the stem base is reset uniformly within this rectangle on the lab's plate in front
@@ -239,4 +240,4 @@ class StemPushPositionEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.render_interval = self.decimation
         self.scene.stem_contact.history_length = self.decimation  # the contact terms average over one policy step
         self.sim.physics = stem_model(STEM_MODEL).physics_cfg()
-        self.episode_length_s = 10.0
+        self.episode_length_s = 15.0  # [s] approach and push (user, 2026-10-09; was 10 s)

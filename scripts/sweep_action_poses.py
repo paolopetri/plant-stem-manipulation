@@ -68,13 +68,14 @@ from stem_manip.utils.impedance import rotvec_between
 TASK = "StemManip-Push-Position-FR3-v0"
 BOX_X, BOX_Y, BOX_Z = (0.35, 0.60), (-0.20, 0.20), (0.20, 0.45)  # [m] tool-tip start points, robot base frame
 BOX_CENTER = (0.475, 0.0, 0.325)  # [m] full-speed moves in x and y head towards it
-START_POSE = (0.30, 0.0, 0.55)  # [m] the env's start pose
+START_POSE = (0.40, 0.0, 0.50)  # [m] the env's start pose
 STEM_AWAY = (-0.8, 0.8, 0.0)  # [m] stem base, out of the fork's reach behind the robot
 FOLLOW_TOL, OVERSHOOT_TOL, END_TOL, TILT_TOL = 2e-3, 5e-3, 1e-3, math.radians(1.0)
 ROT_FOLLOW_TOL, ROT_OVERSHOOT_TOL, ROT_DRIFT_TOL = math.radians(2.0), math.radians(2.0), 2e-3  # user, 2026-10-07
 NEAR_LIMIT = 0.25  # [rad] closer to a joint limit, a move is not counted (user, 2026-10-08)
 FULL_SPEED_STEPS = 10  # policy steps at the cap in a full-speed move
 SETTLE_STEPS = 20  # extra hold after a full-speed move has braked to rest
+MAX_DRIVE_STEPS = 2000  # go_to_starts gives up after this many policy steps (the drives take ~150)
 AXES = {"x": (1, 0, 0), "y": (0, 1, 0), "z": (0, 0, 1)}
 # default-mode moves: name -> segments (direction, length in units of --steps / --rot_steps)
 MOVES = {
@@ -96,6 +97,9 @@ def main() -> None:
     env_cfg.events.spawn_stem = None  # no spawn area: the stem stays at STEM_AWAY
     env_cfg.scene.stem.init_state.pos = STEM_AWAY
     env_cfg.episode_length_s = 1e4  # no time-out during the sweep
+    # no joint-margin reset: the sweep reports moves near a joint limit itself (a reset start point would never reach
+    # its start, and go_to_starts would loop forever)
+    env_cfg.terminations.joint_margin = None
     action_cfg = env_cfg.actions.tool_tip
     for name, value in (
         ("max_step", args_cli.max_step),
@@ -137,13 +141,19 @@ def main() -> None:
             saved = {k: getattr(cfg, k) for k in keys}
             for k in keys:
                 setattr(cfg, k, 1e3)
-            while True:
+            for _ in range(MAX_DRIVE_STEPS):
                 remaining = start_t - term.target()
                 remaining_rot = rotvec_between(start_quat, term.target_quat())
                 if float(remaining.norm(dim=-1).max()) < 1e-6 and float(remaining_rot.norm(dim=-1).max()) < 1e-6:
                     break
                 env.step(
                     torch.cat(((remaining / cfg.max_step), (remaining_rot / cfg.max_rot_step)), dim=-1).clamp(-1, 1)
+                )
+            else:
+                missing = ((remaining.norm(dim=-1) >= 1e-6) | (remaining_rot.norm(dim=-1) >= 1e-6)).nonzero().flatten()
+                raise RuntimeError(
+                    f"go_to_starts: envs {missing.tolist()} did not reach their start point in {MAX_DRIVE_STEPS} "
+                    "policy steps (reset by a termination?)"
                 )
             for _ in range(2 * args_cli.hold_steps):
                 env.step(torch.zeros(n, 6, device=device))
