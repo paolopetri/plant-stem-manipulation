@@ -32,6 +32,7 @@ uv run --extra isaacsim python scripts/check_contact.py --test slot       # FR3 
 uv run --extra isaacsim python scripts/check_push_env.py  # push task: controller and action limits (see below)
 uv run --extra isaacsim python scripts/sweep_action_poses.py  # push task: following over the workspace (see below)
 uv run --extra isaacsim python scripts/check_push_obs.py  # push task: target command and stem observations (see below)
+uv run --extra isaacsim python scripts/check_push_terms.py  # push task: rewards and terminations (see below)
 uv run --extra isaacsim isaaclab zero_agent --task StemManip-Push-Position-FR3-v0 --num_envs 4 --max_steps 700
 uv run --extra isaacsim isaaclab random_agent --task StemManip-Push-Position-FR3-v0 --num_envs 4 --max_steps 700
 ```
@@ -98,6 +99,33 @@ blue spheres; the stem is pushed sideways (+x) by a force on its tip, then relea
 | previous step | the previous-step block equals the step before |
 | pushed stem | every point moves in +x, higher points more, the tip > 1 cm, sideways < 1 mm |
 | target in the region | 3-10 cm from the rest tip, on or below the bowl within the curvature budget, fixed in the episode, new after a reset and again in the region around the new base |
+
+## Push task: rewards and terminations
+
+Rewards: stem tip to target (`1 - tanh(d / std)`, coarse 5 cm and fine 1 cm), height error alone (std 3 mm, weight 0
+for now), fork-to-stem approach (std 0.1 m), curvature penalty above 0.8 x the limit, contact-force penalty above 2 N
+(largest single contact of the robot on the stem, mean over a policy step), action rate, early-termination penalty.
+Terminations: time out, curvature above `damage.max_curvature`, contact force above `damage.max_contact_force`
+(both in `assets/stem/stem.yaml`), any FR3 joint within 0.25 rad of its limit. Weights and thresholds: `env_cfg.py`.
+The check records every term when the managers evaluate it and compares it with values computed independently.
+
+```bash
+uv run --extra isaacsim python scripts/check_push_terms.py                                          # pass/fail
+uv run --extra isaacsim python scripts/check_push_terms.py --phases push --viz kit --slow_motion 1  # watch a push
+```
+
+| Check (`check_push_terms.py`) | Passes if |
+|---|---|
+| rest / time out | zero action: the time out fires exactly at the episode's last step, nothing else before; penalties, contact force and action rate 0 |
+| action rate | equals sum((a_t - a_t-1)^2) of the actions sent |
+| push: approach | the scripted drive behind the stem reaches its goal (2 mm) without a reset; approach rises, > 0.9 in contact |
+| push: contact | slow 4 cm push in the slot: force > 0.05 N and < 2 N, penalty 0, no contact before |
+| push: contact mechanism | with lowered thresholds: penalty = F^2 at 0 N, the limit fires in every env |
+| impact | full-speed slot impact (informational: largest mean force; fails only if the fork does not touch the stem) |
+| curvature | tip-force ramp: penalty > 0 only above 4 1/m, the limit fires above 5 1/m in every env, nothing earlier |
+| joint margin | moving straight down from the start pose fires it in every env |
+| no unexpected reset | no reset outside the intended firings (the scripted phases run without a time out) |
+| every step: terms = formulas | every reward and termination matches its formula of the independent values, `height_error` = dz |
 
 ## Stem tests
 

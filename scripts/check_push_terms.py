@@ -16,7 +16,8 @@ Phases (the stem base fixed at x 0.65 m, y 0, except in `rest`):
   nothing else fires before; curvature and contact penalties 0, contact force 0, action rate 0.
 - action_rate: alternating actions; the term equals sum((a_t - a_t-1)^2) of the actions sent.
 - push: drive the fork behind the stem at 0.30 m height (forward first, then down; the drive must reach its goal
-  within 2 mm without a reset), push it slowly (5 cm/s) 4 cm into the slot. Approach
+  within 2 mm without a reset), at full speed until 1 cm before contact, then push it slowly (5 cm/s) 4 cm into the
+  slot. Approach
   reward rises and is > 0.9 in contact; contact force > 0.05 N, below 2 N, penalty 0. Then, as a mechanism check with
   lowered thresholds (not the decided values): penalty threshold 0 N -> penalty = F^2; limit at half the current force
   -> `contact_force_limit` fires in every env.
@@ -25,9 +26,11 @@ Phases (the stem base fixed at x 0.65 m, y 0, except in `rest`):
 - curvature: a force on the tip segment, ramped 0 -> 2 N; the penalty becomes > 0 above 4 1/m and
   `curvature_limit` fires (in every env, at the same step) above 5 1/m; nothing fires earlier.
 - joint_margin: the fork moved straight down at full speed from the start pose; `joint_margin` fires in every env.
-In every phase and at every step: each term equals its formula of the independent values (tolerance 1e-4 for the
-rewards, 0.5 mm on the approach distance), each termination fires exactly when its independent value crosses the
-limit, `terminated` = any early termination, metric `height_error` = dz.
+Only `rest` runs on the decided 10 s episode; the scripted phases take longer and run without a time out, and a
+reset anywhere except where a phase makes a term fire fails the check. In every phase and at every step: each term
+equals its formula of the independent values (tolerance 1e-4 for the rewards, 0.5 mm on the approach distance), each
+termination fires exactly when its independent value crosses the limit, `terminated` = any early termination, metric
+`height_error` = dz.
 
 Usage (from the repo root; headless unless a visualizer is requested):
     uv run --extra isaacsim python scripts/check_push_terms.py
@@ -207,6 +210,8 @@ def main() -> None:
             _, _, terminated, truncated, _ = env.step(action)
             done = terminated | truncated
             check_step(done, contact_cfg.params, limit_cfg.params)
+            if done.any() and not state["expect_reset"]:
+                unexpected_resets.append(f"{state['phase']} at step {env.common_step_counter}")
             if sim.is_rendering:
                 time.sleep(max(0.0, step_time - (time.perf_counter() - clock["t"])))
                 clock["t"] = time.perf_counter()
@@ -257,9 +262,16 @@ def main() -> None:
             return "n/a" if value is None else f"{value:.3f}"
 
         results: dict[str, tuple[bool, str]] = {}
+        # a reset is expected only where a phase makes a term fire; elsewhere it fails the check
+        state = {"phase": "", "expect_reset": False}
+        unexpected_resets: list[str] = []
+        # only the rest phase runs on the decided episode length; the scripted motions take longer than 10 s
+        env.cfg.episode_length_s = 1e4
 
         for phase in args_cli.phases:
+            state.update(phase=phase, expect_reset=phase in ("rest", "impact", "curvature", "joint_margin"))
             if phase == "rest":
+                env.cfg.episode_length_s = EPISODE_S
                 place_stem(fixed=False)
                 steps = math.ceil(EPISODE_S / env.step_dt - 1e-9)
                 fired_at, others, penalties, force, rate = None, False, 0.0, 0.0, 0.0
@@ -274,6 +286,7 @@ def main() -> None:
                     if fired_at is None and bool(recorded["time_out"].any()):
                         fired_at = (k, bool(recorded["time_out"].all()))
                         break
+                env.cfg.episode_length_s = 1e4
                 ok = fired_at == (steps, True) and not others and penalties == 0.0 and force == 0.0 and rate == 0.0
                 results["rest / time out"] = (
                     ok,
@@ -306,6 +319,11 @@ def main() -> None:
                 force_before = float(snap["force"].max())
                 contact_x = STEM_BASE[0] - radius  # slot bottom (tool tip) touches the stem surface
                 goal = goal_behind(PUSH_HEIGHT)
+                goal[:, 0] = contact_x - 0.01  # at full speed until 1 cm before contact (the prongs pass the stem)
+                for _ in range(200):
+                    if (action_term.tool_pose()[0] - goal).norm(dim=-1).max() < 1e-3:
+                        break
+                    step(toward(goal))
                 goal[:, 0] = contact_x + PUSH_DEPTH
                 max_force, max_penalty, max_curv = 0.0, 0.0, 0.0
                 for _ in range(400):
@@ -336,6 +354,7 @@ def main() -> None:
                 contact_cfg.params["threshold"] = FREE_FORCE
                 limit_cfg.params["max_force"] = 0.5 * float(snap["force"].min())
                 lowered = limit_cfg.params["max_force"]
+                state["expect_reset"] = True
                 step(toward(goal, speed=0.5))
                 fired = bool(recorded["contact_force_limit"].all())
                 limit_cfg.params["max_force"] = MAX_FORCE
@@ -415,6 +434,10 @@ def main() -> None:
                     f"{fired and fired[2]}; margin at the start {margins[0]:.3f} rad, at firing {margins[-1]:.3f} rad",
                 )
 
+        results["no unexpected reset"] = (
+            not unexpected_resets,
+            f"resets outside the intended firings: {unexpected_resets[:5] or 'none'}",
+        )
         results["every step: terms = formulas"] = (
             errors["rewards"] < REWARD_TOL
             and errors["approach"] < APPROACH_TOL
