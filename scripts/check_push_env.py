@@ -70,6 +70,7 @@ from stem_manip.tasks.push_position.env_cfg import StemPushPositionEnvCfg
 from stem_manip.utils.impedance import rotvec_between
 
 TASK = "StemManip-Push-Position-FR3-v0"
+STEM_AWAY = (-0.8, 0.8, 0.0)  # [m] stem base, out of the fork's reach behind the robot (as in sweep_action_poses.py)
 START_POS = (0.30, 0.0, 0.55)  # [m] tool tip of the start pose (env_cfg.START_JOINT_POS)
 START_TOL = 5e-3  # [m]
 ORIENTATION_TOL = math.radians(1.0)
@@ -99,6 +100,8 @@ def main() -> None:
     env_cfg.scene.num_envs = args_cli.num_envs
     env_cfg.sim.device = args_cli.device or env_cfg.sim.device
     env_cfg.episode_length_s = 1e4  # no time-out reset in the middle of the phases
+    env_cfg.events.spawn_stem = None  # the fork must not touch the stem: no spawn area, stem out of reach
+    env_cfg.scene.stem.init_state.pos = STEM_AWAY
     if args_cli.rot_stiffness is not None:
         env_cfg.actions.tool_tip.stiffness_rot = args_cli.rot_stiffness
     if args_cli.max_step is not None:

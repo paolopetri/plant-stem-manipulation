@@ -32,7 +32,7 @@ def _rest_points() -> torch.Tensor:
     """Rest positions of the tip, different per env (as after a randomized spawn), shape (NUM_ENVS, 3)."""
     generator = torch.Generator().manual_seed(1)
     rest = torch.zeros(NUM_ENVS, 3, dtype=torch.float64)
-    rest[:, 0] = 0.275 + 0.25 * torch.rand(NUM_ENVS, generator=generator, dtype=torch.float64)
+    rest[:, 0] = 0.50 + 0.15 * torch.rand(NUM_ENVS, generator=generator, dtype=torch.float64)
     rest[:, 1] = -0.15 + 0.30 * torch.rand(NUM_ENVS, generator=generator, dtype=torch.float64)
     rest[:, 2] = ARC_LENGTH
     return rest

@@ -8,8 +8,10 @@ all positions in the robot base frame [m]; the points at arc lengths 0.08, 0.16,
 the tip, the stem point the policy controls).
 Checks:
 - shapes: observation (num_envs, 57), all finite;
-- stem at rest: the base point at the stem's base position (stem.yaml, robot base frame) within 1 mm; the 5 points on
-  the vertical through it at their arc lengths within 1 mm;
+- spawn area (user, 2026-10-09): the observed stem base of every env inside x 0.50-0.65 m, y +-0.15 m, z 0
+  (1 mm), at reset and after a second reset; equal to the stem's root position (segment 0, read independently) within
+  1e-5 m; different between envs; changed by the second reset in every env; constant during the episode (1 mm);
+- stem at rest: the 5 points on the vertical through the base observed at reset, at their arc lengths, within 1 mm;
 - observed tip = tip from the segment poses (segment 19, +L/2), transformed into the robot base frame, within 1e-5 m,
   at rest and while pushed;
 - previous step: the previous-step slice equals the current slice of the step before, at every step;
@@ -17,8 +19,8 @@ Checks:
   than 1 cm; sideways (y) by less than 1 mm;
 - target in the region: horizontal distance from the tip's rest position in [0.03, 0.10] m, height on or below the
   bowl (drop 0.6 r^2 / s, the stem pushed at its tip) and above the deepest shape within 0.8 x 5 1/m
-  (`stem_target.deepest_drop_factor`); constant during the episode; different between envs; all different after a
-  reset.
+  (`stem_target.deepest_drop_factor`), relative to each env's own base; constant during the episode; different
+  between envs; all different after a reset and again in the region around the new base.
 Visual check: the target (command marker) and the 5 observed points (small spheres, drawn by this script).
 
 Usage (from the repo root; headless unless a visualizer is requested):
@@ -69,6 +71,7 @@ REST_TOL = 1e-3  # [m] points at rest vs the straight upright stem
 FRAME_TOL = 1e-5  # [m] observed tip vs the tip from the segment poses
 MIN_TIP_PUSH = 0.01  # [m]
 SIDEWAYS_TOL = 1e-3  # [m]
+SPAWN_X, SPAWN_Y = (0.50, 0.65), (-0.15, 0.15)  # [m] stem base, robot base frame (user, 2026-10-09)
 
 
 def main() -> None:
@@ -88,9 +91,30 @@ def main() -> None:
         segment_length = geometry["length"] / geometry["num_segments"]
         arc = torch.tensor(ARC_LENGTHS, device=device)
 
-        # expected stem base in the robot base frame: stem.yaml's base position (env frame) minus the robot root
-        root_env = robot.data.root_pos_w.torch - env.scene.env_origins
-        base_expected = torch.tensor(geometry["base_position"], device=device) - root_env  # (n, 3)
+        def stem_root_b() -> torch.Tensor:
+            """Stem base from the stem's root pose (segment 0's frame), robot base frame (n, 3): independent of the
+            observation code."""
+            return subtract_frame_transforms(
+                robot.data.root_pos_w.torch, robot.data.root_quat_w.torch, stem.data.root_pos_w.torch
+            )[0]
+
+        def in_area(base: torch.Tensor) -> bool:
+            """Every base inside the spawn area (1e-6 m for float32 rounding), on the ground (z 0 within REST_TOL)."""
+            x, y, z = base.unbind(-1)
+            tol = 1e-6
+            return bool(
+                (
+                    (x >= SPAWN_X[0] - tol)
+                    & (x <= SPAWN_X[1] + tol)
+                    & (y >= SPAWN_Y[0] - tol)
+                    & (y <= SPAWN_Y[1] + tol)
+                ).all()
+                and (z.abs() < REST_TOL).all()
+            )
+
+        # expected stem base in the robot base frame: the base observed at reset (randomized per env)
+        base_expected = obs["policy"][:, BASE].clone()  # (n, 3)
+        root_error = float((base_expected - stem_root_b()).norm(dim=-1).max())
 
         points_vis = None
         if sim.is_rendering:
@@ -115,12 +139,12 @@ def main() -> None:
         finite = bool(torch.isfinite(obs["policy"]).all())
         obs_shape = tuple(obs["policy"].shape)
         targets = [obs["policy"][:, TARGET].clone()]
-        prev_error, frame_error = 0.0, 0.0
+        prev_error, frame_error, base_drift = 0.0, 0.0, 0.0
         zero = torch.zeros(n, 6, device=device)
 
         def step() -> torch.Tensor:
             """One policy step with zero action; checks the history and the frame; returns the policy obs."""
-            nonlocal obs, frame_start, finite, prev_error, frame_error
+            nonlocal obs, frame_start, finite, prev_error, frame_error, base_drift
             last = obs["policy"][:, CURR].clone()
             obs, _, _, _, _ = env.step(zero)
             policy = obs["policy"]
@@ -128,6 +152,7 @@ def main() -> None:
             prev_error = max(prev_error, float((policy[:, PREV] - last).abs().max()))
             frame_error = max(frame_error, float((policy[:, CURR][:, -3:] - tip_from_segments()).norm(dim=-1).max()))
             targets.append(policy[:, TARGET].clone())
+            base_drift = max(base_drift, float((policy[:, BASE] - base_expected).norm(dim=-1).max()))
             if points_vis is not None:
                 root_w = robot.data.root_pos_w.torch  # robot base frame -> world (robot not rotated: checked below)
                 points_vis.visualize((policy[:, CURR].reshape(n, 5, 3) + root_w.unsqueeze(1)).reshape(-1, 3))
@@ -138,11 +163,9 @@ def main() -> None:
         # -- rest
         for _ in range(args_cli.rest_steps):
             policy = step()
-        base = policy[:, BASE]
         rest = policy[:, CURR].reshape(n, 5, 3)
         rest_expected = base_expected.unsqueeze(1).repeat(1, 5, 1)
         rest_expected[..., 2] += arc
-        base_error = float((base - base_expected).norm(dim=-1).max())
         rest_error = float((rest - rest_expected).norm(dim=-1).max())
         robot_upright = bool((robot.data.root_quat_w.torch[:, 3].abs() > 1.0 - 1e-6).all())
 
@@ -159,23 +182,60 @@ def main() -> None:
             step()
 
         # -- target: region, constant, different between envs and after a reset
+        def target_region(target: torch.Tensor, base: torch.Tensor) -> tuple[bool, str]:
+            """Target within the decided region around the rest tip above `base`; pass flag and a summary."""
+            tip_rest = base.clone()
+            tip_rest[:, 2] += ARC_LENGTHS[-1]
+            distance = (target[:, :2] - tip_rest[:, :2]).norm(dim=-1)
+            drop_factor = (tip_rest[:, 2] - target[:, 2]) * ARC_LENGTHS[-1] / distance**2  # 0.6 = the bowl
+            deepest = deepest_drop_factor(distance, ARC_LENGTHS[-1], TARGET_MAX_CURVATURE)
+            below_bowl = (drop_factor - 0.6) * distance**2 / ARC_LENGTHS[-1]  # [m]
+            ok = (
+                bool((distance >= DISTANCE_RANGE[0] - 1e-6).all())
+                and bool((distance <= DISTANCE_RANGE[1] + 1e-6).all())
+                and bool((drop_factor >= 0.6 - 1e-3).all())
+                and bool((drop_factor <= deepest + 1e-3).all())
+            )
+            info = (
+                f"distance {float(distance.min()) * 1e3:.1f}-{float(distance.max()) * 1e3:.1f} mm, below the bowl "
+                f"{float(below_bowl.min()) * 1e3:.2f}-{float(below_bowl.max()) * 1e3:.2f} mm (drop factor "
+                f"{float(drop_factor.min()):.3f}-{float(drop_factor.max()):.3f}, deepest allowed "
+                f"{float(deepest.min()):.3f}-{float(deepest.max()):.3f})"
+            )
+            return ok, info
+
         target = targets[0]
-        tip_rest = base_expected.clone()
-        tip_rest[:, 2] += ARC_LENGTHS[-1]
-        distance = (target[:, :2] - tip_rest[:, :2]).norm(dim=-1)
-        drop_factor = (tip_rest[:, 2] - target[:, 2]) * ARC_LENGTHS[-1] / distance**2  # 0.6 = the bowl
-        deepest = deepest_drop_factor(distance, ARC_LENGTHS[-1], TARGET_MAX_CURVATURE)
-        below_bowl = (drop_factor - 0.6) * distance**2 / ARC_LENGTHS[-1]  # [m]
+        region_ok, region_info = target_region(target, base_expected)
         constant = float((torch.stack(targets) - target).abs().max())
+        distinct = n == 1 or torch.unique(target, dim=0).shape[0] == n
+        bases_distinct = n == 1 or torch.unique(base_expected, dim=0).shape[0] == n
+
+        # -- second reset: new base in the area, the target follows it
         obs, _ = env.reset()
         after = obs["policy"][:, TARGET]
-        distinct = n == 1 or torch.unique(target, dim=0).shape[0] == n
+        base_after = obs["policy"][:, BASE].clone()
+        root_error = max(root_error, float((base_after - stem_root_b()).norm(dim=-1).max()))
+        base_moved = float((base_after - base_expected).norm(dim=-1).min())
+        region_after_ok, region_after_info = target_region(after, base_after)
 
         results = {
             "shapes": (obs_shape == (n, OBS_DIM) and finite, f"observation {obs_shape}, all finite: {finite}"),
+            "spawn area": (
+                in_area(base_expected)
+                and in_area(base_after)
+                and root_error < FRAME_TOL
+                and bases_distinct
+                and base_moved > 1e-6
+                and base_drift < REST_TOL,
+                f"bases x {float(base_expected[:, 0].min()):.3f}-{float(base_expected[:, 0].max()):.3f} m, "
+                f"y {float(base_expected[:, 1].min()):.3f}-{float(base_expected[:, 1].max()):.3f} m, "
+                f"z up to {float(base_expected[:, 2].abs().max()) * 1e3:.3f} mm; after the reset in the area: "
+                f"{in_area(base_after)}, moved by at least {base_moved * 1e3:.3f} mm; observed base vs stem root "
+                f"{root_error * 1e3:.4f} mm; distinct between envs: {bases_distinct}; drift in the episode "
+                f"{base_drift * 1e3:.3f} mm",
+            ),
             "stem at rest": (
-                base_error < REST_TOL and rest_error < REST_TOL and robot_upright,
-                f"base point {base_error * 1e3:.3f} mm from {[round(float(v), 3) for v in base_expected[0]]} m; "
+                rest_error < REST_TOL and robot_upright,
                 f"points {rest_error * 1e3:.3f} mm from the upright stem (tol {REST_TOL * 1e3:.0f} mm); "
                 f"robot root not rotated: {robot_upright}",
             ),
@@ -193,18 +253,14 @@ def main() -> None:
                 f"largest sideways {float(pushed[..., 1].abs().max()) * 1e3:.3f} mm",
             ),
             "target in the region": (
-                bool((distance >= DISTANCE_RANGE[0] - 1e-6).all())
-                and bool((distance <= DISTANCE_RANGE[1] + 1e-6).all())
-                and bool((drop_factor >= 0.6 - 1e-3).all())
-                and bool((drop_factor <= deepest + 1e-3).all())
+                region_ok
+                and region_after_ok
                 and constant == 0.0
                 and distinct
                 and bool(((after - target).norm(dim=-1) > 1e-6).all()),
-                f"distance {float(distance.min()) * 1e3:.1f}-{float(distance.max()) * 1e3:.1f} mm, below the bowl "
-                f"{float(below_bowl.min()) * 1e3:.2f}-{float(below_bowl.max()) * 1e3:.2f} mm (drop factor "
-                f"{float(drop_factor.min()):.3f}-{float(drop_factor.max()):.3f}, deepest allowed "
-                f"{[round(float(v), 3) for v in deepest]}); changed during the episode by {constant:.1e} m; distinct "
-                f"between envs: {distinct}; resampled at reset: {bool(((after - target).norm(dim=-1) > 1e-6).all())}",
+                f"{region_info}; after the reset, around the new base: {region_after_info}; changed during the "
+                f"episode by {constant:.1e} m; distinct between envs: {distinct}; resampled at reset: "
+                f"{bool(((after - target).norm(dim=-1) > 1e-6).all())}",
             ),
         }
         print(f"\n=== check_push_obs ({n} envs, push {args_cli.push_force} N on segment {TIP_SEGMENT}) ===")

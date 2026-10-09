@@ -93,6 +93,7 @@ def main() -> None:
     env_cfg = StemPushPositionEnvCfg()
     env_cfg.scene.num_envs = len(starts)
     env_cfg.sim.device = args_cli.device or env_cfg.sim.device
+    env_cfg.events.spawn_stem = None  # no spawn area: the stem stays at STEM_AWAY
     env_cfg.scene.stem.init_state.pos = STEM_AWAY
     env_cfg.episode_length_s = 1e4  # no time-out during the sweep
     action_cfg = env_cfg.actions.tool_tip
