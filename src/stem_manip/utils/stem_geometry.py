@@ -1,5 +1,5 @@
 """Stem geometry from per-segment poses: bending, twist and stretch per joint, pose of the selected stem point,
-points at given arc lengths.
+points at given arc lengths, distance of points to the centre line.
 
 Input convention (as `CableObject.data.segment_pose_w` of the Newton cable):
 - `segment_poses`: shape `(num_envs, num_segments, 7)`, position [m] + quaternion (x, y, z, w), world frame.
@@ -109,3 +109,22 @@ def stem_points(segment_poses: torch.Tensor, arc_lengths: Sequence[float], segme
         index = min(int(s // segment_length), num_segments - 1)
         points.append(point_pose(segment_poses, index, s - (index + 0.5) * segment_length)[:, :3])
     return torch.stack(points, dim=1)
+
+
+def distance_to_centre_line(segment_poses: torch.Tensor, points: torch.Tensor, segment_length: float) -> torch.Tensor:
+    """Distance of points to the stem's centre line, shape `(num_envs, num_points)` [m].
+
+    The centre line is the chain of the segments' axes (each from centre - L/2 to centre + L/2 along its tangent);
+    the distance is the smallest point-to-segment distance, so beyond the base or the tip it is the distance to
+    that end.
+
+    Args:
+        segment_poses: Segment poses, shape `(num_envs, num_segments, 7)`.
+        points: Points, shape `(num_envs, num_points, 3)` [m], in the frame of `segment_poses`.
+        segment_length: Rest length of each segment [m] (all segments equally long).
+    """
+    centres = segment_poses[:, None, :, :3]  # (num_envs, 1, num_segments, 3)
+    tangents = _tangents(segment_poses[:, None, :, 3:])
+    relative = points[:, :, None, :] - centres  # (num_envs, num_points, num_segments, 3)
+    along = (relative * tangents).sum(dim=-1).clamp(-0.5 * segment_length, 0.5 * segment_length)
+    return (relative - along.unsqueeze(-1) * tangents).norm(dim=-1).min(dim=-1).values

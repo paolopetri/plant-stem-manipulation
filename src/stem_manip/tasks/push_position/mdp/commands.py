@@ -8,8 +8,9 @@ stem base plus the point's arc length straight up (assumes an upright stem and a
 stem in docs/TODO.md "Later" needs a change here). The base is read from the clamped segment 0, so it follows the
 spawn randomization (Isaac Lab resets the events before the command manager).
 
-The command is the target position in the robot base frame (num_envs, 3) [m]; metric `position_error` [m] (stem
-point to target). Debug markers: target (red, green within `success_distance`) and the stem point (blue).
+The command is the target position in the robot base frame (num_envs, 3) [m]; metrics `position_error` [m] (stem
+point to target) and `height_error` [m] (its z part, + = above the target). Debug markers: target (red, green
+within `success_distance`) and the stem point (blue).
 Starting point: `CableUniformPoseCommand` (IsaacLab core/lift mdp). Verify: `scripts/check_push_obs.py`.
 """
 
@@ -55,6 +56,9 @@ class StemTipTargetCommand(CommandTerm):
         self.target_b = torch.zeros(self.num_envs, 3, device=self.device)
         self.target_w = torch.zeros(self.num_envs, 3, device=self.device)
         self.metrics["position_error"] = torch.zeros(self.num_envs, device=self.device)
+        # tip z - target z [m], + = tip above the target: a policy that pushes with a prong's side only stalls on the
+        # bowl above deep targets (user, 2026-10-09)
+        self.metrics["height_error"] = torch.zeros(self.num_envs, device=self.device)
 
     def __str__(self) -> str:
         return (
@@ -93,7 +97,9 @@ class StemTipTargetCommand(CommandTerm):
 
     def _update_metrics(self):
         self.target_w[:] = self._to_world(self.target_b)
-        self.metrics["position_error"] = (self.stem_point_b() - self.target_b).norm(dim=-1)
+        error = self.stem_point_b() - self.target_b
+        self.metrics["position_error"] = error.norm(dim=-1)
+        self.metrics["height_error"] = error[:, 2]
 
     def _set_debug_vis_impl(self, debug_vis: bool):
         if debug_vis:

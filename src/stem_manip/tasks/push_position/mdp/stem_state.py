@@ -11,6 +11,9 @@ No contact forces in the observations (decision 2026-10-06).
 - Observation term `stem_points`: the same, flattened (num_envs, 3 * len(arc_lengths)) [m]. Used for the stem base
   (arc length 0) and the 5 points along the stem (0.08 ... 0.40 m, the last one is the tip; user, 2026-10-08).
   The target is observed with Isaac Lab's `generated_commands` (robot base frame, `mdp/commands.py`).
+- For the rewards and terminations (privileged, not observed): `stem_curvature(env, model)`, the bending curvature
+  of every joint, and `stem_distance_b(env, points_b, model)`, the distance of points (robot base frame) to the
+  stem's centre line.
 
 Verify: `tests/test_stem_geometry.py` (point helper), `scripts/check_push_obs.py` (in the env).
 """
@@ -24,7 +27,7 @@ from typing import TYPE_CHECKING
 import torch
 
 from isaaclab.managers import SceneEntityCfg
-from isaaclab.utils.math import subtract_frame_transforms
+from isaaclab.utils.math import combine_frame_transforms, subtract_frame_transforms
 
 from stem_manip.assets.stem import stem_model, stem_params
 from stem_manip.utils import stem_geometry
@@ -82,3 +85,32 @@ def stem_points(
     """Observation: points on the stem at `arc_lengths` [m], robot base frame, (num_envs, 3 * len) [m], raw meters
     (x, y, z of the first point, then the next)."""
     return stem_points_b(env, arc_lengths, model, asset_cfg, robot_cfg).flatten(start_dim=1)
+
+
+def stem_curvature(
+    env: ManagerBasedEnv, model: str, asset_cfg: SceneEntityCfg = SceneEntityCfg("stem")
+) -> torch.Tensor:
+    """Bending curvature of each joint of the stem (num_envs, num_segments - 1) [1/m]."""
+    poses = stem_segment_poses(env, model, asset_cfg)
+    lengths = torch.full((poses.shape[1],), segment_length(model), device=poses.device)
+    return stem_geometry.joint_curvature(poses, lengths)
+
+
+def stem_distance_b(
+    env: ManagerBasedEnv,
+    points_b: torch.Tensor,
+    model: str,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("stem"),
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Distance of points (num_envs, num_points, 3), robot base frame [m], to the stem's centre line,
+    shape (num_envs, num_points) [m]."""
+    robot = env.scene[robot_cfg.name]
+    num_points = points_b.shape[1]
+    points_w, _ = combine_frame_transforms(
+        robot.data.root_pos_w.torch.repeat_interleave(num_points, dim=0),
+        robot.data.root_quat_w.torch.repeat_interleave(num_points, dim=0),
+        points_b.reshape(-1, 3),
+    )
+    poses = stem_segment_poses(env, model, asset_cfg)
+    return stem_geometry.distance_to_centre_line(poses, points_w.reshape(-1, num_points, 3), segment_length(model))

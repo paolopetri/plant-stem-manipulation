@@ -20,3 +20,5 @@ damage:                   # hard limits, used for termination and penalty (see d
   max_curvature: 5.0      # [1/m] bending (= 1 / minimum bending radius); stage 1 starts with this one
   max_twist_rate: null    # [rad/m] torsion
   max_tensile_stress: null  # [Pa] tension from pulling / dragging along the stem (tearing)
+  max_contact_force: 5.0  # [N] largest single contact force of the robot on the stem, mean over a policy step.
+                          # PLACEHOLDER (user, 2026-10-09): above the clamp's 4 N spring bound, no measured value
