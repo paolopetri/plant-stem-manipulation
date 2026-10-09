@@ -42,6 +42,7 @@ REWARDS = {
 }
 TERMINATIONS = ["time_out", "curvature_limit", "contact_force_limit", "joint_margin"]  # no tool-tip bound (user)
 MIN_JOINT_MARGIN = 0.25  # [rad] distance to any FR3 joint limit (the sweeps' rule)
+EPISODE_LENGTH_S = 15.0  # [s] approach and push (user, 2026-10-09; was 10 s)
 
 
 @pytest.fixture(scope="module")
@@ -60,6 +61,10 @@ def test_stem_point_is_the_tip(cfg: StemPushPositionEnvCfg):
     segment_length = geometry["length"] / geometry["num_segments"]
     command = cfg.commands.stem_target
     assert (command.segment_index + 0.5) * segment_length + command.offset == pytest.approx(geometry["length"])
+
+
+def test_episode_length_is_decided(cfg: StemPushPositionEnvCfg):
+    assert cfg.episode_length_s == pytest.approx(EPISODE_LENGTH_S, abs=1e-12)
 
 
 def test_target_is_sampled_once_per_episode(cfg: StemPushPositionEnvCfg):

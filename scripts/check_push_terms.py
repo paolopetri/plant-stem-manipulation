@@ -9,7 +9,7 @@ reset), its value is recorded together with values computed here independently o
   positions and limits.
 Decided values (user, 2026-10-09), fixed here, not read from the cfg: std 0.05 / 0.01 m (distance), 0.003 m (height),
 0.1 m (approach); curvature penalty above 0.8 x 5 1/m, limit 5 1/m; contact penalty above 2 N, limit 5 N; joint
-margin 0.25 rad; episode 10 s.
+margin 0.25 rad; episode 15 s.
 
 Phases (the stem base fixed at x 0.65 m, y 0, except in `rest`):
 - rest: zero action for a whole episode (spawn area as in training). Time out fires exactly at the last step and
@@ -26,7 +26,7 @@ Phases (the stem base fixed at x 0.65 m, y 0, except in `rest`):
 - curvature: a force on the tip segment, ramped 0 -> 2 N; the penalty becomes > 0 above 4 1/m and
   `curvature_limit` fires (in every env, at the same step) above 5 1/m; nothing fires earlier.
 - joint_margin: the fork moved straight down at full speed from the start pose; `joint_margin` fires in every env.
-Only `rest` runs on the decided 10 s episode; the scripted phases take longer and run without a time out, and a
+Only `rest` runs on the decided 15 s episode; the scripted phases take longer and run without a time out, and a
 reset anywhere except where a phase makes a term fire fails the check. In every phase and at every step: each term
 equals its formula of the independent values (tolerance 1e-4 for the rewards, 0.5 mm on the approach distance), each
 termination fires exactly when its independent value crosses the limit, `terminated` = any early termination, metric
@@ -71,7 +71,7 @@ MAX_CURVATURE = 5.0  # [1/m]
 SOFT_CURVATURE = 0.8 * MAX_CURVATURE  # [1/m]
 FREE_FORCE, MAX_FORCE = 2.0, 5.0  # [N]
 MIN_MARGIN = 0.25  # [rad]
-EPISODE_S = 10.0  # [s]
+EPISODE_S = 15.0  # [s]
 TIP_SEGMENT = 19
 SPAWN_X, SPAWN_Y = (0.50, 0.65), (-0.15, 0.15)  # [m] stem spawn area (user, 2026-10-09), for the rest phase
 # scripted motions
@@ -240,7 +240,7 @@ def main() -> None:
             env.reset()
 
         def drive_to(goal: torch.Tensor, max_steps: int = 400) -> tuple[bool, str]:
-            """Forward first, then down (straight down from the start pose reaches the joint margin after ~9 cm).
+            """Forward first, then down (straight down from the start pose reaches the joint margin after ~17 cm).
             Returns whether every env reached the goal without a reset, and a summary."""
             reset = False
             waypoint = goal.clone()
@@ -265,7 +265,7 @@ def main() -> None:
         # a reset is expected only where a phase makes a term fire; elsewhere it fails the check
         state = {"phase": "", "expect_reset": False}
         unexpected_resets: list[str] = []
-        # only the rest phase runs on the decided episode length; the scripted motions take longer than 10 s
+        # only the rest phase runs on the decided episode length; the scripted motions may take longer than one episode
         env.cfg.episode_length_s = 1e4
 
         for phase in args_cli.phases:
