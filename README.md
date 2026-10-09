@@ -47,7 +47,8 @@ Training commands are added with the first training run (docs/TODO.md, M5).
 executed by Franka's Cartesian impedance law with speed caps (10 cm/s, 45 deg/s), acceleration limits (0.08 m/s^2,
 20 deg/s^2) and a target clamp (4 mm / 3 deg, at every physics step). Values and reasons:
 `docs/overleaf_folder/open_questions/action_limits_problem.tex`. Both scripts test the controller without the stem:
-the fork never touches it (the stem stands at x 0.5 m; the clamp test pushes the fork into the ground instead).
+the fork never touches it (the spawn area is switched off and the stem stands out of reach behind the robot; the
+clamp test pushes the fork into the ground instead).
 
 ```bash
 uv run --extra isaacsim python scripts/check_push_env.py                                       # pass/fail
@@ -74,6 +75,8 @@ not counted.
 
 ## Push task: target and stem observations
 
+At every reset the stem base is moved to a random place in the spawn area, x 0.50-0.65 m, y +-0.15 m from the robot
+base (on the ground, upright, at rest); the target is sampled around the new base.
 The target is a position for the stem's tip, sampled once per episode 3-10 cm sideways from its rest position, at the
 height of a pushed tip or below it (C / S bends that need the fork's slot, up to 0.8 x the curvature limit). The policy observes 57 values (robot base frame, meters): tool tip 21, stem
 base 3, 5 points along the stem (0.08 ... 0.40 m) for the previous and the current policy step 30, target 3.
@@ -83,17 +86,18 @@ uv run --extra isaacsim python scripts/check_push_obs.py                        
 uv run --extra isaacsim python scripts/check_push_obs.py --num_envs 4 --viz kit --slow_motion 3  # watch it
 ```
 
-In the viewer: the target is a red sphere (green within 1 cm of the tip), the tip and the 5 observed points are
+In the viewer (4 or more envs show different stem places): the target is a red sphere (green within 1 cm of the tip), the tip and the 5 observed points are
 blue spheres; the stem is pushed sideways (+x) by a force on its tip, then released.
 
 | Check (`check_push_obs.py`) | Passes if |
 |---|---|
 | shapes | observation (n, 57), all finite |
-| stem at rest | base point at the stem base, the 5 points on the upright stem, within 1 mm |
+| spawn area | every observed base in x 0.50-0.65 m, y +-0.15 m, z 0, at reset and after a second reset; equal to the stem root (0.01 mm); different between envs; moved by the reset; constant in the episode (1 mm) |
+| stem at rest | the 5 points on the upright stem above the observed base, within 1 mm |
 | observed tip = tip from segment poses | within 0.01 mm (frame and point helper) |
 | previous step | the previous-step block equals the step before |
 | pushed stem | every point moves in +x, higher points more, the tip > 1 cm, sideways < 1 mm |
-| target in the region | 3-10 cm from the rest tip, on or below the bowl within the curvature budget, fixed in the episode, new after a reset |
+| target in the region | 3-10 cm from the rest tip, on or below the bowl within the curvature budget, fixed in the episode, new after a reset and again in the region around the new base |
 
 ## Stem tests
 

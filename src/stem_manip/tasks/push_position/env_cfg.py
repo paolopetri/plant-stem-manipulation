@@ -12,7 +12,7 @@ Requirements:
 
 Implemented (M4, part 1): scene, 6-D impedance action, horizontal start pose, tool-tip pose observation, reset,
 time out. Step 1 (2026-10-08): target command for the stem tip, stem-state observations (stem base, 5 points with
-the previous policy step, target), obs 57.
+the previous policy step, target), obs 57. Step 2: stem spawn area (reset event `spawn_stem`).
 Verify: `scripts/check_push_env.py`; zero/random agent runs headless with few envs. See docs/TODO.md -> M4.
 """
 
@@ -22,6 +22,7 @@ from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
+from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.utils import configclass
@@ -45,6 +46,16 @@ START_JOINT_POS = {
     "fr3_joint6": 1.527,
     "fr3_joint7": 0.776,
 }
+
+# Stem spawn area (user, 2026-10-09): the stem base is reset uniformly within this rectangle on the lab's plate in front
+# of the robot (58 x 58 cm at the mounting-surface height, x 0.075-0.655 m, y +-0.29 m), robot base frame [m]. Near
+# edge from joint 4's limit (margin >= 0.25 rad with the fork horizontal: tool tip at x >= 0.40 m at the stem-tip
+# height and >= 0.45 m lower down, and a target up to 10 cm towards the robot), far edge from the plate (2026-10-09; was
+# x 0.275-0.525 m, 2026-10-06). Assumes robot base frame = env frame (robot root at the env origin, not rotated). The
+# plate is not modelled as geometry (infinite ground plane); the fork may leave it.
+STEM_SPAWN_X = (0.50, 0.65)
+STEM_SPAWN_Y = (-0.15, 0.15)
+# The spawn event ignores the stem's `init_state.pos`: to place the stem elsewhere, also set `events.spawn_stem = None`.
 
 
 @configclass
@@ -116,10 +127,16 @@ class ObservationsCfg:
 
 @configclass
 class EventCfg:
-    """Base clamping at startup; robot and stem back to their default states on reset."""
+    """Base clamping at startup; robot and stem back to their default states on reset, then the stem base moved to a
+    random place in the spawn area (upright, at rest; before the target command is resampled)."""
 
     fix_stem_base = EventTerm(func=mdp.fix_stem_base, mode="startup", params={"model": STEM_MODEL})
     reset_scene = EventTerm(func=mdp.reset_scene_to_default, mode="reset", params={"reset_joint_targets": True})
+    spawn_stem = EventTerm(
+        func=mdp.reset_stem_base_uniform,
+        mode="reset",
+        params={"x_range": STEM_SPAWN_X, "y_range": STEM_SPAWN_Y, "asset_cfg": SceneEntityCfg("stem")},
+    )
 
 
 @configclass
