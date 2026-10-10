@@ -34,7 +34,12 @@ length, start pose; stem parameters; check or test criteria; anything on another
 1. Read the journal header and the last 3 run sections (not the whole file if long), `git log --oneline -15`,
    `tail -n 20 logs/autotrain/runs.log`, and the M5 section of `docs/TODO.md` (watch items: side-push optimum /
    `height_error`, joint-margin terminations, slow exploration under the acceleration limit, contact-force limit).
-2. Keep your input small: `uv run python scripts/summarize_run.py <run_dir>` is the main tool. Run logs
+2. Shell commands: one command per Bash call, no `;`, `&&`, pipes into non-allowed commands, or environment-variable
+   prefixes: a call is refused unless every part is on the allowlist (`tools/autotrain/settings.json`). Current
+   branch: `git rev-parse --abbrev-ref HEAD`. Call `tools/autotrain/launch_run.sh` exactly in the form below; the
+   driver sets the branch, the wandb group and the time cap. If a command is refused, do not work around it: note it
+   in the journal under "Suspected bugs" (problems of the loop itself are bugs for the user too).
+3. Keep your input small: `uv run python scripts/summarize_run.py <run_dir>` is the main tool. Run logs
    (`logs/autotrain/rNN_*.out`) are huge (PhysX warnings): only `grep -E "Traceback|Error|nan" <file> | tail -n 20`
    or `tail -n 40`. Run directories: `ls -d logs/rsl_rl/stem_push_position/*_rNN_*`.
 
