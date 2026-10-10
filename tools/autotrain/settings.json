@@ -35,6 +35,7 @@
       "Bash(grep:*)",
       "Bash(wc:*)",
       "Bash(date:*)",
+      "Bash(echo:*)",
       "Bash(touch logs/autotrain/DONE)"
     ],
     "deny": [
