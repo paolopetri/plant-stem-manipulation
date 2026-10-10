@@ -17,6 +17,8 @@ uv run isaaclab train/play --task <ID>      Isaac Lab's own CLI, nothing custom
 
 The repo is an installable uv package (`stem_manip`), following Isaac Lab 3's external-project template.
 `scripts/` holds sanity checks and small tools. `tests/` holds unit tests that don't need the simulator.
+`tools/autotrain/` holds the unattended training loop (driver, launch scripts, agent prompt and permissions);
+its journal goes to `docs/experiments/`.
 
 ## Stem models
 
@@ -97,7 +99,7 @@ Each model module provides the same functions:
    for the previous and the current policy step (30); target position of the tip (3). The stem-state terms are in
    `tasks/push_position/mdp/stem_state.py`. No contact forces. To be reduced to what the perception can deliver.
 4. **Reward / termination** (`mdp/rewards.py`, `mdp/terminations.py`, weights and thresholds in the env cfg):
-   distance of the stem point to the target (coarse / fine tanh; height term at weight 0), fork-to-stem approach,
+   distance of the stem point to the target (coarse / fine tanh, the fine one an ellipsoid; height term at weight 0), fork-to-stem approach,
    curvature and contact-force penalties, action rate, early-termination penalty; terminate on time out, curvature
    limit, contact-force limit (both from `damage` in `stem.yaml`) and joint margin, no tool-tip bound. Contact forces
    (sensor `stem_contact` on the stem segments, filtered to the robot) and joint forces are used here, not in the
