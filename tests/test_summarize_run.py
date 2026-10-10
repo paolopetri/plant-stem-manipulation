@@ -41,6 +41,15 @@ def test_values_at_evenly_spaced_iterations(run_dir: Path):
     assert row.split()[1:5] == ["0", "33", "66", "99"]
 
 
+def test_window_adds_the_mean_over_the_last_iterations(run_dir: Path):
+    lines = summarize_run.summarize(run_dir, points=4, window=20).splitlines()
+    assert lines[2].split()[-1] == "mean20"
+    rows = {line.split()[0]: line.split()[-1] for line in lines[3:] if "/" in line}
+    assert rows["Train/mean_reward"] == "89.5"  # mean of 80 ... 99
+    assert rows["Metrics/stem_target/position_error"] == "0.0105"  # mean of 0.1 - 0.001 * it, it = 80 ... 99
+    assert summarize_run.summarize(run_dir, points=4).splitlines()[2].split()[-1] == "99"  # off by default
+
+
 def test_tag_order_and_wall_time_tags_left_out(run_dir: Path):
     text = summarize_run.summarize(run_dir, points=4)
     order = ["Train/mean_reward", "Episode_Reward/", "Episode_Termination/", "Metrics/", "Loss/", "Perf/total_fps"]
