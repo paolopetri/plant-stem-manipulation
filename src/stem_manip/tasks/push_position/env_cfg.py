@@ -259,3 +259,8 @@ class StemPushPositionEnvCfg(ManagerBasedRLEnvCfg):
         self.scene.stem_contact.history_length = self.decimation  # the contact terms average over one policy step
         self.sim.physics = stem_model(STEM_MODEL).physics_cfg()
         self.episode_length_s = 15.0  # [s] approach and push (user, 2026-10-09; was 10 s)
+        # camera for the viewer and recorded videos (`--video`): env 0, robot and stem spawn area from the front side
+        self.viewer.origin_type = "env"
+        self.viewer.env_index = 0
+        self.viewer.eye = (1.6, 1.4, 1.0)
+        self.viewer.lookat = (0.35, 0.0, 0.3)
