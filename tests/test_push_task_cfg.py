@@ -36,7 +36,7 @@ REWARDS = {
     "distance_coarse": (mdp.stem_point_distance_tanh, 1.0, {"std": 0.05}),  # stem tip to target [m]
     # ellipsoid (user, 2026-10-10): height error scaled by 10/3, i.e. std 1 cm sideways, 3 mm in height
     "distance_fine": (mdp.stem_point_distance_tanh, 1.0, {"std": 0.01, "z_scale": 0.01 / 0.003}),
-    "height": (mdp.stem_point_height_tanh, 1.0, {"std": 0.003}),  # exp/m5-weekend run 04 (was 0.0, off)
+    "height": (mdp.stem_point_height_tanh, 0.3, {"std": 0.003}),  # exp/m5-weekend run 05 (run 04: 1.0, was 0.0, off)
     "approach": (mdp.approach_tanh, 0.5, {"std": 0.1}),  # tool tip to the nearest stem point [m]
     "curvature": (mdp.curvature_penalty, -1.0, {"soft_fraction": 0.8}),  # quadratic above 0.8 x the limit
     "contact_force": (mdp.contact_force_penalty, -1.0, {"threshold": 2.0}),  # quadratic above 2 N

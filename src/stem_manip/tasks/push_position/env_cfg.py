@@ -192,7 +192,8 @@ class RewardsCfg:
     )
     # off for the baseline: switch on if the policy stalls on the bowl (side push, `height_error` metric stays > 0)
     # exp/m5-weekend run 04: on (weight 1.0), `height_error` stayed at +3 mm in runs 01-03
-    height = RewTerm(func=mdp.stem_point_height_tanh, weight=1.0, params={"std": HEIGHT_STD})
+    # exp/m5-weekend run 05: weight 0.3 (run 04: height_error 0.5 mm but position error 20 mm, sideways error traded)
+    height = RewTerm(func=mdp.stem_point_height_tanh, weight=0.3, params={"std": HEIGHT_STD})
     approach = RewTerm(
         func=mdp.approach_tanh,
         weight=0.5,
