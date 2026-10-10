@@ -183,7 +183,13 @@ class RewardsCfg:
     terminations. Weights: a first guess for the baseline (user, 2026-10-09)."""
 
     distance_coarse = RewTerm(func=mdp.stem_point_distance_tanh, weight=1.0, params={"std": DISTANCE_STD[0]})
-    distance_fine = RewTerm(func=mdp.stem_point_distance_tanh, weight=1.0, params={"std": DISTANCE_STD[1]})
+    # ellipsoid (user, 2026-10-10): height error scaled to std HEIGHT_STD (3 mm), so that a side push stalling on the
+    # bowl a few mm above the target loses most of this term (5 mm: 7 % left instead of 54 % with the 1 cm sphere)
+    distance_fine = RewTerm(
+        func=mdp.stem_point_distance_tanh,
+        weight=1.0,
+        params={"std": DISTANCE_STD[1], "z_scale": DISTANCE_STD[1] / HEIGHT_STD},
+    )
     # off for the baseline: switch on if the policy stalls on the bowl (side push, `height_error` metric stays > 0)
     height = RewTerm(func=mdp.stem_point_height_tanh, weight=0.0, params={"std": HEIGHT_STD})
     approach = RewTerm(

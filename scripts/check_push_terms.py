@@ -67,6 +67,7 @@ from stem_manip.utils.stem_geometry import joint_curvature, point_pose, stem_poi
 TASK = "StemManip-Push-Position-FR3-v0"
 # decided values (user, 2026-10-09)
 STD = {"distance_coarse": 0.05, "distance_fine": 0.01, "height": 0.003, "approach": 0.1}  # [m]
+FINE_Z_SCALE = 0.01 / 0.003  # distance_fine: height error scaled (ellipsoid, std 3 mm in height; user, 2026-10-10)
 MAX_CURVATURE = 5.0  # [1/m]
 SOFT_CURVATURE = 0.8 * MAX_CURVATURE  # [1/m]
 FREE_FORCE, MAX_FORCE = 2.0, 5.0  # [N]
@@ -127,6 +128,7 @@ def main() -> None:
             limits = robot.data.joint_pos_limits.torch[:, arm]
             snap.update(
                 d=error.norm(dim=-1),
+                d_fine=(error * error.new_tensor([1.0, 1.0, FINE_Z_SCALE])).norm(dim=-1),
                 dz=error[:, 2],
                 approach_d=(stem_b - tool[:, None]).norm(dim=-1).min(dim=-1).values,
                 curvature=joint_curvature(poses, lengths),
@@ -170,7 +172,7 @@ def main() -> None:
             s = snap
             expected = {
                 "distance_coarse": tanh_reward(s["d"], STD["distance_coarse"]),
-                "distance_fine": tanh_reward(s["d"], STD["distance_fine"]),
+                "distance_fine": tanh_reward(s["d_fine"], STD["distance_fine"]),
                 "curvature": (s["curvature"] - SOFT_CURVATURE).clamp(min=0.0).square().sum(dim=-1),
                 "contact_force": (s["force"] - contact_params["threshold"]).clamp(min=0.0).square(),
             }

@@ -34,7 +34,8 @@ POLICY_TERMS = [  # order of the concatenated policy observation (57 values)
 # reward terms (user, 2026-10-09): function, weight, decided params
 REWARDS = {
     "distance_coarse": (mdp.stem_point_distance_tanh, 1.0, {"std": 0.05}),  # stem tip to target [m]
-    "distance_fine": (mdp.stem_point_distance_tanh, 1.0, {"std": 0.01}),
+    # ellipsoid (user, 2026-10-10): height error scaled by 10/3, i.e. std 1 cm sideways, 3 mm in height
+    "distance_fine": (mdp.stem_point_distance_tanh, 1.0, {"std": 0.01, "z_scale": 0.01 / 0.003}),
     "height": (mdp.stem_point_height_tanh, 0.0, {"std": 0.003}),  # ready for the side-push optimum, off for now
     "approach": (mdp.approach_tanh, 0.5, {"std": 0.1}),  # tool tip to the nearest stem point [m]
     "curvature": (mdp.curvature_penalty, -1.0, {"soft_fraction": 0.8}),  # quadratic above 0.8 x the limit

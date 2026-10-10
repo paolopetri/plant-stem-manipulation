@@ -37,9 +37,13 @@ def stem_point_error(env: ManagerBasedRLEnv, command_name: str = "stem_target") 
     return term.stem_point_b() - term.command
 
 
-def stem_point_distance_tanh(env: ManagerBasedRLEnv, std: float, command_name: str = "stem_target") -> torch.Tensor:
-    """`1 - tanh(d / std)` of the stem point's distance d to the target [m], in (0, 1]."""
-    return 1.0 - torch.tanh(stem_point_error(env, command_name).norm(dim=-1) / std)
+def stem_point_distance_tanh(
+    env: ManagerBasedRLEnv, std: float, z_scale: float = 1.0, command_name: str = "stem_target"
+) -> torch.Tensor:
+    """`1 - tanh(d / std)` of the stem point's distance d to the target [m], in (0, 1]. With `z_scale` > 1 the height
+    error counts `z_scale` times more (ellipsoid: std / z_scale in height, robot base frame z)."""
+    error = stem_point_error(env, command_name)
+    return 1.0 - torch.tanh((error * error.new_tensor([1.0, 1.0, z_scale])).norm(dim=-1) / std)
 
 
 def stem_point_height_tanh(env: ManagerBasedRLEnv, std: float, command_name: str = "stem_target") -> torch.Tensor:
