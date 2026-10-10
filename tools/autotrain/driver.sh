@@ -11,8 +11,8 @@
 # usage limit) are retried after 30 min. The agent writes logs/autotrain/DONE to end the loop early.
 #
 # Settings (environment): AUTOTRAIN_DEADLINE ("2026-10-12 07:00"), AUTOTRAIN_BRANCH (exp/m5-weekend),
-# AUTOTRAIN_GROUP (wandb group, m5-weekend), AUTOTRAIN_MAX_HOURS (cap per run, 4), AUTOTRAIN_CHECK_MIN (20), AUTOTRAIN_MODEL (sonnet), AUTOTRAIN_EFFORT (high), AUTOTRAIN_NOTE (extra line for the
-# agent, e.g. for a dry run).
+# AUTOTRAIN_GROUP (wandb group, m5-weekend), AUTOTRAIN_MAX_HOURS (cap per run, 4), AUTOTRAIN_CHECK_MIN (20),
+# AUTOTRAIN_MODEL (sonnet), AUTOTRAIN_EFFORT (high), AUTOTRAIN_NOTE (extra line for the agent, e.g. for a dry run).
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
@@ -24,6 +24,7 @@ EFFORT=${AUTOTRAIN_EFFORT:-high}
 NOTE=${AUTOTRAIN_NOTE:-}
 STATE=logs/autotrain
 mkdir -p $STATE
+touch $STATE/runs.log  # read by the agent before the first launch
 # for launch_run.sh, called by the agent (which may not set environment variables: it calls the script bare)
 export AUTOTRAIN_BRANCH=$BRANCH
 export AUTOTRAIN_GROUP=${AUTOTRAIN_GROUP:-m5-weekend} AUTOTRAIN_MAX_HOURS=${AUTOTRAIN_MAX_HOURS:-4}
