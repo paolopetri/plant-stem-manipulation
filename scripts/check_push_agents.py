@@ -18,8 +18,7 @@ fixed here, not read from the cfg:
   quaternion and up to 1 float32 ulp in position, which moves the base in the robot base frame by up to 5e-8 m),
   target_pos exactly constant;
 - stem_points: each point no farther from the base than its arc length 0.08 ... 0.40 m (+1 mm: inextensible chain);
-- rewards (weighted, per step): distance / approach terms in [0, weight], penalties <= 0; height 0 only confirms its
-  weight 0 (Isaac Lab skips a term of weight 0 without calling it, so its function is not tested here);
+- rewards (weighted, per step): distance / height / approach terms in [0, weight], penalties <= 0;
 - every reset comes with a done flag (episode length counts up by one, or restarts after terminated / truncated).
 Zero agent in addition: only the time out fires, exactly at step 469 (15 s / 32 ms) of every episode in every env;
 the tool tip stays within 2 mm of its reset position (lag criterion of the action sweep); curvature, contact and
@@ -83,7 +82,7 @@ SPAWN_X, SPAWN_Y = (0.50, 0.65), (-0.15, 0.15)  # [m] stem spawn area (user, 202
 AREA_TOL, GROUND_TOL = 1e-6, 1e-3  # [m] as in check_push_obs.py
 ARC_TOL = 1e-3  # [m]
 UNIT_TOL, NORM_TOL, CLAMP_ACTIVE = 1e-4, 1e-3, 1.0 - 1e-3
-POSITIVE_REWARDS = ("distance_coarse", "distance_fine", "approach")  # tanh terms in [0, weight]
+POSITIVE_REWARDS = ("distance_coarse", "distance_fine", "height", "approach")  # tanh terms in [0, weight]
 PENALTIES = ("curvature", "contact_force", "action_rate", "terminated")
 ZERO_PENALTIES = ("curvature", "contact_force", "action_rate")  # zero agent: exactly 0
 PROGRESS_EVERY = 100  # [policy steps]
@@ -238,8 +237,6 @@ def main() -> None:
                 for name in PENALTIES:
                     if (step_reward[:, reward_names.index(name)] > 0).any():
                         fail("reward ranges", f"step {step}: {name} > 0")
-                if (step_reward[:, reward_names.index("height")] != 0).any():
-                    fail("reward ranges", f"step {step}: height != 0")
 
                 # episode bookkeeping: constant within an episode, reset only with a done flag
                 kept = ~done

@@ -1,7 +1,7 @@
 """Reward terms (decided values: user, 2026-10-09; weights and parameters in the env cfg).
 
 - Task: distance of the stem point (the tip) to the target, `1 - tanh(d / std)`, coarse (5 cm) and fine (1 cm);
-  height error alone (`stem_point_height_tanh`, weight 0 for the baseline: against a side-push optimum, a prong's
+  height error alone (`stem_point_height_tanh`, weight 0.3 since the M5 weekend: against a side-push optimum, a prong's
   side only reaches the bowl above deep targets). Same point as the command's `position_error`.
 - Approach: `1 - tanh(d / std)` of the tool tip's distance to the nearest point on the stem (exploration: the task
   terms are flat until the fork touches the stem; saturates in contact, does not say where to push).

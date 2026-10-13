@@ -104,8 +104,8 @@ blue spheres; the stem is pushed sideways (+x) by a force on its tip, then relea
 ## Push task: rewards and terminations
 
 Rewards: stem tip to target (`1 - tanh(d / std)`, coarse 5 cm; fine 1 cm sideways and 3 mm in height, an ellipsoid:
-the height error is scaled by 10/3, so that a push stalling a few mm above the target loses most of it), height error alone (std 3 mm, weight 0
-for now), fork-to-stem approach (std 0.1 m), curvature penalty above 0.8 x the limit, contact-force penalty above 2 N
+the height error is scaled by 10/3, so that a push stalling a few mm above the target loses most of it), height error alone (std 3 mm, weight 0.3),
+fork-to-stem approach (std 0.1 m), curvature penalty above 0.8 x the limit, contact-force penalty above 2 N
 (largest single contact of the robot on the stem, mean over a policy step), action rate, early-termination penalty.
 Terminations: time out, curvature above `damage.max_curvature`, contact force above `damage.max_contact_force`
 (both in `assets/stem/stem.yaml`), any FR3 joint within 0.25 rad of its limit. Weights and thresholds: `env_cfg.py`.
@@ -151,7 +151,7 @@ uv run --extra isaacsim python scripts/check_push_agents.py --agents random --nu
 | target_offset / applied_step | each part's norm <= 1 (clamp 4 mm / 3 deg; speed caps, except where the clamp holds the target) |
 | stem points | each point no farther from the base than its arc length (+1 mm) |
 | constant within an episode | stem base (1e-6 m, see below) and target |
-| reward ranges | distance / approach in [0, weight], penalties <= 0, height 0 (only confirms weight 0: Isaac Lab skips the term) |
+| reward ranges | distance / height / approach in [0, weight], penalties <= 0 |
 | reset only with a done flag | the episode length counts up by one or restarts after a done flag |
 | tool_tip_rot | both columns unit length and orthogonal (1e-4) |
 | zero agent | only the time out fires, exactly at step 469; the tool tip holds (2 mm); penalties 0 |

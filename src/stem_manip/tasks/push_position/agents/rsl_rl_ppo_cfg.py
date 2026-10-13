@@ -16,7 +16,8 @@ from isaaclab_rl.rsl_rl import RslRlMLPModelCfg, RslRlOnPolicyRunnerCfg, RslRlPp
 class StemPushPositionPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     """PPO with actor and critic MLPs on the policy observation (57 values, raw metres: normalized empirically)."""
 
-    num_steps_per_env = 24
+    # hyperparameters: best config of the M5 weekend sweep (run 13), see docs/experiments/2026-10-10-m5-weekend.md
+    num_steps_per_env = 48
     max_iterations = 1500  # placeholder until the speed benchmark (M5 plan, step 5)
     save_interval = 50
     experiment_name = "stem_push_position"
@@ -24,22 +25,22 @@ class StemPushPositionPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     wandb_project = "stem-manip"
     obs_groups = {"actor": ["policy"], "critic": ["policy"]}
     actor = RslRlMLPModelCfg(
-        hidden_dims=[256, 128, 64],
+        hidden_dims=[512, 256, 128],
         activation="elu",
         obs_normalization=True,
         distribution_cfg=RslRlMLPModelCfg.GaussianDistributionCfg(init_std=1.0),
     )
-    critic = RslRlMLPModelCfg(hidden_dims=[256, 128, 64], activation="elu", obs_normalization=True)
+    critic = RslRlMLPModelCfg(hidden_dims=[512, 256, 128], activation="elu", obs_normalization=True)
     algorithm = RslRlPpoAlgorithmCfg(
         value_loss_coef=1.0,
         use_clipped_value_loss=True,
         clip_param=0.2,
-        entropy_coef=0.006,
+        entropy_coef=0.012,
         num_learning_epochs=5,
         num_mini_batches=4,
         learning_rate=1.0e-3,
         schedule="adaptive",
-        # looks ~50 policy steps (1.6 s) ahead in a 15 s episode: fine for the dense rewards, a lever for later
+        # 0.98 looks ~50 policy steps (1.6 s) ahead in a 15 s episode (0.99: ~100 steps, 3.2 s)
         gamma=0.98,
         lam=0.95,
         desired_kl=0.01,
