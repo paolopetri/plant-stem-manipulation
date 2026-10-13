@@ -88,5 +88,19 @@ Isaac Lab 3 source checkout expected at `../IsaacLab`.
 ## Notes
 
 - `docs/notes/YYYY-MM-DD.md`: one short, append-only log per work day, with sections Done / Decisions / Open questions (skip empty ones).
-- `docs/TODO.md`: the only place for open items. When an item is done, delete it there and log it in today's note.
+- `docs/TODO.md`: high-level open items and discussion (direction, open questions, parked topics). Concrete, actionable work items are GitHub issues. When a TODO item is done or turned into issues, delete it there and log it in today's note.
 - After finishing a unit of work, add an entry to today's note and update `docs/TODO.md`.
+
+## Agent skills
+
+### Issue tracker
+
+Concrete work items are GitHub issues (`gh` CLI); `docs/TODO.md` holds high-level items and discussion. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
