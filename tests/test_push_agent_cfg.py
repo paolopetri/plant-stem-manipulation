@@ -12,7 +12,7 @@ from stem_manip.tasks.push_position.agents.rsl_rl_ppo_cfg import StemPushPositio
 
 TASK = "StemManip-Push-Position-FR3-v0"
 RUNNER = {
-    "num_steps_per_env": 24,
+    "num_steps_per_env": 48,
     "save_interval": 50,
     "experiment_name": "stem_push_position",
     "obs_groups": {"actor": ["policy"], "critic": ["policy"]},  # no privileged critic obs yet (M5 second step)
@@ -20,13 +20,15 @@ RUNNER = {
     "logger": "wandb",
     "wandb_project": "stem-manip",
 }
-NETWORK = {"hidden_dims": [256, 128, 64], "activation": "elu", "obs_normalization": True}  # raw metres in the obs
+# decided values: M5 weekend run 13 (docs/experiments/2026-10-10-m5-weekend.md)
+# obs_normalization: raw metres in the obs
+NETWORK = {"hidden_dims": [512, 256, 128], "activation": "elu", "obs_normalization": True}
 INIT_STD = 1.0
 ALGORITHM = {
     "value_loss_coef": 1.0,
     "use_clipped_value_loss": True,
     "clip_param": 0.2,
-    "entropy_coef": 0.006,
+    "entropy_coef": 0.012,
     "num_learning_epochs": 5,
     "num_mini_batches": 4,
     "learning_rate": 1.0e-3,

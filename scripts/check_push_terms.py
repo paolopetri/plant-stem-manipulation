@@ -136,7 +136,7 @@ def main() -> None:
                 margin=torch.minimum(q - limits[..., 0], limits[..., 1] - q).min(dim=-1).values,
                 tool=tool,
             )
-            # the height term has weight 0 (the reward manager skips it): evaluated here, at the same state
+            # the height term's unweighted value, evaluated here at the same state
             height_cfg = env.reward_manager.get_term_cfg("height")
             snap["height_value"] = height_cfg.func(env, **height_cfg.params)
 

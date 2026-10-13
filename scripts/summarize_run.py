@@ -6,7 +6,9 @@ every termination's share (`Episode_Termination/*`), the command metrics (`Metri
 `position_error` at the end of the episode), noise std, losses, fps. Non-finite values are flagged. Meant to be read
 by people and by the weekend training agents (keeps their input short; M5 plan, step 4).
 
-Usage: uv run python scripts/summarize_run.py logs/rsl_rl/stem_push_position/<run> [--points 10]
+Usage: uv run python scripts/summarize_run.py logs/rsl_rl/stem_push_position/<run> [--points 10] [--window 200]
+(`--window N` adds a column with the mean over the last N iterations; single iterations are noisy. `--until K`
+ends that window at iteration K, e.g. to compare with a run that was cut short.)
 Verify: tests/test_summarize_run.py.
 """
 
@@ -53,23 +55,30 @@ def _commit(run_dir: Path) -> str:
     return match.group(1) if match else "unknown"
 
 
-def summarize(run_dir: Path, points: int = 10) -> str:
-    """The summary as text: header, one row per tag, non-finite flags."""
+def summarize(run_dir: Path, points: int = 10, window: int = 0, until: int | None = None) -> str:
+    """The summary as text: header, one row per tag, non-finite flags. `window` > 0 adds a column with the mean
+    over the last `window` logged iterations (up to iteration `until`, if given, to compare runs of different
+    length at the same iterations)."""
     scalars = load_scalars(run_dir)
     if not scalars:
         return f"run {run_dir}: no scalars logged yet"
     iterations = pick_iterations(scalars, points)
     logged = set().union(*scalars.values())
+    last_window = sorted(it for it in logged if until is None or it <= until)[-window:] if window > 0 else []
     width = max(len(tag) for tag in scalars)
     lines = [
         f"run {run_dir}",
         f"git_commit {_commit(run_dir)} | last iteration {max(logged)} | {len(logged)} iterations logged",
-        f"{'iteration':<{width}} " + " ".join(f"{it:>9}" for it in iterations),
+        f"{'iteration':<{width}} " + " ".join(f"{it:>9}" for it in iterations)
+        + (f" {f'mean{window}':>9}" if window > 0 else ""),
     ]
     flags = []
     for tag in sorted(scalars, key=_order):
         values = scalars[tag]
         cells = [f"{values[it]:>9.4g}" if it in values else f"{'-':>9}" for it in iterations]
+        if window > 0:
+            tail = [values[it] for it in last_window if it in values]
+            cells.append(f"{sum(tail) / len(tail):>9.4g}" if tail else f"{'-':>9}")
         lines.append(f"{tag:<{width}} " + " ".join(cells))
         bad = [it for it, value in sorted(values.items()) if not math.isfinite(value)]
         if bad:
@@ -81,8 +90,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("run_dir", type=Path, help="run directory with the tensorboard events")
     parser.add_argument("--points", type=int, default=10, help="number of iterations shown per row")
+    parser.add_argument("--window", type=int, default=0, help="add a column: mean over the last N iterations")
+    parser.add_argument("--until", type=int, default=None, help="end the --window at this iteration")
     args = parser.parse_args()
-    print(summarize(args.run_dir, args.points))
+    print(summarize(args.run_dir, args.points, args.window, args.until))
 
 
 if __name__ == "__main__":

@@ -190,8 +190,9 @@ class RewardsCfg:
         weight=1.0,
         params={"std": DISTANCE_STD[1], "z_scale": DISTANCE_STD[1] / HEIGHT_STD},
     )
-    # off for the baseline: switch on if the policy stalls on the bowl (side push, `height_error` metric stays > 0)
-    height = RewTerm(func=mdp.stem_point_height_tanh, weight=0.0, params={"std": HEIGHT_STD})
+    # on against the side-push stall on the bowl (`height_error` stayed at +3 mm with weight 0); 0.3: weight 1.0 traded
+    # sideways accuracy for height (M5 weekend runs 04-05, docs/experiments/2026-10-10-m5-weekend.md)
+    height = RewTerm(func=mdp.stem_point_height_tanh, weight=0.3, params={"std": HEIGHT_STD})
     approach = RewTerm(
         func=mdp.approach_tanh,
         weight=0.5,
