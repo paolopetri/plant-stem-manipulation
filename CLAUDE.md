@@ -62,11 +62,11 @@ Skeleton modules contain only a spec docstring (requirements, how to verify, TOD
 ## Commands
 
 Isaac Lab 3 source checkout expected at `../IsaacLab`.
-- Setup: `uv sync --extra isaacsim --extra rsl-rl`
+- Setup: `uv sync --extra isaacsim --extra rsl-rl --extra wandb --extra video`
 - List tasks: `uv run isaaclab list_envs`
 - Unit tests: `uv run pytest`
 - Simulation checks (headless by default, no `--headless` flag in Isaac Lab 3): `uv run --extra isaacsim python scripts/check_<name>.py`, e.g. `check_fr3.py`
-- Train / play: added with the first training run (docs/TODO.md, M5).
+- Train / play / run summary / autotrain loop: README, section "Push task: training".
 
 ## Git workflow
 

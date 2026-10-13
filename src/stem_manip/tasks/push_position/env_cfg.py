@@ -18,6 +18,9 @@ Verify: `scripts/check_push_env.py`, `scripts/check_push_terms.py`; zero/random 
 See docs/TODO.md -> M4.
 """
 
+import subprocess
+from pathlib import Path
+
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
@@ -76,6 +79,14 @@ CONTACT_FREE_FORCE = 2.0
 MIN_JOINT_MARGIN = 0.25  # [rad] terminate closer to any FR3 joint limit (the sweeps' rule, 2026-10-08)
 ARM_JOINTS = ["fr3_joint[1-7]"]
 ROBOT_LINKS = [f"fr3_link{i}" for i in range(8)] + [END_EFFECTOR]  # all robot bodies that can touch the stem
+
+
+def git_commit() -> str:
+    """This repo's commit (12 characters, + "-dirty" with uncommitted changes to tracked files), logged with every run
+    through the env cfg (`params/env.yaml`, wandb config); Isaac Lab only logs its own repo."""
+    describe = ["git", "describe", "--always", "--dirty", "--abbrev=12", "--exclude=*"]  # hash, never a tag name
+    result = subprocess.run(describe, cwd=Path(__file__).parent, capture_output=True, text=True)
+    return result.stdout.strip() or "unknown"
 
 
 @configclass
@@ -172,7 +183,13 @@ class RewardsCfg:
     terminations. Weights: a first guess for the baseline (user, 2026-10-09)."""
 
     distance_coarse = RewTerm(func=mdp.stem_point_distance_tanh, weight=1.0, params={"std": DISTANCE_STD[0]})
-    distance_fine = RewTerm(func=mdp.stem_point_distance_tanh, weight=1.0, params={"std": DISTANCE_STD[1]})
+    # ellipsoid (user, 2026-10-10): height error scaled to std HEIGHT_STD (3 mm), so that a side push stalling on the
+    # bowl a few mm above the target loses most of this term (5 mm: 7 % left instead of 54 % with the 1 cm sphere)
+    distance_fine = RewTerm(
+        func=mdp.stem_point_distance_tanh,
+        weight=1.0,
+        params={"std": DISTANCE_STD[1], "z_scale": DISTANCE_STD[1] / HEIGHT_STD},
+    )
     # off for the baseline: switch on if the policy stalls on the bowl (side push, `height_error` metric stays > 0)
     height = RewTerm(func=mdp.stem_point_height_tanh, weight=0.0, params={"std": HEIGHT_STD})
     approach = RewTerm(
@@ -232,6 +249,7 @@ class StemPushPositionEnvCfg(ManagerBasedRLEnvCfg):
     events: EventCfg = EventCfg()
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
+    git_commit: str = git_commit()
 
     def __post_init__(self):
         solver = stem_params(STEM_MODEL)["solver"]
@@ -241,3 +259,8 @@ class StemPushPositionEnvCfg(ManagerBasedRLEnvCfg):
         self.scene.stem_contact.history_length = self.decimation  # the contact terms average over one policy step
         self.sim.physics = stem_model(STEM_MODEL).physics_cfg()
         self.episode_length_s = 15.0  # [s] approach and push (user, 2026-10-09; was 10 s)
+        # camera for the viewer and recorded videos (`--video`): env 0, robot and stem spawn area from the front side
+        self.viewer.origin_type = "env"
+        self.viewer.env_index = 0
+        self.viewer.eye = (1.6, 1.4, 1.0)
+        self.viewer.lookat = (0.35, 0.0, 0.3)

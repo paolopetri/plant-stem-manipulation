@@ -13,7 +13,7 @@ Requires an Isaac Lab 3 source checkout next to this repo (`../IsaacLab`, see `[
 `pyproject.toml`) and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-uv sync --extra isaacsim --extra rsl-rl
+uv sync --extra isaacsim --extra rsl-rl --extra wandb --extra video
 ```
 
 This creates `.venv/` with Isaac Lab (editable, from `../IsaacLab`) and this package (`stem_manip`, editable).
@@ -41,7 +41,7 @@ uv run --extra isaacsim isaaclab random_agent --task StemManip-Push-Position-FR3
 Simulation scripts run without a window unless a viewer is requested with `--viz newton_gl`.
 The zero / random agents must be started through the `isaaclab` CLI as above: Isaac Lab's
 `scripts/environments/zero_agent.py` run directly does not register this project's tasks.
-Training commands are added with the first training run (docs/TODO.md, M5).
+Training: see "Push task: training" below.
 
 ## Push task: controller checks
 
@@ -103,7 +103,8 @@ blue spheres; the stem is pushed sideways (+x) by a force on its tip, then relea
 
 ## Push task: rewards and terminations
 
-Rewards: stem tip to target (`1 - tanh(d / std)`, coarse 5 cm and fine 1 cm), height error alone (std 3 mm, weight 0
+Rewards: stem tip to target (`1 - tanh(d / std)`, coarse 5 cm; fine 1 cm sideways and 3 mm in height, an ellipsoid:
+the height error is scaled by 10/3, so that a push stalling a few mm above the target loses most of it), height error alone (std 3 mm, weight 0
 for now), fork-to-stem approach (std 0.1 m), curvature penalty above 0.8 x the limit, contact-force penalty above 2 N
 (largest single contact of the robot on the stem, mean over a policy step), action rate, early-termination penalty.
 Terminations: time out, curvature above `damage.max_curvature`, contact force above `damage.max_contact_force`
@@ -159,6 +160,42 @@ The random agent's terminations are reported, not checked. Observations in the r
 5e-8 m on the first physics step after a reset: the robot root pose PhysX returns then differs from the written one
 (about 1e-8 in the quaternion, up to one float32 rounding step in position); hence the 1e-6 m tolerance.
 The Isaac Lab agents in the command list need `--max_steps`: without it they run until the process is killed.
+
+## Push task: training
+
+RSL-RL PPO (`agents/rsl_rl_ppo_cfg.py`), logged to wandb (project `stem-manip`; once: `uv run wandb login` in a
+terminal) and to local tensorboard files under `logs/rsl_rl/stem_push_position/<date>_<run name>/`. Every run logs
+this repo's commit (`git_commit` in `params/env.yaml` and the wandb config; `-dirty` = uncommitted changes).
+4096 envs: about 5.3 s per iteration (1500 iterations = 2.2 h, 6 GB GPU memory; 2026-10-10 benchmark: 512 / 1024 /
+2048 envs 2.8 / 2.9 / 3.4 s). Recording videos during training (`--video`) doubles the iteration time, so videos are
+recorded afterwards with `play`.
+
+```bash
+uv run --extra isaacsim isaaclab train --task StemManip-Push-Position-FR3-v0 --num_envs 4096 --run_name <name>
+uv run python scripts/summarize_run.py logs/rsl_rl/stem_push_position/<date>_<name>     # compact table of the run
+# play the last checkpoint and record 2 episodes of env 0 (writes <run dir>/videos/play/), then put it on wandb
+uv run --extra isaacsim --extra video isaaclab play --task StemManip-Push-Position-FR3-v0 --num_envs 4 \
+    --checkpoint logs/rsl_rl/stem_push_position/<date>_<name>/model_1499.pt --video --video_length 938
+uv run python tools/autotrain/upload_video.py logs/autotrain/<name>.out logs/rsl_rl/stem_push_position/<date>_<name>
+# watch a policy in the viewer
+uv run --extra isaacsim isaaclab play --task StemManip-Push-Position-FR3-v0 --num_envs 4 --checkpoint <model.pt> --viz kit
+```
+
+`upload_video.py` reads the wandb run id from the train output, so it needs the run's output saved to a file
+(`... > logs/autotrain/<name>.out 2>&1`). The output is large (about 120 harmless PhysX warnings per env at
+startup: the contact sensor's filter pattern also matches prims that are not rigid bodies).
+
+### Autotrain loop (weekend runs)
+
+`tools/autotrain/`: a bash driver waits on the runs and calls a fresh Claude agent (`claude -p`) for each decision:
+analyse the last run, change one thing (tuning or a proven bug fix, rules in `tools/autotrain/prompt.md`), commit,
+launch the next run (train, then a play video uploaded to wandb). Journal: `docs/experiments/`.
+
+```bash
+screen -S autotrain tools/autotrain/driver.sh   # on branch exp/m5-weekend; detach with Ctrl-a d, back: screen -r autotrain
+touch logs/autotrain/STOP                       # stop: the alive run finishes, the agent writes the summary
+tail -f logs/autotrain/driver.log               # what the driver does
+```
 
 ## Stem tests
 

@@ -4,6 +4,8 @@ changes; no simulator). Decisions: user, 2026-10-09 (spawn area; rewards and ter
 """
 
 import math
+import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -32,7 +34,8 @@ POLICY_TERMS = [  # order of the concatenated policy observation (57 values)
 # reward terms (user, 2026-10-09): function, weight, decided params
 REWARDS = {
     "distance_coarse": (mdp.stem_point_distance_tanh, 1.0, {"std": 0.05}),  # stem tip to target [m]
-    "distance_fine": (mdp.stem_point_distance_tanh, 1.0, {"std": 0.01}),
+    # ellipsoid (user, 2026-10-10): height error scaled by 10/3, i.e. std 1 cm sideways, 3 mm in height
+    "distance_fine": (mdp.stem_point_distance_tanh, 1.0, {"std": 0.01, "z_scale": 0.01 / 0.003}),
     "height": (mdp.stem_point_height_tanh, 0.0, {"std": 0.003}),  # ready for the side-push optimum, off for now
     "approach": (mdp.approach_tanh, 0.5, {"std": 0.1}),  # tool tip to the nearest stem point [m]
     "curvature": (mdp.curvature_penalty, -1.0, {"soft_fraction": 0.8}),  # quadratic above 0.8 x the limit
@@ -65,6 +68,15 @@ def test_stem_point_is_the_tip(cfg: StemPushPositionEnvCfg):
 
 def test_episode_length_is_decided(cfg: StemPushPositionEnvCfg):
     assert cfg.episode_length_s == pytest.approx(EPISODE_LENGTH_S, abs=1e-12)
+
+
+def test_git_commit_is_logged(cfg: StemPushPositionEnvCfg):
+    """Our repo's commit (+ "-dirty" with uncommitted changes to tracked files) is part of the env cfg, so it ends up
+    in every run's `params/env.yaml` and wandb config (M5 plan, step 3)."""
+    repo = Path(__file__).resolve().parents[1]
+    git = lambda *args: subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True).stdout.strip()  # noqa: E731
+    dirty = git("status", "--porcelain", "--untracked-files=no") != ""
+    assert cfg.git_commit == git("rev-parse", "--short=12", "HEAD") + ("-dirty" if dirty else "")
 
 
 def test_target_is_sampled_once_per_episode(cfg: StemPushPositionEnvCfg):
