@@ -25,3 +25,6 @@ docs/overleaf_folder/*.pdf
 docs/overleaf_folder/*.log
 docs/overleaf_folder/*.aux
 docs/overleaf_folder/*.synctex.gz
+
+# Claude Code personal settings
+.claude/settings.local.json
