@@ -4,14 +4,14 @@ The stem point is given by a segment index + an offset along that segment (task 
 At reset the target is sampled around the point's rest position (`stem_manip.utils.stem_target`): horizontal
 distance and direction uniform, height on or below the "bowl" the point reaches when pushed, down to the deepest
 stem shape within `curvature_budget` x `damage.max_curvature` (user, 2026-10-09). The rest position is the
-stem base plus the point's arc length straight up (assumes an upright stem and an upright robot base; the tilted
-stem in docs/TODO.md "Later" needs a change here). The base is read from the clamped segment 0, so it follows the
+stem base plus the point's arc length straight up (assumes an upright stem and an upright robot base; a tilted
+stem (#91) needs a change here). The base is read from the clamped segment 0, so it follows the
 spawn randomization (Isaac Lab resets the events before the command manager).
 
 The command is the target position in the robot base frame (num_envs, 3) [m]; metrics `position_error` [m] (stem
 point to target) and `height_error` [m] (its z part, + = above the target). Debug markers: target (red, green
 within `success_distance`) and the stem point (blue).
-Starting point: `CableUniformPoseCommand` (IsaacLab core/lift mdp). Verify: `scripts/check_push_obs.py`.
+Verify: `scripts/check_push_obs.py`.
 """
 
 from __future__ import annotations

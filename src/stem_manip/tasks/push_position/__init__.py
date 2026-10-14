@@ -3,7 +3,7 @@
 Registers `StemManip-Push-Position-FR3-v0` with the RSL-RL PPO agent (`agents/rsl_rl_ppo_cfg.py`, default agent, so
 `isaaclab train --task ...` needs no `--rl_library`).
 
-Verify: `uv run isaaclab list_envs` shows the task; `tests/test_push_agent_cfg.py`. See docs/TODO.md -> M5.
+Verify: `uv run isaaclab list_envs` shows the task; `tests/test_push_agent_cfg.py`.
 """
 
 import gymnasium as gym

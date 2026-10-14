@@ -1,13 +1,8 @@
-"""Observation terms (privileged stem state in simulation).
+"""Observation terms of the tool tip and the action term (the stem-state terms are in `stem_state.py`).
 
-Requirements:
-- End-effector (tool_tip) pose, stem segment positions (and orientations) in the robot root frame,
-  point-of-interest position, target position, the action term's applied step and target offset.
-- Shapes fixed per task; values in meters / normalized quaternions.
-
-Implemented: tool-tip position and orientation, the applied action step and the target offset (the action term's
-state: with the step-change limit and the target clamp the raw action alone does not tell the policy what was
-executed; a limiter the policy cannot see breaks learning, Aljalbout et al., RA-L 2024). See docs/TODO.md -> M4.
+Tool-tip position and orientation, the applied action step and the target offset (the action term's state: with the
+step-change limit and the target clamp the raw action alone does not tell the policy what was executed; a limiter the
+policy cannot see breaks learning, Aljalbout et al., RA-L 2024).
 """
 
 from __future__ import annotations

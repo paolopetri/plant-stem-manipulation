@@ -4,7 +4,7 @@ Prints the run's commit (`params/env.yaml`), then one row per logged scalar with
 spaced iterations: mean reward and episode length, every reward term (`Episode_Reward/*`, per second of episode),
 every termination's share (`Episode_Termination/*`), the command metrics (`Metrics/*`, e.g. the stem tip's
 `position_error` at the end of the episode), noise std, losses, fps. Non-finite values are flagged. Meant to be read
-by people and by the weekend training agents (keeps their input short; M5 plan, step 4).
+by people and by the weekend training agents (keeps their input short).
 
 Usage: uv run python scripts/summarize_run.py logs/rsl_rl/stem_push_position/<run> [--points 10] [--window 200]
 (`--window N` adds a column with the mean over the last N iterations; single iterations are noisy. `--until K`

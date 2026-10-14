@@ -1,5 +1,5 @@
 """The push task's RSL-RL PPO cfg uses the decided starting values and is registered with the task (no simulator).
-Starting values: Isaac Lab's `core/lift/config/franka_soft/agents/rsl_rl_ppo_cfg.py` (M5 plan, user 2026-10-09).
+Starting values: Isaac Lab's `core/lift/config/franka_soft/agents/rsl_rl_ppo_cfg.py` (user, 2026-10-09).
 """
 
 import gymnasium as gym
@@ -15,7 +15,8 @@ RUNNER = {
     "num_steps_per_env": 48,
     "save_interval": 50,
     "experiment_name": "stem_push_position",
-    "obs_groups": {"actor": ["policy"], "critic": ["policy"]},  # no privileged critic obs yet (M5 second step)
+    # critic sees the policy obs only; critic-only contact forces: #87
+    "obs_groups": {"actor": ["policy"], "critic": ["policy"]},
     "clip_actions": None,  # the action term clips each axis to [-1, 1] (`integrate_target`)
     "logger": "wandb",
     "wandb_project": "stem-manip",

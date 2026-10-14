@@ -46,7 +46,7 @@ def stem_segment_poses(
 @lru_cache
 def segment_length(model: str) -> float:
     """Rest length of one segment of the stem model [m] (all segments equally long). Cached: read from the yaml
-    once, not at every policy step (one value for all envs; per-env lengths: docs/TODO.md, randomization)."""
+    once, not at every policy step (one value for all envs; per-env lengths: #90)."""
     geometry = stem_params(model)["geometry"]
     return geometry["length"] / geometry["num_segments"]
 

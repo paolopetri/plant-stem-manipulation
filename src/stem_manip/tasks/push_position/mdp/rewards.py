@@ -1,17 +1,17 @@
 """Reward terms (decided values: user, 2026-10-09; weights and parameters in the env cfg).
 
 - Task: distance of the stem point (the tip) to the target, `1 - tanh(d / std)`, coarse (5 cm) and fine (1 cm);
-  height error alone (`stem_point_height_tanh`, weight 0.3 since the M5 weekend: against a side-push optimum, a prong's
+  height error alone (`stem_point_height_tanh`: against a side-push optimum, a prong's
   side only reaches the bowl above deep targets). Same point as the command's `position_error`.
 - Approach: `1 - tanh(d / std)` of the tool tip's distance to the nearest point on the stem (exploration: the task
   terms are flat until the fork touches the stem; saturates in contact, does not say where to push).
 - Damage below the hard limits: curvature, quadratic above `soft_fraction` x `damage.max_curvature`; contact force
   of the robot on the stem (largest single contact), quadratic above a free threshold. Twist and tension once their
-  limits are set.
+  limits are set (#81, #82).
 - Smooth motion: Isaac Lab's `action_rate_l2`; early terminations: Isaac Lab's `is_terminated`.
 
 Contact forces are used here and in the terminations only, never observed (decision 2026-10-06).
-Verify: `scripts/check_push_terms.py`. See docs/TODO.md -> M4.
+Verify: `scripts/check_push_terms.py`.
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 """Unit tests for `stem_manip.utils.stem_target`: target sampling for the stem tip (no simulator needed).
+The tests check (decided values: user, 2026-10-08/09):
 
-Requirements (user, 2026-10-08/09):
 - Horizontal distance r of the target from the tip's rest position uniform in [0.03, 0.10] m, direction uniform in
   the angle range (default the full circle).
 - Height: on or below the "bowl" (drop 0.6 r^2 / s: the stem pushed at its tip), down to the deepest shape whose

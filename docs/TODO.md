@@ -22,7 +22,7 @@ Stem model `chain` in PhysX (decision 2026-10-06). Exit criterion: tag `v0.1-pos
 
 ## Roadmap
 1. Domain randomization of the stem parameters (stiffness, length, diameter, damping): ranges #89, per-env parameters #90, re-checks over the range #101.
-2. Stage 2: full pose control (`tasks/push_pose`, #103).
+2. Stage 2: full pose control (#103).
 3. Model-based baseline (nominal vs. oracle parameters, #104).
 4. Real-robot validation on an artificial plant (identification #92, controller port #83).
 5. Distillation into a vision-based policy.

@@ -1,6 +1,5 @@
-"""Unit tests for `stem_manip.utils.stem_geometry` (no simulator needed).
+"""Unit tests for `stem_manip.utils.stem_geometry` (no simulator needed). The tests check:
 
-Requirements:
 - Straight rod -> zero curvature at every joint.
 - Segments sampled on a circular arc of radius R -> curvature 1/R (within discretization tolerance).
 - Straight rod with a pure twist -> zero curvature, twist rate = twist angle / L_dual.
@@ -15,7 +14,7 @@ Requirements:
 Test rods: segment frames as in the Newton cable (origin at the segment centre, local +Z = tangent),
 poses as position + quaternion (x, y, z, w). Two envs, the second one shifted, to cover batching.
 Rods are built in float64 so that the tolerances test the math, not float32 round-off (the simulator's
-float32 positions limit the strain resolution; see docs/TODO.md).
+float32 positions limit the strain resolution; see #99).
 """
 
 import math

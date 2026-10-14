@@ -45,7 +45,7 @@ Usage (from the repo root; headless unless a visualizer is requested):
     # watch the push test (the stem leans over and stays there) and the horizontal stem's sag
     uv run --extra isaacsim python scripts/sweep_stem_solver.py --test push --viz newton_gl --slow_motion 5 --steps 300
     uv run --extra isaacsim python scripts/sweep_stem_solver.py --test sag --viz newton_gl
-    # physical stiffness ratios with the earlier solver setting: bending does not converge, the stem falls over
+    # physical stiffness ratios: bending does not converge, the stem falls over
     uv run --extra isaacsim python scripts/sweep_stem_solver.py --test kick --viz newton_gl --slow_motion 5 \
         --stretch_ratio 1 --shear_ratio 1 --damping all --iterations 20
     # computing time per step with 1024 stems
