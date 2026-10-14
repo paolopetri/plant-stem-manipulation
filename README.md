@@ -38,7 +38,6 @@ uv run --extra isaacsim python scripts/check_push_terms.py    # push task: rewar
 uv run --extra isaacsim python scripts/check_push_agents.py   # push task: zero / random agent, shapes and ranges
 uv run --extra isaacsim isaaclab zero_agent --task StemManip-Push-Position-FR3-v0 --num_envs 4 --max_steps 700
 uv run --extra isaacsim isaaclab random_agent --task StemManip-Push-Position-FR3-v0 --num_envs 4 --max_steps 700
-uv run python scripts/summarize_run.py logs/rsl_rl/stem_push_position/<date>_<name>   # compact table of a run
 ```
 
 `check_stem.py` defaults to the `cable` model; the training uses `chain`. The zero / random agents must be started

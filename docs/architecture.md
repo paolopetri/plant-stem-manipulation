@@ -26,7 +26,7 @@ its journal goes to `docs/experiments/`.
 
 Stem models are selectable by name, like the end-effectors: `cable` (Newton cable) and `chain` (rigid-segment
 articulation in PhysX, sharing one solver with the robot). The supervisors chose `chain` for the training
-(supervisors, 2026-10-06); `cable` is parked for a later comparison.
+(2026-10-06); `cable` is parked for a later comparison.
 
 ```
 assets/stem/stem.yaml                  the plant, shared by all models: geometry, material, damping, damage limits
@@ -160,7 +160,7 @@ contact-force limits; the tension and twist limits follow when realistic values 
 
 ## Where future work goes
 
-Open work is tracked in GitHub issues; this table says where its code goes.
+Open work is tracked in GitHub issues (`gh issue list`); this table says where its code goes.
 
 | Item | Location |
 |---|---|
@@ -169,7 +169,9 @@ Open work is tracked in GitHub issues; this table says where its code goes.
 | Domain randomization of stem parameters | `tasks/<task>/mdp/events.py`, ranges in the task's env cfg |
 | Model-based baseline | a new package under `src/stem_manip/` |
 | Another end-effector | `assets/fr3/end_effectors/<ee>/` (see `assets/fr3/README.md`) |
-| Another stem model | `assets/stem/<name>/` + `src/stem_manip/assets/stem/<name>.py` (see Stem models) |
+| Perception: camera-based stem state (with Alessio Caporali) | to decide |
+| Real robot deployment (stage 3) | to decide |
+| Distillation into an end-to-end vision policy (stretch goal) | to decide |
 
 ## Open modelling questions
 

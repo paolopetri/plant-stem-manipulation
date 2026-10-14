@@ -20,9 +20,10 @@ Tests:
   `drift_last_100_steps_mm`. Expect a `ratio` of about 1.04: the stem's own weight makes it lean a little further.
 
 Every RESULT line also reports `cost` = substeps x iterations per simulation step (the solver work) and
-`ms_per_step` (computing time per simulation step). Results and trade-offs: docs/notes/2026-09-30.md. Why stretch
-and shear are softer than in a real stem, and what that costs: the cable path's `parked` issues
-(`gh issue list --label parked`).
+`ms_per_step` (computing time per simulation step; a large `--num_envs` measures it for training). One simulation
+step is `solver.sim_dt` of `cable.yaml`, so `--steps` sets the simulated time. Results and trade-offs:
+docs/notes/2026-09-30.md. Why stretch and shear are softer than in a real stem, and what that costs: the cable
+path's `parked` issues (`gh issue list --label parked`).
 
 With a viewer (`--viz newton_gl`) the test is paced to real time (`--slow_motion 5` = five times slower) and,
 after the RESULT line, replayed from the start until the window is closed. The viewer's left panel has a
