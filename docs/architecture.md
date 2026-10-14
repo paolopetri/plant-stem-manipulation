@@ -85,7 +85,8 @@ Each model module provides the same functions:
   Template: IsaacLab `isaaclab_tasks/core/lift/config/franka_soft/franka_cable_env_cfg.py`.
 - The cable is Newton-only, so the whole scene runs on Newton. Its open modelling questions (base clamping,
   damping, solver convergence with physical stretch and shear stiffness, per-env randomization, contact sensors in
-  coupled scenes) are `parked` issues (`gh issue list --label parked`).
+  coupled scenes) are in #99; the remaining cable work is parked in #96 (base placement), #97 (FR3 on Newton) and
+  #98 (coupled scene).
 
 ## Data flow per step (stage 1)
 
@@ -165,9 +166,9 @@ Open work is tracked in GitHub issues (`gh issue list`); this table says where i
 | Item | Location |
 |---|---|
 | Stage 1: position control | `src/stem_manip/tasks/push_position/` |
-| Stage 2: pose control | a new task package under `src/stem_manip/tasks/` |
+| Stage 2: pose control (#103) | a new task package under `src/stem_manip/tasks/` |
 | Domain randomization of stem parameters | `tasks/<task>/mdp/events.py`, ranges in the task's env cfg |
-| Model-based baseline | a new package under `src/stem_manip/` |
+| Model-based baseline (#104) | a new package under `src/stem_manip/` |
 | Another end-effector | `assets/fr3/end_effectors/<ee>/` (see `assets/fr3/README.md`) |
 | Perception: camera-based stem state (with Alessio Caporali) | to decide |
 | Real robot deployment (stage 3) | to decide |
@@ -175,5 +176,5 @@ Open work is tracked in GitHub issues (`gh issue list`); this table says where i
 
 ## Open modelling questions
 
-The cable path's open questions are `parked` issues (`gh issue list --label parked`); the open questions of the
-current path are issues as well.
+The cable path's open questions are in #99 (parked, with #96-#98); the open questions of the current path are
+issues as well.
