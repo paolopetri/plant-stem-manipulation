@@ -12,6 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
+      # ruff version: keep in sync with pyproject.toml (dev group) and .pre-commit-config.yaml
       - run: uvx ruff@0.16.9 check .
       - run: uvx ruff@0.16.9 format --check .
 
@@ -30,7 +31,7 @@ jobs:
         id: lab-cache
         uses: actions/cache@v4
         with:
-          path: ../IsaacLab
+          path: ${{ github.workspace }}/../IsaacLab
           key: isaaclab-${{ steps.lab.outputs.commit }}
       - name: Check out Isaac Lab
         if: steps.lab-cache.outputs.cache-hit != 'true'
@@ -42,9 +43,7 @@ jobs:
       - name: Build the FR3 URDFs
         run: |
           git clone https://github.com/frankarobotics/franka_description.git ../franka_description
-          git -C ../franka_description checkout 7aeeddc449edf8d62b594f9e36a81da53e7796f9
+          git -C ../franka_description checkout "$(cat FRANKA_DESCRIPTION_COMMIT)"
           cd assets/fr3
-          for ee in fork fork_v2; do
-            uv run build_asset.py --ee $ee --franka-description ../../../franka_description
-          done
+          uv run build_asset.py --ee fork_v2 --franka-description ../../../franka_description
       - run: uv run pytest

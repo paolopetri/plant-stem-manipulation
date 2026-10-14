@@ -54,6 +54,7 @@ there. Without it the build stops with
 `ERROR: base URDF uses package:// paths -> pass --franka-description <path to franka_description repo>`.
 Set `FRANKA_DESCRIPTION` as above (add the line to `~/.bashrc` to make it permanent), or pass the path
 directly: `uv run build_asset.py --ee fork_v2 --franka-description /path/to/franka_description`.
+CI uses the `franka_description` commit recorded in `FRANKA_DESCRIPTION_COMMIT` at the repo root.
 
 After building, check the result in simulation from the repo root:
 `uv run --extra isaacsim python scripts/check_fr3.py` (uses `fork_v2`; `--ee fork` for the first design).

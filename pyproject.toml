@@ -43,7 +43,8 @@ viser = ["isaaclab-dev[viser]"]
 wandb = ["isaaclab-dev[wandb]"]
 
 [dependency-groups]
-dev = ["pytest>=8.3", "ruff>=0.11", "pre-commit>=4"]
+# ruff: same version in .github/workflows/ci.yml and .pre-commit-config.yaml
+dev = ["pytest>=8.3", "ruff==0.16.9", "pre-commit>=4"]
 
 [tool.uv]
 index-strategy = "unsafe-best-match"
