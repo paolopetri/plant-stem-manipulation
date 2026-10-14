@@ -11,10 +11,10 @@ from the cfg:
 - tool_tip_rot: both columns unit length and orthogonal (1e-4);
 - after every reset: tool tip within 5 mm of the start pose (0.40, 0, 0.50) m and within 1 deg (rotation angle) of
   the orientation at the first reset (tolerances of `check_push_env.py`);
-- target_offset: position part and rotation part each of norm <= 1 (target clamp 4 mm / 3 deg, 2026-10-08); the
-  position part may exceed 1 by one physics step of tool motion at the speed cap (+0.05, `OFFSET_TOL`): the clamp
-  acts on the pose before the last physics step, the observation is taken after it (the exact 4 mm bound on the
-  command pose is checked in `check_push_env.py`); rotation part 1e-3;
+- target_offset: position part and rotation part each of norm <= 1 (target clamp 4 mm / 3 deg, 2026-10-08); each
+  may exceed 1 by one physics step of tool motion at its speed cap (position +0.05, `OFFSET_TOL`; rotation +0.03,
+  `ROT_OFFSET_TOL`): the clamp acts on the pose before the last physics step, the observation is taken after it (the
+  exact 4 mm bound on the command pose is checked in `check_push_env.py`);
 - applied_step: translation and rotation part each of norm <= 1 (speed caps), except at steps where the clamp held
   that part's target in any physics step (the action term's `clamp_held`: there the clamp drags the target along,
   see `mdp.applied_step`); the number of such env-steps is printed;
@@ -91,16 +91,20 @@ HOLD_TOL = 2e-3  # [m] zero agent: tool tip vs its reset position (lag criterion
 SPAWN_X, SPAWN_Y = (0.50, 0.65), (-0.15, 0.15)  # [m] stem spawn area (user, 2026-10-09)
 AREA_TOL, GROUND_TOL = 1e-6, 1e-3  # [m] as in check_push_obs.py
 ARC_TOL = 1e-3  # [m]
-UNIT_TOL, NORM_TOL = 1e-4, 1e-3
+UNIT_TOL = 1e-4
 # decided action limits (option B1, user 2026-10-08; docs/overleaf_folder/open_questions/action_limits_problem.tex):
 # the clamp agent's speed and braking, and the target clamp
 CAP_STEP, STEP_CHANGE = 0.0032, 8e-5  # [m] speed cap 10 cm/s, step-change limit 0.08 mm per policy step
 CLAMP_OFFSET = 4e-3  # [m] target clamp (4 N at K_p 1000)
 SPEED_CAP = 0.10  # [m/s] translation speed cap (user, 2026-10-08)
+CLAMP_ROT_OFFSET = 3.0  # [deg] target rotation clamp
+ROT_SPEED_CAP = 45.0  # [deg/s] rotation speed cap (user, 2026-10-07)
 PHYSICS_DT = 2e-3  # [s] physics step: `solver.sim_dt` of assets/stem/chain/chain.yaml
-# observed target_offset, position part (user, 2026-10-14): may exceed 1 by one physics step of tool motion at the
-# speed cap, 10 cm/s x 2 ms / 4 mm = 0.05 (the clamp acts before the last physics step, the observation after it)
+# observed target_offset (user, 2026-10-14): each part may exceed 1 by one physics step of tool motion at its speed
+# cap (the clamp acts before the last physics step, the observation after it): position 10 cm/s x 2 ms / 4 mm = 0.05,
+# rotation 45 deg/s x 2 ms / 3 deg = 0.03
 OFFSET_TOL = SPEED_CAP * PHYSICS_DT / CLAMP_OFFSET
+ROT_OFFSET_TOL = ROT_SPEED_CAP * PHYSICS_DT / CLAMP_ROT_OFFSET
 # clamp agent's path (test setup, not a criterion): sideways at the start height (above the 0.40 m stems) to y 0.40 m,
 # 25 cm from the stem spawn area, then down to a goal below the ground, so that the ground blocks the tool and the
 # clamp holds. At that reach the way down stays clear of the joint-margin termination (straight down from the start
@@ -136,7 +140,7 @@ def main() -> None:
             + ", ".join(f"{k} {math.prod(v)}" for k, v in obs_dims.items()),
         )
         arc = torch.tensor(ARC_LENGTHS, device=device)
-        offset_bound = torch.tensor((1 + OFFSET_TOL, 1 + NORM_TOL), device=device)  # position, rotation part
+        offset_bound = torch.tensor((1 + OFFSET_TOL, 1 + ROT_OFFSET_TOL), device=device)  # position, rotation part
         start_pos = torch.tensor(START_POS, device=device)
         clamp_side, clamp_goal = (torch.tensor(v, device=device).expand(n, 3) for v in (CLAMP_SIDE, CLAMP_GOAL))
         step_time = env.step_dt * args_cli.slow_motion
@@ -248,7 +252,7 @@ def main() -> None:
                 free = ~held
                 stats["step_out"] = max(stats["step_out"], float(applied[free].max()) if free.any() else 0.0)
                 if (offset > offset_bound).any():
-                    fail("target_offset <= 1", f"step {step}: {offset.max():.4f}")
+                    fail("target_offset within one physics step of 1", f"step {step}: {offset.max():.4f}")
                 if (applied[free] > 1 + UNIT_TOL).any():
                     fail("applied_step <= 1 (clamp free)", f"step {step}: {applied[free].max():.4f}")
                 base = obs[:, slices["stem_base"]]
@@ -318,7 +322,7 @@ def main() -> None:
                 "shapes",
                 "start pose after reset",
                 "stem base in the spawn area",
-                "target_offset <= 1",
+                "target_offset within one physics step of 1",
                 "applied_step <= 1 (clamp free)",
                 "stem points within their arc length",
                 "stem_base constant within an episode",
@@ -337,8 +341,8 @@ def main() -> None:
                 checks.append("wall-clock limit")
             values = {
                 "start pose after reset": f"{stats['start'] * 1e3:.2f} mm, {stats['angle']:.3f} deg",
-                "target_offset <= 1": f"max {stats['offset']:.4f} (bound position {1 + OFFSET_TOL:.4f}, rotation "
-                f"{1 + NORM_TOL:.4f})",
+                "target_offset within one physics step of 1": f"max {stats['offset']:.4f} (bound position "
+                f"{1 + OFFSET_TOL:.4f}, rotation {1 + ROT_OFFSET_TOL:.4f})",
                 "applied_step <= 1 (clamp free)": f"max {stats['step_out']:.4f}, clamp held in "
                 f"{clamp_count[0]} / {clamp_count[1]} env-steps (position / orientation)",
                 "clamp holds": f"position in {clamp_count[0]} env-steps",
