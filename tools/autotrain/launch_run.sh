@@ -11,12 +11,15 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
-BRANCH=${AUTOTRAIN_BRANCH:-exp/m5-weekend}
-GROUP=${AUTOTRAIN_GROUP:-m5-weekend}
 MAX_HOURS=${AUTOTRAIN_MAX_HOURS:-4}
 STATE=logs/autotrain
 
 fail() { echo "launch_run: $*" >&2; exit 1; }
+
+# No defaults: a stale branch or wandb group would tag the run wrongly (driver.sh exports both).
+[[ -n ${AUTOTRAIN_BRANCH:-} && -n ${AUTOTRAIN_GROUP:-} ]] || fail "AUTOTRAIN_BRANCH and AUTOTRAIN_GROUP are required"
+BRANCH=$AUTOTRAIN_BRANCH
+GROUP=$AUTOTRAIN_GROUP
 
 [[ $# -ge 3 ]] || fail "usage: launch_run.sh <NN> <short_name> \"<hypothesis>\" [extra train args]"
 NN=$1 NAME=$2 HYPOTHESIS=$3
