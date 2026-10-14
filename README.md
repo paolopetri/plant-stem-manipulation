@@ -10,13 +10,20 @@ Semester project, ETH Zurich MSc RSC, hosted at AUTOLAB (UNIMORE, Modena).
 ## Setup
 
 Requires an Isaac Lab 3 source checkout next to this repo (`../IsaacLab`, see `[tool.uv.sources]` in
-`pyproject.toml`) and [uv](https://docs.astral.sh/uv/).
+`pyproject.toml`) and [uv](https://docs.astral.sh/uv/). Check out `isaac-sim/IsaacLab` at the commit recorded in
+`ISAACLAB_COMMIT` (CI uses the same one).
 
 ```bash
 uv sync --extra isaacsim --extra rsl-rl --extra wandb --extra video
 ```
 
 This creates `.venv/` with Isaac Lab (editable, from `../IsaacLab`) and this package (`stem_manip`, editable).
+
+Install the pre-commit hook (ruff check and ruff format on each `git commit`):
+
+```bash
+uv run pre-commit install
+```
 
 ## Commands
 

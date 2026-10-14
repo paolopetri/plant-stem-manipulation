@@ -1,0 +1,7 @@
+# ruff: same version in pyproject.toml (dev group) and .github/workflows/ci.yml
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.9
+    hooks:
+      - id: ruff-check
+      - id: ruff-format

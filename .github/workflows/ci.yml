@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      # ruff version: keep in sync with pyproject.toml (dev group) and .pre-commit-config.yaml
+      - run: uvx ruff@0.16.9 check .
+      - run: uvx ruff@0.16.9 format --check .
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Read the recorded Isaac Lab commit
+        id: lab
+        run: echo "commit=$(cat ISAACLAB_COMMIT)" >> "$GITHUB_OUTPUT"
+      # pyproject.toml points at ../IsaacLab, which is outside the workspace (actions/checkout cannot put it there)
+      - name: Restore the Isaac Lab checkout
+        id: lab-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.workspace }}/IsaacLab
+          key: isaaclab-${{ steps.lab.outputs.commit }}
+      - name: Check out Isaac Lab
+        if: steps.lab-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone https://github.com/isaac-sim/IsaacLab.git ../IsaacLab
+          git -C ../IsaacLab checkout ${{ steps.lab.outputs.commit }}
+      - run: uv sync --extra rsl-rl
+      # The tests read assets/fr3/build/fr3_<ee>.urdf (git-ignored, built from the base URDF and franka_description)
+      - name: Build the FR3 URDFs
+        run: |
+          git clone https://github.com/frankarobotics/franka_description.git ../franka_description
+          git -C ../franka_description checkout "$(cat FRANKA_DESCRIPTION_COMMIT)"
+          cd assets/fr3
+          uv run build_asset.py --ee fork_v2 --franka-description ../../../franka_description
+      - run: uv run pytest
