@@ -11,7 +11,7 @@ A robot pushes (does not grasp) a flexible stem with a 3D-printed tool so that a
 
 The learned policy is a low-level skill. A future perception module will choose the target; that module is out of scope (unlike the stem-state perception below, which is in scope).
 
-For the full motivation, research question, and scope, read `docs/project-proposal.md` before making modelling, reward, or task-design decisions. For routine coding tasks it is not needed.
+Before modelling, reward or task-design decisions, read `docs/project.md` for the motivation, research question and scope (created by #56, which then shortens the three sections below to a summary).
 
 ## Stack
 
@@ -38,26 +38,9 @@ Perception (camera-based stem-state estimate, with Alessio Caporali) runs in par
 - A model-based baseline (nominal parameters vs. oracle parameters) is planned where feasible.
 - Many modelling choices are still being decided with the supervisors. Ask before committing to one.
 
-## Verification in this project
-
-Much of this code is simulation and RL, where unit tests don't cover everything. Use checks like these as success criteria:
-- The environment launches and steps without errors (short headless run with few envs).
-- Observation/action shapes and value ranges match expectations.
-- Physics sanity: the stem sags under gravity, springs back after release, and deflects when pushed.
-- Reward terms and terminations fire in the cases they should (e.g. curvature limit exceeded).
-- Checks first: set the expected values of `check_*.py`, sweeps and unit tests from the decided values (configs, write-ups, daily notes) before changing the code; never loosen a criterion to make a run pass without the user's decision.
-
 ## Repo layout
 
-Installable uv package `stem_manip` (Isaac Lab 3 external-project layout). Details: `docs/architecture.md`.
-- `assets/`: source data and build pipelines (`fr3/` URDF -> USD, `stem/stem.yaml` = plant + `stem/<model>/<model>.yaml`). No Isaac Lab cfgs here.
-- `src/stem_manip/assets/`: Isaac Lab configs pointing to `assets/` (`fr3.py`, `stem/` with one module per stem model, selected by name via `stem_model(name)`).
-- `src/stem_manip/tasks/<task>/`: one package per task (env cfg, `mdp/`, `agents/`), registered via the `isaaclab.tasks` entry point.
-- `src/stem_manip/utils/`: simulator-free helpers (e.g. stem curvature).
-- `scripts/`: sanity checks (`check_*.py`). `tests/`: unit tests without the simulator.
-- `docs/`: `architecture.md`, `TODO.md`, `notes/`.
-
-Skeleton modules contain only a spec docstring (requirements, how to verify, TODO milestone) until implemented.
+Installable uv package `stem_manip` (Isaac Lab 3 external-project layout). Layers, stem models and where new code goes: `docs/architecture.md`.
 
 ## Commands
 
@@ -76,13 +59,11 @@ Isaac Lab 3 source checkout expected at `../IsaacLab`.
 - Merge via a pull request (squash-merge), then delete the branch.
 - `exp/` branches may stay unmerged.
 - Tag milestones, e.g. `v0.1-position-control`.
-
-## Conventions
-
-- Keep all parameters in versioned config files: randomization ranges, reward weights, stem properties, curvature limit. Do not hardcode them in scripts.
-- Log the git commit hash with every training run.
 - Never commit logs, checkpoints, videos, or `wandb/`. They are in `.gitignore`.
-- Python code: type hints and docstrings on public functions; follow Isaac Lab's config-class style.
+
+## Coding standards
+
+Before writing or reviewing code, read `CODING_STANDARDS.md`: decision tags, single source of truth, Python style, verification criteria.
 
 ## Notes
 
@@ -90,16 +71,9 @@ Isaac Lab 3 source checkout expected at `../IsaacLab`.
 - `docs/TODO.md`: high-level open items and discussion (direction, open questions, parked topics). Concrete, actionable work items are GitHub issues. When a TODO item is done or turned into issues, delete it there and log it in today's note.
 - After finishing a unit of work, add an entry to today's note and update `docs/TODO.md`.
 
-## Agent skills
+## Agent docs
 
-### Issue tracker
-
-Concrete work items are GitHub issues (`gh` CLI); `docs/TODO.md` holds high-level items and discussion. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context: `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+- `docs/agents/workflow.md`: how new work goes from decision to PR, which skills the user starts, context and model choice.
+- `docs/agents/issue-tracker.md`: GitHub issues via `gh`; every branch has an issue.
+- `docs/agents/triage-labels.md`: label vocabulary.
+- `docs/agents/domain.md`: domain docs, single-context: `GLOSSARY.md` and `docs/adr/` at the repo root (created by #57).
