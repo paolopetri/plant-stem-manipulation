@@ -26,7 +26,7 @@ its journal goes to `docs/experiments/`.
 
 Stem models are selectable by name, like the end-effectors: `cable` (Newton cable) and `chain` (rigid-segment
 articulation in PhysX, sharing one solver with the robot). The supervisors chose `chain` for the training
-(2026-10-06); `cable` is parked for a later comparison.
+(2026-10-06); `cable` is parked for a later comparison. Why: `docs/adr/0001-chain-stem-model-in-physx.md`.
 
 ```
 assets/stem/stem.yaml                  the plant, shared by all models: geometry, material, damping, damage limits
@@ -97,12 +97,13 @@ Task `StemManip-Push-Position-FR3-v0`, cfg in `src/stem_manip/tasks/push_positio
    `ToolTipImpedanceAction`). Speed caps, acceleration limits and the target clamp at every physics step (which
    bounds the contact force) are fields of `ToolTipImpedanceActionCfg` (`mdp/actions_cfg.py`). The arm is torque
    controlled, as on the real FR3. Reasons for the limits: `docs/overleaf_folder/open_questions/action_limits_problem.tex`.
+   Why this controller: `docs/adr/0003-cartesian-impedance-action.md`.
 2. **Simulation:** PhysX steps robot and stem (`chain`) together in one solver.
 3. **Observation** (stem state read from the simulation; on the real robot it will come from cameras): robot base
    frame, raw meters; the tool tip's pose, applied step and target offset, the stem base, points along the stem
    (the last one the tip) for the previous and the current policy step, and the tip's target. Terms, their order and
    the arc lengths: `ObservationsCfg` in the env cfg; the stem-state terms are in `mdp/stem_state.py`. No contact
-   forces. To be reduced to what the perception can deliver.
+   forces (`docs/adr/0002-contact-forces-not-observed.md`). To be reduced to what the perception can deliver.
 4. **Reward / termination** (`mdp/rewards.py`, `mdp/terminations.py`, contact forces read in
    `mdp/contact.py`; weights and thresholds in `RewardsCfg` /
    `TerminationsCfg` of the env cfg, damage limits from `damage` in `assets/stem/stem.yaml`): distance of the stem
