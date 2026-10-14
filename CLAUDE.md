@@ -56,7 +56,7 @@ Isaac Lab 3 source checkout expected at `../IsaacLab`.
 - `main` must always run. Never commit directly to `main`.
 - One short-lived branch per unit of work: `feat/`, `fix/`, `exp/`, `refactor/`, `docs/` (e.g. `feat/asset-USD-management`).
 - Make small, focused commits with messages in the imperative ("Add curvature termination").
-- Merge via a pull request (squash-merge), then delete the branch.
+- Merge via a pull request, then delete the branch. Squash-merge by default; use a merge commit when individual commits must survive on main: an /implement-spec integration branch, or a commit named in .git-blame-ignore-revs.
 - `exp/` branches may stay unmerged.
 - Tag milestones, e.g. `v0.1-position-control`.
 - Never commit logs, checkpoints, videos, or `wandb/`. They are in `.gitignore`.
