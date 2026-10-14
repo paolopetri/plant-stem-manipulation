@@ -27,10 +27,10 @@ A second stem per env is clamped horizontally and sags under its own weight:
   (`stem_reference.chain_tip_sag`, bending only: the chain has no shear spring).
 Solver settings come from the model (`physics_cfg()`, step `solver.sim_dt` and iterations from `chain.yaml`).
 
-Tolerances of the swing (proposed in #70, decided once the user approves its PR). The reference is the exact chain
-of the plant (no armature); the tolerance is the sum of the known differences between it and what this check
-measures, each worked out before the run:
-- frequency, 5 % (sum 4.4 %, rounded up):
+Tolerances of the swing (user, 2026-10-14). The reference is the exact chain of the plant (no armature); the
+tolerance is the sum of the known differences between it and what this check measures:
+- frequency, -5 % / +0.5 %: below, the sum 4.4 % rounded up; above, no listed difference raises the frequency,
+  0.5 % covers the time-step term of either sign:
   - joint armature 1e-4 kg m^2 (`chain.yaml`): -1.1 % (exact chain with armature: 5.055 Hz);
   - swing analysis (`analyze_oscillation`: zero crossings over two periods, the kick also excites the higher
     modes): -0.2 % (the exact chain's own kick response, analysed the same way: 5.101 Hz);
@@ -43,8 +43,10 @@ measures, each worked out before the run:
   - joint armature: -0.0006 (exact chain with armature: 0.0528);
   - swing analysis (log decrement of the first two peaks): -0.0006 (exact chain's kick response: 0.0522
     against its modal 0.0528);
-  - numerical damping of the implicit joint drives: PhysX's TGS solver integrates once per position iteration,
-    h = 2 ms / 8, and an implicit Euler step damps mode 1 by about omega h / 2 = 0.004;
+  - numerical damping of the implicit joint drives: assuming PhysX's TGS solver integrates the springs once per
+    position iteration (sub-step h = 2 ms / 8; not confirmed in the PhysX source), an implicit Euler step damps
+    mode 1 by about omega h / 2 = 0.004. The measured excess over the exact chain (+0.003, docs/notes/2026-10-05.md)
+    supports this rather than one implicit step per 2 ms (omega dt / 2 = 0.032);
   - the solver softness above (-3 % in frequency) changes damping_time * spring / (2 omega * modal mass) by 3 %:
     0.0016.
 Prints one `[PASS]` / `[FAIL]` line per check. Run it after every change to the stem model or its yaml.
@@ -95,7 +97,8 @@ MAX_TIP_REST_OFFSET = 1e-3  # [m] allowed distance of the tip from its start pos
 PUSH_FORCE = 0.05  # [N] sideways force on the last segment of the upright stem
 PUSH_TIME = 3.0  # [s] simulated time with the force, and again after releasing it
 PUSH_REL_TOL = 0.10
-FREQUENCY_REL_TOL = 0.05  # see the module docstring
+FREQUENCY_BELOW_REL_TOL = 0.05  # see the module docstring
+FREQUENCY_ABOVE_REL_TOL = 0.005  # see the module docstring
 DAMPING_RATIO_TOL = 0.007  # see the module docstring
 SAG_REL_TOL = 0.05
 RESET_SETTLE_TIME = 0.1  # [s] simulated time after the reset to default, before the poses are compared
@@ -129,7 +132,6 @@ def main() -> None:
     segment_length = geometry["length"] / num_segments
     area = math.pi * geometry["diameter"] ** 2 / 4
     area_moment = math.pi * geometry["diameter"] ** 4 / 64
-    shear_modulus = math.inf  # no shear spring: the chain is rigid in shear
     sim_dt = solver["sim_dt"]
 
     sim_cfg = sim_utils.SimulationCfg(dt=sim_dt, device=args_cli.device, physics=model_module.physics_cfg())
@@ -281,9 +283,14 @@ def main() -> None:
         frequencies = [frequency for _, frequency, _ in swings]
         damping_ratios = [damping_ratio for _, _, damping_ratio in swings]
         results["swing frequency"] = (
-            all(abs(f - expected_frequency) <= FREQUENCY_REL_TOL * expected_frequency for f in frequencies),
+            all(
+                -FREQUENCY_BELOW_REL_TOL * expected_frequency
+                <= f - expected_frequency
+                <= FREQUENCY_ABOVE_REL_TOL * expected_frequency
+                for f in frequencies
+            ),
             f"{[round(f, 3) for f in frequencies]} Hz (exact chain with gravity: {expected_frequency:.3f} Hz "
-            f"+- {FREQUENCY_REL_TOL:.0%})",
+            f"-{FREQUENCY_BELOW_REL_TOL:.0%} / +{FREQUENCY_ABOVE_REL_TOL:.1%})",
         )
         results["damping ratio"] = (
             all(abs(z - expected_damping) <= DAMPING_RATIO_TOL for z in damping_ratios),
@@ -304,15 +311,13 @@ def main() -> None:
             pass
         push_rest_offset = (poses()[:, -1, :3] - tip_before_push).norm(dim=-1)
 
-        bend_deflection, shear_deflection = stem_reference.chain_push_deflection(
-            PUSH_FORCE, geometry["length"], num_segments, geometry["diameter"], material["bend_modulus"], shear_modulus
+        expected_deflection, _ = stem_reference.chain_push_deflection(  # bending only: the chain is rigid in shear
+            PUSH_FORCE, geometry["length"], num_segments, geometry["diameter"], material["bend_modulus"], math.inf
         )
-        expected_deflection = bend_deflection + shear_deflection
         results["deflects when pushed"] = (
             bool(((push_deflection - expected_deflection).abs() <= PUSH_REL_TOL * expected_deflection).all()),
             f"{[round(float(d) * 1e3, 2) for d in push_deflection]} mm with {PUSH_FORCE} N (by hand, without gravity: "
-            f"{expected_deflection * 1e3:.2f} mm = bending {bend_deflection * 1e3:.2f} "
-            f"+ shear {shear_deflection * 1e3:.2f})",
+            f"{expected_deflection * 1e3:.2f} mm)",
         )
         results["returns after the push"] = (
             float(push_rest_offset.max()) < MAX_TIP_REST_OFFSET,
@@ -326,19 +331,17 @@ def main() -> None:
             stem_geometry.point_pose(horizontal_start_poses, num_segments - 1, tip_offset_in_segment)[:, 2]
             - stem_geometry.point_pose(horizontal_poses, num_segments - 1, tip_offset_in_segment)[:, 2]
         )
-        bend_sag, shear_sag = stem_reference.chain_tip_sag(
+        expected_sag, _ = stem_reference.chain_tip_sag(  # bending only: the chain is rigid in shear
             geometry["length"],
             num_segments,
             geometry["diameter"],
             material["density"],
             material["bend_modulus"],
-            shear_modulus,
+            math.inf,
         )
-        expected_sag = bend_sag + shear_sag
         results["cantilever sag"] = (
             bool(((sag - expected_sag).abs() <= SAG_REL_TOL * expected_sag).all()),
-            f"{[round(float(d) * 1e3, 2) for d in sag]} mm (by hand: {expected_sag * 1e3:.2f} mm = "
-            f"bending {bend_sag * 1e3:.2f} + shear {shear_sag * 1e3:.2f})",
+            f"{[round(float(d) * 1e3, 2) for d in sag]} mm (by hand: {expected_sag * 1e3:.2f} mm)",
         )
 
         print(f"\n=== check_stem, model chain ({args_cli.num_envs} envs) ===")
