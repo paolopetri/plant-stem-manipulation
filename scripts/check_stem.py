@@ -29,7 +29,7 @@ Solver settings come from the model (`physics_cfg()`, step `solver.sim_dt` from 
 Cable only, at the end: the upright stem is at rest and compressed by its own weight:
 - axial strain (reported, not checked): `joint_axial_strain` against the strain computed by hand
   (`stem_reference.chain_weight_strain`), for the envs nearest to and farthest from the world origin. At the
-  current solver cost the stretch direction is not converged (docs/TODO.md -> M4).
+  current solver cost the stretch direction is not converged (#99).
 Prints one `[PASS]` / `[FAIL]` line per check (`[INFO]` for the reported values). Run it after every change to the
 stem model or its yaml. `--env_spacing 0` stacks all envs at the world origin.
 

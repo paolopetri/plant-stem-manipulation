@@ -15,7 +15,7 @@ Requirements:
 Test rods: segment frames as in the Newton cable (origin at the segment centre, local +Z = tangent),
 poses as position + quaternion (x, y, z, w). Two envs, the second one shifted, to cover batching.
 Rods are built in float64 so that the tolerances test the math, not float32 round-off (the simulator's
-float32 positions limit the strain resolution; see docs/TODO.md).
+float32 positions limit the strain resolution; see #99).
 """
 
 import math

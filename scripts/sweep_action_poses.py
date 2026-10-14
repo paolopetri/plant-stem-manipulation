@@ -28,7 +28,7 @@ not counted in pass/fail: default mode, start points within 0.25 rad of a joint 
 limit, not counted"); `--full_speed`, moves that come within 0.25 rad of a joint limit anywhere (the count of counted
 moves is printed per start point).
 Known limit (user, 2026-10-09): the far-box corners at x 0.75 m fail (lag up to ~4 mm along x, the apparent mass
-grows to 40-76 kg near the arm's reach); accepted until the inertia feedforward (B3, docs/TODO.md). They are
+grows to 40-76 kg near the arm's reach); accepted until the inertia feedforward (B3, #100). They are
 reported with the verdict "known limit (B3)" and do not count towards "all passed" (`KNOWN_LIMIT`).
 
 Usage (from the repo root; headless unless a visualizer is requested):

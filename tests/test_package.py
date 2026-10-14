@@ -1,4 +1,4 @@
-"""Package-level checks that run without the simulator (M0 reproducibility).
+"""Package-level checks that run without the simulator.
 
 Covers: the package imports, Isaac Lab finds our tasks through the entry point, and the FR3 asset config
 resolves its files and the tool_tip offset from the end-effector yaml.

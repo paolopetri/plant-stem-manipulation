@@ -50,8 +50,3 @@ def finish(
     exit with 0 if the block ended normally.
     """
     raise SystemExit(exit_status(report(results, not_run, checked)))
-
-
-def not_implemented(script: str, issue: str) -> NoReturn:
-    """Exit non-zero with a message for a placeholder check; the spec lives in the issue."""
-    raise SystemExit(f"{script}: not implemented (see {issue})")

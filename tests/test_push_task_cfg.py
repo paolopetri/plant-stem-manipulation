@@ -1,6 +1,6 @@
 """The push task's command, stem-state observations and stem spawn area use the decided values (guards against silent
-changes; no simulator). Decisions: user, 2026-10-09 (spawn area; rewards and terminations, M4 step 3),
-2026-10-08/09 (M4 step 1, docs/notes/2026-10-09.md).
+changes; no simulator). Decisions: user, 2026-10-09 (spawn area; rewards and terminations),
+2026-10-08/09 (target command and stem-state observations, docs/notes/2026-10-09.md).
 """
 
 import math
@@ -46,7 +46,7 @@ REWARDS = {
 }
 TERMINATIONS = ["time_out", "curvature_limit", "contact_force_limit", "joint_margin"]  # no tool-tip bound (user)
 MIN_JOINT_MARGIN = 0.25  # [rad] distance to any FR3 joint limit (the sweeps' rule)
-EPISODE_LENGTH_S = 15.0  # [s] approach and push (user, 2026-10-09; was 10 s)
+EPISODE_LENGTH_S = 15.0  # [s] approach and push (user, 2026-10-09)
 
 
 @pytest.fixture(scope="module")
@@ -73,7 +73,7 @@ def test_episode_length_is_decided(cfg: StemPushPositionEnvCfg):
 
 def test_git_commit_is_logged(cfg: StemPushPositionEnvCfg):
     """Our repo's commit (+ "-dirty" with uncommitted changes to tracked files) is part of the env cfg, so it ends up
-    in every run's `params/env.yaml` and wandb config (M5 plan, step 3)."""
+    in every run's `params/env.yaml` and wandb config."""
     repo = Path(__file__).resolve().parents[1]
     git = lambda *args: subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True).stdout.strip()  # noqa: E731
     dirty = git("status", "--porcelain", "--untracked-files=no") != ""

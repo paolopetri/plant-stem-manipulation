@@ -1,5 +1,5 @@
 """`scripts/summarize_run.py` turns a run's tensorboard events into a compact table (no simulator).
-Synthetic event file with the tag names RSL-RL 5.5 and Isaac Lab's managers write (M5 plan, step 4).
+Synthetic event file with the tag names RSL-RL 5.5 and Isaac Lab's managers write.
 """
 
 import importlib.util

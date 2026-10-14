@@ -1,6 +1,5 @@
 """Manager-based env cfg for stage 1 (position control of the stem point).
 
-Requirements:
 - Scene: FR3 + fork (`stem_manip.assets.fr3.fr3_cfg("fork_v2")`), stem (`stem_model(name).stem_cfg()` from
   `stem_manip.assets.stem`), ground. Stem model `chain`: robot and stem in one PhysX scene (as in
   `scripts/check_contact.py`).
@@ -9,13 +8,9 @@ Requirements:
 - Managers from `mdp/` (commands, observations, rewards, terminations, events); weights and ranges as cfg fields.
 - The stem point (segment index + offset, the tip) is a task-cfg field (`CommandsCfg`); the curvature limit comes from
   `assets/stem/stem.yaml`.
+- Contact sensor on the stem: forces for rewards and terminations only, not observed.
 
-Implemented (M4, part 1): scene, 6-D impedance action, horizontal start pose, tool-tip pose observation, reset,
-time out. Step 1 (2026-10-08): target command for the stem tip, stem-state observations (stem base, 5 points with
-the previous policy step, target), obs 57. Step 2: stem spawn area (reset event `spawn_stem`). Step 3 (2026-10-09):
-rewards and terminations, contact sensor on the stem (forces for rewards / terminations only, not observed).
 Verify: `scripts/check_push_env.py`, `scripts/check_push_terms.py`; zero/random agent runs headless with few envs.
-See docs/TODO.md -> M4.
 """
 
 import subprocess
@@ -41,7 +36,7 @@ from . import mdp
 
 STEM_MODEL = "chain"
 END_EFFECTOR = "fork_v2"
-# Start pose (user, 2026-10-09; was (0.30, 0, 0.55) m, 2026-10-06): fork horizontal, pointing forward, tool tip at
+# Start pose (user, 2026-10-09): fork horizontal, pointing forward, tool tip at
 # (0.40, 0, 0.50) m in the base frame, 10 cm above the stem tip and behind the stem area, so that less of the episode
 # goes into the approach. Joint angles solved once with differential IK (2026-10-09); smallest distance to a joint
 # limit 0.58 rad (joint 4).
@@ -58,9 +53,9 @@ START_JOINT_POS = {
 # Stem spawn area (user, 2026-10-09): the stem base is reset uniformly within this rectangle on the lab's plate in front
 # of the robot (58 x 58 cm at the mounting-surface height, x 0.075-0.655 m, y +-0.29 m), robot base frame [m]. Near
 # edge from joint 4's limit (margin >= 0.25 rad with the fork horizontal: tool tip at x >= 0.40 m at the stem-tip
-# height and >= 0.45 m lower down, and a target up to 10 cm towards the robot), far edge from the plate (2026-10-09; was
-# x 0.275-0.525 m, 2026-10-06). Assumes robot base frame = env frame (robot root at the env origin, not rotated). The
-# plate is not modelled as geometry (infinite ground plane); the fork may leave it.
+# height and >= 0.45 m lower down, and a target up to 10 cm towards the robot), far edge from the plate. Assumes robot
+# base frame = env frame (robot root at the env origin, not rotated). The plate is not modelled as geometry (infinite
+# ground plane); the fork may leave it.
 STEM_SPAWN_X = (0.50, 0.65)
 STEM_SPAWN_Y = (-0.15, 0.15)
 # The spawn event ignores the stem's `init_state.pos`: to place the stem elsewhere, also set `events.spawn_stem = None`.
@@ -260,7 +255,7 @@ class StemPushPositionEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.render_interval = self.decimation
         self.scene.stem_contact.history_length = self.decimation  # the contact terms average over one policy step
         self.sim.physics = stem_model(STEM_MODEL).physics_cfg()
-        self.episode_length_s = 15.0  # [s] approach and push (user, 2026-10-09; was 10 s)
+        self.episode_length_s = 15.0  # [s] approach and push (user, 2026-10-09)
         # camera for the viewer and recorded videos (`--video`): env 0, robot and stem spawn area from the front side
         self.viewer.origin_type = "env"
         self.viewer.env_index = 0

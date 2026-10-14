@@ -1,4 +1,4 @@
-"""Env check for stage 1 (`StemManip-Push-Position-FR3-v0`): the reward and termination terms (M4 step 3).
+"""Env check for stage 1 (`StemManip-Push-Position-FR3-v0`): the reward and termination terms.
 
 Every reward and termination term is wrapped so that, when the managers evaluate it (before the env's automatic
 reset), its value is recorded together with values computed here independently of the MDP code:

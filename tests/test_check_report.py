@@ -51,9 +51,3 @@ def test_finish_exits_with_the_verdict():
     with pytest.raises(SystemExit) as not_run:
         check_report.finish({"a": (True, "x")}, not_run={"a"})
     assert not_run.value.code != 0
-
-
-def test_not_implemented_exits_with_message():
-    with pytest.raises(SystemExit) as e:
-        check_report.not_implemented("check_x", "#54")
-    assert isinstance(e.value.code, str) and "not implemented" in e.value.code
