@@ -1,57 +1,72 @@
-"""Sanity check of a stem model alone (no robot). Model chosen with `--stem_model` (default `cable`).
+"""Sanity check of the stem model `chain` alone (no robot), the model the training uses.
 
-Spawns the model's `stem_cfg()` in a few envs on a ground plane, and checks that the values of
-`stem_params(model)` (`assets/stem/stem.yaml` + `assets/stem/<model>/<model>.yaml`) arrive in the simulator:
+`cable` is kept in the repo for comparison but is not checked here (user, 2026-10-14).
+
+Spawns `chain.stem_cfg()` in a few envs on a ground plane, and checks that the values of `stem_params("chain")`
+(`assets/stem/stem.yaml` + `assets/stem/chain/chain.yaml`) arrive in the simulator:
 - number of segments; start poses (segment centres on a vertical line above the base, tangent = local +Z up);
-- chain: start poses after a reset to the default state as Isaac Lab's `reset_scene_to_default` writes it (default
-  root pose + env origin): the segment centres stay where they started (the root body's frame is the stem base);
+- start poses after a reset to the default state as Isaac Lab's `reset_scene_to_default` writes it (default root
+  pose + env origin): the segment centres stay where they started (the root body's frame is the stem base);
 - total mass against rho * A * L;
-- per-joint stiffness against E I / l (bend), G J / l (twist) and, for the cable, E A / l (stretch, shear)
-  (l = segment length);
-- per-joint damping against damping_time * stiffness (bend and twist only), and the chain's joint armature.
-Then clamps the base (`fix_stem_base`), kicks the upright stem (everything above the first joint rotates rigidly,
-the centre of the last segment starts with 1 m/s sideways) and steps the simulation:
+- per-joint stiffness against E I / l (bend) and G J / l (twist) (l = segment length);
+- per-joint damping against damping_time * stiffness, and the joint armature.
+The base is clamped by the fixed joint in the USD. The check kicks the upright stem (everything above the first
+joint rotates rigidly, the centre of the last segment starts with 1 m/s sideways) and steps the simulation:
 - the base segment keeps its start pose;
 - the stem deflects (tip moves sideways by more than 1 cm) and all poses stay finite;
 - the stem springs back (tip back within 1 mm of its start position at the end);
-- swing frequency: within 15 % of the first bending frequency of a clamped beam. Its free length is the stem
-  length minus half a segment: the first joint stands for the stem half a segment to either side of it. The
-  simulated stem swings a little slower than this ideal beam (its own weight; the cable's soft shear spring);
-- damping ratio: within 0.02 of damping_time * pi * frequency (the solvers add about 0.01-0.02 of their own).
+- swing frequency and damping ratio against the first bending mode of the exact chain with gravity
+  (`stem_reference.chain_first_mode`, no armature: 5.11 Hz for the placeholder stem, as in
+  docs/notes/2026-10-05.md, and a damping ratio of 0.053), within the tolerances below.
 After the swing has died out, the last segment of the upright stem is pushed sideways with a constant force (0.05 N):
 - deflects when pushed: deflection of the pushed point at rest within 10 % of the value computed by hand
   (`stem_reference.chain_push_deflection`; the formula ignores gravity, which adds about 4 %);
 - returns after the push: the point is back within 1 mm after the force is removed.
 A second stem per env is clamped horizontally and sags under its own weight:
 - cantilever sag: tip drop at the end within 5 % of the value computed by hand for the segment chain
-  (bending + shear, `stem_reference.chain_tip_sag`; the chain has no shear spring, so bending only).
-Solver settings come from the model (`physics_cfg()`, step `solver.sim_dt` from its yaml).
-Cable only, at the end: the upright stem is at rest and compressed by its own weight:
-- axial strain (reported, not checked): `joint_axial_strain` against the strain computed by hand
-  (`stem_reference.chain_weight_strain`), for the envs nearest to and farthest from the world origin. At the
-  current solver cost the stretch direction is not converged (#99).
-Prints one `[PASS]` / `[FAIL]` line per check (`[INFO]` for the reported values). Run it after every change to the
-stem model or its yaml. `--env_spacing 0` stacks all envs at the world origin.
+  (`stem_reference.chain_tip_sag`, bending only: the chain has no shear spring).
+Solver settings come from the model (`physics_cfg()`, step `solver.sim_dt` and iterations from `chain.yaml`).
 
-Usage (from the repo root; headless unless a visualizer is requested: `--viz newton_gl` (both models) or
-`--viz kit` (Isaac Sim's window, chain only; the very first start takes several minutes); `--slow_motion 5` plays
-five times slower than real time):
+Tolerances of the swing (user, 2026-10-14). The reference is the exact chain of the plant (no armature); the
+tolerance is the sum of the known differences between it and what this check measures:
+- frequency, -5 % / +0.5 %: below, the sum 4.4 % rounded up; above, no listed difference raises the frequency,
+  0.5 % covers the time-step term of either sign:
+  - joint armature 1e-4 kg m^2 (`chain.yaml`): -1.1 % (exact chain with armature: 5.055 Hz);
+  - swing analysis (`analyze_oscillation`: zero crossings over two periods, the kick also excites the higher
+    modes): -0.2 % (the exact chain's own kick response, analysed the same way: 5.101 Hz);
+  - time step 2 ms: discretization error of mode 1 of order (omega dt)^2, at most (omega dt)^2 / 3 = 0.14 %
+    (implicit Euler; omega dt = 0.064; with the TGS step h below it is smaller still);
+  - PhysX's iterative solver may leave the chain softer: the push check accepts up to 6 % more deflection
+    than the exact chain (10 % over the hand value, of which gravity takes 4 %: 9.44 / 9.09 mm), and the
+    frequency goes with the square root of the stiffness: -3 %.
+- damping ratio, +-0.007 (sum 0.0068):
+  - joint armature: -0.0006 (exact chain with armature: 0.0528);
+  - swing analysis (log decrement of the first two peaks): -0.0006 (exact chain's kick response: 0.0522
+    against its modal 0.0528);
+  - numerical damping of the implicit joint drives: assuming PhysX's TGS solver integrates the springs once per
+    position iteration (sub-step h = 2 ms / 8; not confirmed in the PhysX source), an implicit Euler step damps
+    mode 1 by about omega h / 2 = 0.004. The measured excess over the exact chain (+0.003, docs/notes/2026-10-05.md)
+    supports this rather than one implicit step per 2 ms (omega dt / 2 = 0.032);
+  - the solver softness above (-3 % in frequency) changes damping_time * spring / (2 omega * modal mass) by 3 %:
+    0.0016.
+Prints one `[PASS]` / `[FAIL]` line per check. Run it after every change to the stem model or its yaml.
+`--env_spacing 0` stacks all envs at the world origin.
+
+Usage (from the repo root; headless unless a visualizer is requested: `--viz kit` (Isaac Sim's window; the very
+first start takes several minutes) or `--viz newton_gl`; `--slow_motion 5` plays five times slower than real time):
     uv run --extra isaacsim python scripts/check_stem.py
-    uv run --extra isaacsim python scripts/check_stem.py --stem_model chain
-    uv run --extra isaacsim python scripts/check_stem.py --stem_model cable --viz newton_gl --slow_motion 5
-    uv run --extra isaacsim python scripts/check_stem.py --stem_model chain --viz newton_gl --slow_motion 5
-    uv run --extra isaacsim python scripts/check_stem.py --stem_model chain --viz kit --slow_motion 5
+    uv run --extra isaacsim python scripts/check_stem.py --viz kit --slow_motion 5
+    uv run --extra isaacsim python scripts/check_stem.py --viz newton_gl --slow_motion 5
 """
 
 import argparse
 
 from isaaclab.app import add_launcher_args, launch_simulation
 
-from stem_manip.assets.stem import STEM_MODELS, stem_model, stem_params
+from stem_manip.assets.stem import stem_model, stem_params
 from stem_manip.utils import check_report
 
 parser = argparse.ArgumentParser(description="Sanity check of the stem model.")
-parser.add_argument("--stem_model", choices=STEM_MODELS, default="cable", help="Stem model to check.")
 parser.add_argument("--num_envs", type=int, default=2, help="Number of environments.")
 parser.add_argument("--kick_time", type=float, default=4.0, help="Simulated time after the kick [s].")
 parser.add_argument("--env_spacing", type=float, default=1.0, help="Distance between neighbouring envs [m].")
@@ -82,15 +97,16 @@ MAX_TIP_REST_OFFSET = 1e-3  # [m] allowed distance of the tip from its start pos
 PUSH_FORCE = 0.05  # [N] sideways force on the last segment of the upright stem
 PUSH_TIME = 3.0  # [s] simulated time with the force, and again after releasing it
 PUSH_REL_TOL = 0.10
-FREQUENCY_REL_TOL = 0.15
-DAMPING_RATIO_TOL = 0.02
+FREQUENCY_BELOW_REL_TOL = 0.05  # see the module docstring
+FREQUENCY_ABOVE_REL_TOL = 0.005  # see the module docstring
+DAMPING_RATIO_TOL = 0.007  # see the module docstring
 SAG_REL_TOL = 0.05
-RESET_SETTLE_TIME = 0.1  # [s] simulated time after the reset to default (chain), before the poses are compared
+RESET_SETTLE_TIME = 0.1  # [s] simulated time after the reset to default, before the poses are compared
 RENDER_DT = 1.0 / 30.0  # [s] simulated time between rendered frames with a viewer
 HORIZONTAL_BASE = (0.3, 0.3, 0.5)  # [m] clamped end of the horizontal stem in the env frame
 HORIZONTAL_ROT = (0.0, math.sqrt(0.5), 0.0, math.sqrt(0.5))  # (x, y, z, w): +90 deg about y, stem along +x
 
-model_module = stem_model(args_cli.stem_model)
+model_module = stem_model("chain")
 
 
 def _close(actual: float, expected: float) -> bool:
@@ -110,15 +126,12 @@ def _compare_gains(model_values, expected: dict[str, float]) -> tuple[bool, str]
 
 def main() -> None:
     """Spawn the stem, compare the simulator state with the yaml and print a pass/fail summary."""
-    params = stem_params(args_cli.stem_model)
+    params = stem_params("chain")
     geometry, material, solver = params["geometry"], params["material"], params["solver"]
     num_segments = geometry["num_segments"]
     segment_length = geometry["length"] / num_segments
     area = math.pi * geometry["diameter"] ** 2 / 4
     area_moment = math.pi * geometry["diameter"] ** 4 / 64
-    has_stretch = "stretch_modulus" in material  # cable joints also have stretch and shear springs
-    # shear modulus for the hand values; null: Newton uses the stretch stiffness; no shear spring: rigid in shear
-    shear_modulus = (material["shear_modulus"] or material["stretch_modulus"]) if has_stretch else math.inf
     sim_dt = solver["sim_dt"]
 
     sim_cfg = sim_utils.SimulationCfg(dt=sim_dt, device=args_cli.device, physics=model_module.physics_cfg())
@@ -187,23 +200,14 @@ def main() -> None:
             "stiffness": {"bend E I / l": bend_ke, "twist G J / l": twist_ke},
             "damping": {"tau * bend": damping_time * bend_ke, "tau * twist": damping_time * twist_ke},
         }
-        if has_stretch:
-            expected_gains["stiffness"] |= {
-                "stretch E A / l": material["stretch_modulus"] * area / segment_length,
-                "shear G A / l": shear_modulus * area / segment_length,
-            }
-            expected_gains["damping"] |= {"stretch, shear": 0.0}
-        if "joint" in params:
-            expected_gains["armature"] = {"armature": params["joint"]["armature"]}
+        expected_gains["armature"] = {"armature": params["joint"]["armature"]}
         gains = model_module.joint_gains(stem)
         for name, expected in expected_gains.items():
             results[f"joint {name}"] = _compare_gains(gains[name].ravel(), expected)
 
-        # -- clamp the bases, kick the upright stem sideways, step
-        model_module.fix_stem_base(stem)
-        model_module.fix_stem_base(stem_horizontal)
+        # -- kick the upright stem sideways, step (the bases are clamped by the fixed joint in the USD)
         horizontal_start_poses = model_module.segment_poses(stem_horizontal).clone()
-        set_force = model_module.segment_force_setter(stem)  # before the first step (cable)
+        set_force = model_module.segment_force_setter(stem)
 
         render_every = max(1, round(RENDER_DT / sim_dt))  # simulation steps per rendered frame
 
@@ -221,20 +225,19 @@ def main() -> None:
                     frame_start = time.perf_counter()
                 yield poses()
 
-        # -- chain: reset to the default state as Isaac Lab's `reset_scene_to_default` does (root pose = default root
+        # -- reset to the default state as Isaac Lab's `reset_scene_to_default` does (root pose = default root
         # pose + env origin, default joints); the stem must come back to its start poses, not move
-        if args_cli.stem_model == "chain":
-            root_pose = stem.data.default_root_pose.torch.clone()
-            root_pose[:, :3] += scene.env_origins
-            stem.write_root_pose_to_sim_index(root_pose=root_pose)
-            stem.write_root_velocity_to_sim_index(root_velocity=stem.data.default_root_vel.torch.clone())
-            stem.write_joint_position_to_sim_index(position=stem.data.default_joint_pos.torch.clone())
-            stem.write_joint_velocity_to_sim_index(velocity=stem.data.default_joint_vel.torch.clone())
-            for _ in run(RESET_SETTLE_TIME):
-                pass
-            reset_err = float((poses()[..., :3] - expected_pos).norm(dim=-1).max())
-            results["start poses after reset"] = (reset_err < POS_TOL, f"max centre error {reset_err:.1e} m")
-            start_poses = poses().clone()
+        root_pose = stem.data.default_root_pose.torch.clone()
+        root_pose[:, :3] += scene.env_origins
+        stem.write_root_pose_to_sim_index(root_pose=root_pose)
+        stem.write_root_velocity_to_sim_index(root_velocity=stem.data.default_root_vel.torch.clone())
+        stem.write_joint_position_to_sim_index(position=stem.data.default_joint_pos.torch.clone())
+        stem.write_joint_velocity_to_sim_index(velocity=stem.data.default_joint_vel.torch.clone())
+        for _ in run(RESET_SETTLE_TIME):
+            pass
+        reset_err = float((poses()[..., :3] - expected_pos).norm(dim=-1).max())
+        results["start poses after reset"] = (reset_err < POS_TOL, f"max centre error {reset_err:.1e} m")
+        start_poses = poses().clone()
 
         model_module.write_kick(stem, KICK_TIP_SPEED / ((num_segments - 1.5) * segment_length))
 
@@ -266,24 +269,33 @@ def main() -> None:
             f"{[round(float(d) * 1e3, 3) for d in tip_offset]} mm",
         )
 
-        # -- swing of the upright stem: frequency and damping ratio, per env
-        free_length = geometry["length"] - 0.5 * segment_length  # see the module docstring
-        expected_frequency = stem_reference.beam_first_frequency(
-            free_length, geometry["diameter"], material["density"], material["bend_modulus"]
+        # -- swing of the upright stem: frequency and damping ratio, per env, against mode 1 of the exact chain with
+        # gravity and without armature (see the module docstring)
+        expected_frequency, expected_damping = stem_reference.chain_first_mode(
+            geometry["length"],
+            num_segments,
+            geometry["diameter"],
+            material["density"],
+            material["bend_modulus"],
+            damping_time,
         )
         swings = [stem_reference.analyze_oscillation(x.tolist(), sim_dt) for x in torch.stack(tip_x).T]
         frequencies = [frequency for _, frequency, _ in swings]
         damping_ratios = [damping_ratio for _, _, damping_ratio in swings]
         results["swing frequency"] = (
-            all(abs(f - expected_frequency) <= FREQUENCY_REL_TOL * expected_frequency for f in frequencies),
-            f"{[round(f, 2) for f in frequencies]} Hz "
-            f"(clamped beam of {free_length:.2f} m: {expected_frequency:.2f} Hz)",
+            all(
+                -FREQUENCY_BELOW_REL_TOL * expected_frequency
+                <= f - expected_frequency
+                <= FREQUENCY_ABOVE_REL_TOL * expected_frequency
+                for f in frequencies
+            ),
+            f"{[round(f, 3) for f in frequencies]} Hz (exact chain with gravity: {expected_frequency:.3f} Hz "
+            f"-{FREQUENCY_BELOW_REL_TOL:.0%} / +{FREQUENCY_ABOVE_REL_TOL:.1%})",
         )
-        expected_damping = [damping_time * math.pi * f for f in frequencies]
         results["damping ratio"] = (
-            all(abs(z - e) <= DAMPING_RATIO_TOL for z, e in zip(damping_ratios, expected_damping, strict=True)),
-            f"{[round(z, 3) for z in damping_ratios]} (damping_time * pi * frequency = "
-            f"{[round(e, 3) for e in expected_damping]})",
+            all(abs(z - expected_damping) <= DAMPING_RATIO_TOL for z in damping_ratios),
+            f"{[round(z, 4) for z in damping_ratios]} (exact chain with gravity: {expected_damping:.4f} "
+            f"+- {DAMPING_RATIO_TOL})",
         )
 
         # -- push the last segment of the upright stem sideways (+x) with a constant force, then release it
@@ -299,15 +311,13 @@ def main() -> None:
             pass
         push_rest_offset = (poses()[:, -1, :3] - tip_before_push).norm(dim=-1)
 
-        bend_deflection, shear_deflection = stem_reference.chain_push_deflection(
-            PUSH_FORCE, geometry["length"], num_segments, geometry["diameter"], material["bend_modulus"], shear_modulus
+        expected_deflection, _ = stem_reference.chain_push_deflection(  # bending only: the chain is rigid in shear
+            PUSH_FORCE, geometry["length"], num_segments, geometry["diameter"], material["bend_modulus"], math.inf
         )
-        expected_deflection = bend_deflection + shear_deflection
         results["deflects when pushed"] = (
             bool(((push_deflection - expected_deflection).abs() <= PUSH_REL_TOL * expected_deflection).all()),
             f"{[round(float(d) * 1e3, 2) for d in push_deflection]} mm with {PUSH_FORCE} N (by hand, without gravity: "
-            f"{expected_deflection * 1e3:.2f} mm = bending {bend_deflection * 1e3:.2f} "
-            f"+ shear {shear_deflection * 1e3:.2f})",
+            f"{expected_deflection * 1e3:.2f} mm)",
         )
         results["returns after the push"] = (
             float(push_rest_offset.max()) < MAX_TIP_REST_OFFSET,
@@ -321,42 +331,20 @@ def main() -> None:
             stem_geometry.point_pose(horizontal_start_poses, num_segments - 1, tip_offset_in_segment)[:, 2]
             - stem_geometry.point_pose(horizontal_poses, num_segments - 1, tip_offset_in_segment)[:, 2]
         )
-        bend_sag, shear_sag = stem_reference.chain_tip_sag(
+        expected_sag, _ = stem_reference.chain_tip_sag(  # bending only: the chain is rigid in shear
             geometry["length"],
             num_segments,
             geometry["diameter"],
             material["density"],
             material["bend_modulus"],
-            shear_modulus,
+            math.inf,
         )
-        expected_sag = bend_sag + shear_sag
         results["cantilever sag"] = (
             bool(((sag - expected_sag).abs() <= SAG_REL_TOL * expected_sag).all()),
-            f"{[round(float(d) * 1e3, 2) for d in sag]} mm (by hand: {expected_sag * 1e3:.2f} mm = "
-            f"bending {bend_sag * 1e3:.2f} + shear {shear_sag * 1e3:.2f})",
+            f"{[round(float(d) * 1e3, 2) for d in sag]} mm (by hand: {expected_sag * 1e3:.2f} mm)",
         )
 
-        # -- cable: axial strain of the upright stem at rest, against the hand value
-        if has_stretch:
-            strain = stem_geometry.joint_axial_strain(poses(), segment_lengths)
-            expected_strain = torch.tensor(
-                stem_reference.chain_weight_strain(
-                    geometry["length"], num_segments, material["density"], material["stretch_modulus"]
-                ),
-                device=sim.device,
-            )
-            strain_error = (strain - expected_strain).abs().max(dim=-1).values
-            distance = scene.env_origins[:, :2].norm(dim=-1)
-            nearest, farthest = int(distance.argmin()), int(distance.argmax())
-            stretch_stiffness = material["stretch_modulus"] * area  # E A [N]: strain error -> force error
-            for label, env in (("nearest", nearest), ("farthest", farthest)):
-                print(
-                    f"[INFO] axial strain, {label} env ({float(distance[env]):.1f} m from the origin): base joint "
-                    f"{float(strain[env, 0]):.2e} (by hand {float(expected_strain[0]):.2e}), max error "
-                    f"{float(strain_error[env]):.1e} (= {float(strain_error[env]) * stretch_stiffness:.4f} N)"
-                )
-
-        print(f"\n=== check_stem, model {args_cli.stem_model} ({args_cli.num_envs} envs) ===")
+        print(f"\n=== check_stem, model chain ({args_cli.num_envs} envs) ===")
         check_report.finish(results)
 
 

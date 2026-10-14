@@ -21,7 +21,7 @@ armature and masses are runtime properties: domain randomization writes them per
 (`write_joint_stiffness_to_sim_index`, `set_masses_index`, ...) without rebuilding the USD. Length and diameter
 change the geometry and need one USD per variant, chosen per env when the scene is created.
 
-Verify: `scripts/check_stem.py --stem_model chain`.
+Verify: `scripts/check_stem.py`.
 """
 
 import hashlib

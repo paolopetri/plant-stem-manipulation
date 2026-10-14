@@ -51,7 +51,7 @@ Each model module provides the same functions:
 - `stem_params(model)` merges the two yaml files (same sections; a key may be defined in only one file, so both
   models simulate the same plant).
 - `stem_model(name)` imports the model module on first use; the physics engine of the scene follows from the
-  model (`physics_cfg()`). Scripts select the model with `--stem_model`.
+  model (`physics_cfg()`). Scripts name the model they use (`check_stem.py` checks `chain` only).
 - Adding a model: a folder `assets/stem/<name>/` with `<name>.yaml` and a module `<name>.py` with the functions
   above.
 
