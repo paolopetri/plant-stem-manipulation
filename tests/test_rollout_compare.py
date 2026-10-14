@@ -4,7 +4,7 @@ Requirements (issue #52):
 - Two identical recordings compare PASS, one row per recorded term (observation, reward, termination term).
 - A term that differs beyond the tolerance compares FAIL, and its row names the term and the max difference.
 - A term recorded in only one file, or with another shape, compares FAIL.
-- Recordings of different settings (task, envs, steps, seed, device) compare FAIL.
+- Recordings of different settings (task, envs, steps, seed, device, push rollout length) compare FAIL.
 """
 
 from dataclasses import asdict, replace
@@ -13,7 +13,7 @@ import torch
 
 from stem_manip.utils import check_report, rollout_compare
 
-SETTINGS = rollout_compare.Settings(task="T", num_envs=2, steps=3, seed=1, device="cuda:0")
+SETTINGS = rollout_compare.Settings(task="T", num_envs=2, steps=3, seed=1, device="cuda:0", push_steps=5)
 
 
 def recording(**overrides: torch.Tensor) -> dict:
@@ -78,3 +78,10 @@ def test_other_settings_fail_commit_does_not_count():
         b["meta"] = rollout_compare.meta(replace(SETTINGS, **{key: "other"}), commit="abc")
         ok, info = rollout_compare.compare(recording(), b)["settings"]
         assert not ok and key in info
+
+
+def test_other_push_length_fails():
+    b = recording()
+    b["meta"] = rollout_compare.meta(replace(SETTINGS, push_steps=6), commit="abc")
+    ok, info = rollout_compare.compare(recording(), b)["settings"]
+    assert not ok and "push_steps 5 vs 6" in info

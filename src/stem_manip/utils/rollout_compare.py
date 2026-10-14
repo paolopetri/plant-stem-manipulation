@@ -18,6 +18,8 @@ class Settings:
     steps: int
     seed: int
     device: str
+    push_steps: int
+    """Policy steps of the push rollout (sum of the steps of its plan)."""
 
 
 def meta(settings: Settings, commit: str) -> dict:

@@ -13,7 +13,7 @@ recorded after it:
   the settings and the commit (`torch.save`).
 - `compare <a> <b>`: prints one row per term with its max absolute difference: PASS if within `--tol`, FAIL
   naming the term otherwise; a term missing in one recording, another shape, or other settings (task, envs, steps,
-  seed, device) are FAIL. Exit status 0 if all passed, 1 otherwise. No simulator needed.
+  seed, device, push rollout length) are FAIL. Exit status 0 if all passed, 1 otherwise. No simulator needed.
 
 Tolerance (user, 2026-10-14): bit-exact (`--tol 0`, the default) on the same device; GPU and CPU recordings differ.
 A refactor that legitimately changes the floating-point order may pass `--tol` (e.g. 1e-6) and states the reason in
@@ -50,6 +50,7 @@ PUSH_PLAN = (
     ((-0.20, 0.0, 0.10), 200),
     ((0.15, 0.0, 0.10), 130),
 )
+PUSH_STEPS = sum(steps for _, steps in PUSH_PLAN)
 
 parser = argparse.ArgumentParser(description="Record a fixed-seed rollout of the push task, or compare two.")
 commands = parser.add_subparsers(dest="command", required=True)
@@ -144,9 +145,9 @@ def record() -> None:
             goal = obs[:, slices["stem_base"]] + plan[leg][0]
             return rollout.toward(obs[:, slices["tool_tip_pos"]], goal, tool_cfg.max_step, tool_cfg.max_step_change)
 
-        run("push", sum(steps for _, steps in PUSH_PLAN), push)
+        run("push", PUSH_STEPS, push)
 
-        settings = rollout_compare.Settings(TASK, n, args_cli.steps, args_cli.seed, str(device))
+        settings = rollout_compare.Settings(TASK, n, args_cli.steps, args_cli.seed, str(device), PUSH_STEPS)
         meta = rollout_compare.meta(settings, env_cfg.git_commit)
         args_cli.out.parent.mkdir(parents=True, exist_ok=True)
         torch.save({"meta": meta, "terms": terms}, args_cli.out)
