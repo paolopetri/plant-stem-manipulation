@@ -9,7 +9,7 @@ and checks:
   included (the model of `fr3_cfg`: the real FR3 compensates gravity itself);
 - torque mode (user, 2026-10-14): under a +-0.5 N m pulse every joint moves by more than 0.01 rad (with the position
   mode's joint PD, stiffness 400 N m/rad, the pulse would deflect a joint by 1.25 mrad);
-- tool tip = datasheet kinematics: the tool-tip pose the task uses (end-effector body pose + `tool_tip_offset(ee)`)
+- tool tip = datasheet kinematics: the tool-tip pose the task computes (`stem_manip.utils.tool_tip.tool_tip_pose`)
   equals the tool tip from the measured joint angles via the FR3 Denavit-Hartenberg parameters and the yaml's
   tool_tip (`stem_manip.utils.fr3_reference`), at the start pose and after the pulse.
   Tolerance 1e-5 m and 1e-5 rad (user, 2026-10-14): both sides use the same nominal values (datasheet = URDF), so
@@ -38,15 +38,10 @@ import torch
 import isaaclab.sim as sim_utils
 from isaaclab.assets import Articulation
 from isaaclab.sim import SimulationContext
-from isaaclab.utils.math import (
-    combine_frame_transforms,
-    matrix_from_quat,
-    quat_apply_inverse,
-    subtract_frame_transforms,
-)
+from isaaclab.utils.math import matrix_from_quat, quat_apply_inverse
 
 from stem_manip.assets.fr3 import fr3_cfg, tool_tip_offset
-from stem_manip.utils import check_report
+from stem_manip.utils import check_report, tool_tip
 from stem_manip.utils.fr3_reference import rotvec_from_matrix, tool_tip_pose
 
 FLANGE_OFFSET = torch.tensor([0.0, 0.0, 0.107])  # fr3_link7 -> fr3_link8 [m], FR3 kinematics
@@ -90,13 +85,14 @@ def main() -> None:
             """Tool tip as the task computes it vs the datasheet kinematics at the measured joints: position [m] and
             angle [rad] differences."""
             data = robot.data
-            pos_b, quat_b = subtract_frame_transforms(
+            tip_pos, tip_quat = tool_tip.tool_tip_pose(  # the task's code (under test)
                 data.root_pos_w.torch,
                 data.root_quat_w.torch,
                 data.body_pos_w.torch[:, i_ee],
                 data.body_quat_w.torch[:, i_ee],
+                offset_pos,
+                offset_quat,
             )
-            tip_pos, tip_quat = combine_frame_transforms(pos_b, quat_b, offset_pos, offset_quat)
             reference = tool_tip_pose(data.joint_pos.torch, args_cli.ee)
             pos_err = (tip_pos.double() - reference[:, :3, 3]).norm(dim=-1)
             rot_err = rotvec_from_matrix(matrix_from_quat(tip_quat).double() @ reference[:, :3, :3].transpose(1, 2))
