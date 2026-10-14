@@ -54,7 +54,7 @@ Before writing or reviewing code, read `CODING_STANDARDS.md`: decision tags, sin
 
 ## Notes
 
-- `docs/notes/YYYY-MM-DD.md`: one short, append-only log per work day, with sections Done / Decisions / Open questions (skip empty ones).
+- `docs/notes/YYYY-MM-DD.md`: one short, append-only log per work day, with sections Done / Decisions / Open questions (skip empty ones). A decision that gets an ADR links it (`docs/adr/NNNN-...`) in the day's Decisions section.
 - `docs/TODO.md`: high-level open items and discussion (direction, open questions, parked topics). Concrete, actionable work items are GitHub issues. When a TODO item is done or turned into issues, delete it there and log it in today's note.
 - After finishing a unit of work, add an entry to today's note and update `docs/TODO.md`. In orchestrated or parallel work the orchestrator writes the day's note, not each agent.
 
