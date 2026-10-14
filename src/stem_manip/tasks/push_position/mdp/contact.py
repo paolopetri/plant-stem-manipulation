@@ -1,5 +1,5 @@
 """Robot-stem contact forces: the one place where they are read (rewards and terminations only, never observed;
-decision 2026-10-06)."""
+user, 2026-10-06)."""
 
 from __future__ import annotations
 
