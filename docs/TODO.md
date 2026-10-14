@@ -23,9 +23,8 @@ Stem model `chain` in PhysX (decision 2026-10-06). Exit criterion: tag `v0.1-pos
 ## Roadmap
 1. Domain randomization of the stem parameters (stiffness, length, diameter, damping): ranges #89, per-env parameters #90, re-checks over the range #101.
 2. Stage 2: full pose control (#103).
-3. Model-based baseline (nominal vs. oracle parameters, #104).
-4. Real-robot validation on an artificial plant (identification #92, controller port #83).
-5. Distillation into a vision-based policy.
+3. Real-robot validation on an artificial plant (identification #92, controller port #83).
+4. Distillation into a vision-based policy.
 
 ## Research directions
 - **Vision model with Alessio Caporali:** set up a vision model that estimates the stem state from camera images. Why: Alessio's experience is that RL policies have trouble transferring to the real world, and the stem state the policy observes must come from cameras there. What it must deliver: #88.
