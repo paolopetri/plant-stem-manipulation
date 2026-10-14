@@ -187,7 +187,8 @@ def chain_first_mode(
     upright stem: segment i's weight above its tilted lower neighbours gives the potential
     -m g l / 4 * (2 (phi_1^2 + ... + phi_(i-1)^2) + phi_i^2). Mode 1 of M theta'' + (K_spring - K_gravity) theta = 0
     gives the frequency; its damping ratio is damping_time * (phi^T K_spring phi) / (2 omega phi^T M phi) for the
-    mode shape phi (only the springs are damped, so with gravity it is above damping_time * omega / 2).
+    mode shape phi of the undamped chain (light damping; only the springs are damped, so with gravity it is above
+    damping_time * omega / 2).
 
     Args:
         length: Stem length [m].

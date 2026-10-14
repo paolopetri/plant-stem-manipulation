@@ -16,8 +16,8 @@ joint rotates rigidly, the centre of the last segment starts with 1 m/s sideways
 - the stem deflects (tip moves sideways by more than 1 cm) and all poses stay finite;
 - the stem springs back (tip back within 1 mm of its start position at the end);
 - swing frequency and damping ratio against the first bending mode of the exact chain with gravity
-  (`stem_reference.chain_first_mode`, no armature: 5.11 Hz and 0.053 for the placeholder stem, as in
-  docs/notes/2026-10-05.md), within the tolerances below.
+  (`stem_reference.chain_first_mode`, no armature: 5.11 Hz for the placeholder stem, as in
+  docs/notes/2026-10-05.md, and a damping ratio of 0.053), within the tolerances below.
 After the swing has died out, the last segment of the upright stem is pushed sideways with a constant force (0.05 N):
 - deflects when pushed: deflection of the pushed point at rest within 10 % of the value computed by hand
   (`stem_reference.chain_push_deflection`; the formula ignores gravity, which adds about 4 %);
@@ -35,7 +35,7 @@ measures, each worked out before the run:
   - swing analysis (`analyze_oscillation`: zero crossings over two periods, the kick also excites the higher
     modes): -0.2 % (the exact chain's own kick response, analysed the same way: 5.101 Hz);
   - time step 2 ms: discretization error of mode 1 of order (omega dt)^2, at most (omega dt)^2 / 3 = 0.14 %
-    (implicit Euler; omega dt = 0.064);
+    (implicit Euler; omega dt = 0.064; with the TGS step h below it is smaller still);
   - PhysX's iterative solver may leave the chain softer: the push check accepts up to 6 % more deflection
     than the exact chain (10 % over the hand value, of which gravity takes 4 %: 9.44 / 9.09 mm), and the
     frequency goes with the square root of the stiffness: -3 %.
@@ -98,7 +98,7 @@ PUSH_REL_TOL = 0.10
 FREQUENCY_REL_TOL = 0.05  # see the module docstring
 DAMPING_RATIO_TOL = 0.007  # see the module docstring
 SAG_REL_TOL = 0.05
-RESET_SETTLE_TIME = 0.1  # [s] simulated time after the reset to default (chain), before the poses are compared
+RESET_SETTLE_TIME = 0.1  # [s] simulated time after the reset to default, before the poses are compared
 RENDER_DT = 1.0 / 30.0  # [s] simulated time between rendered frames with a viewer
 HORIZONTAL_BASE = (0.3, 0.3, 0.5)  # [m] clamped end of the horizontal stem in the env frame
 HORIZONTAL_ROT = (0.0, math.sqrt(0.5), 0.0, math.sqrt(0.5))  # (x, y, z, w): +90 deg about y, stem along +x
