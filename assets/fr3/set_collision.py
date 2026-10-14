@@ -50,7 +50,7 @@ def main(ee: str) -> None:
         if key in cfg:
             prim.CreateAttribute(f"physxConvexDecompositionCollision:{name}", value_type).Set(cfg[key])
     stage.GetRootLayer().Save()
-    print(f"[set_collision] {ee}: convexDecomposition {({k: v for k, v in cfg.items() if k != 'type'})} -> {path}")
+    print(f"[set_collision] {ee}: convexDecomposition { ({k: v for k, v in cfg.items() if k != 'type'}) } -> {path}")
 
 
 if __name__ == "__main__":

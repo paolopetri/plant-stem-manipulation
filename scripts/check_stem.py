@@ -243,9 +243,7 @@ def main() -> None:
         for current in run(args_cli.kick_time):
             finite = finite and bool(torch.isfinite(current).all())
             base_error = torch.maximum(base_error, (current[:, 0] - start_poses[:, 0]).abs().max(dim=-1).values)
-            tip_deflection = torch.maximum(
-                tip_deflection, (current[:, -1, :2] - start_poses[:, -1, :2]).norm(dim=-1)
-            )
+            tip_deflection = torch.maximum(tip_deflection, (current[:, -1, :2] - start_poses[:, -1, :2]).norm(dim=-1))
             tip_x.append((current[:, -1, 0] - start_poses[:, -1, 0]).cpu())
             max_curvature = max(max_curvature, float(stem_geometry.joint_curvature(current, segment_lengths).max()))
 

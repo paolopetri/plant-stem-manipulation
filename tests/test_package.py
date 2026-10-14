@@ -40,8 +40,14 @@ def test_fr3_cfg_usd_path():
 
 def _rpy_to_matrix(roll: float, pitch: float, yaw: float) -> np.ndarray:
     """URDF convention: fixed-axis roll, pitch, yaw -> R = Rz(yaw) Ry(pitch) Rx(roll)."""
-    cr, sr, cp, sp, cy, sy = (math.cos(roll), math.sin(roll), math.cos(pitch),
-                              math.sin(pitch), math.cos(yaw), math.sin(yaw))
+    cr, sr, cp, sp, cy, sy = (
+        math.cos(roll),
+        math.sin(roll),
+        math.cos(pitch),
+        math.sin(pitch),
+        math.cos(yaw),
+        math.sin(yaw),
+    )
     rx = np.array([[1, 0, 0], [0, cr, -sr], [0, sr, cr]])
     ry = np.array([[cp, 0, sp], [0, 1, 0], [-sp, 0, cp]])
     rz = np.array([[cy, -sy, 0], [sy, cy, 0], [0, 0, 1]])
@@ -50,11 +56,13 @@ def _rpy_to_matrix(roll: float, pitch: float, yaw: float) -> np.ndarray:
 
 def _quat_xyzw_to_matrix(q: tuple[float, float, float, float]) -> np.ndarray:
     x, y, z, w = q
-    return np.array([
-        [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
-        [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
-        [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
-    ])
+    return np.array(
+        [
+            [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+            [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+            [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+        ]
+    )
 
 
 def test_tool_tip_offset_matches_yaml():

@@ -266,8 +266,20 @@ def main() -> None:
                     mass = mass + torch.diag_embed(robot.data.joint_armature.torch[ids][:, arm])
                     damping = apparent_mass_damping(jacobian[ids], mass, float(gain), k_rot)
                 tau[ids] = cartesian_impedance_torque(
-                    jacobian[ids], pos[ids], quat[ids], twist[ids], q[ids], dq[ids], x_d[ids], v_d[ids],
-                    tool_quat[ids], float(gain), k_rot, k_ns, q_ns[ids], damping,
+                    jacobian[ids],
+                    pos[ids],
+                    quat[ids],
+                    twist[ids],
+                    q[ids],
+                    dq[ids],
+                    x_d[ids],
+                    v_d[ids],
+                    tool_quat[ids],
+                    float(gain),
+                    k_rot,
+                    k_ns,
+                    q_ns[ids],
+                    damping,
                 )
             tau = limit_torque_rate(tau, tau_prev, TORQUE_RATE * sim_dt)
             tau_prev = tau
@@ -335,8 +347,10 @@ def main() -> None:
         lag_steady = lag_sum / lag_count.clamp(min=1)
         err_push = (tool_pose()[0] - commanded(float(t_ends[-1].max()))[0]).norm(dim=-1)
 
-        print(f"\n=== sweep_impedance ({n} envs; damping {args_cli.damping}, K_o {k_rot} N m/rad, k_ns {k_ns}; "
-              f"policy {1 / policy_dt:.2f} Hz) ===")
+        print(
+            f"\n=== sweep_impedance ({n} envs; damping {args_cli.damping}, K_o {k_rot} N m/rad, k_ns {k_ns}; "
+            f"policy {1 / policy_dt:.2f} Hz) ==="
+        )
         header = (
             f"{'variant':<12} {'K_p':>6} {'v':>5} {'lag_ss':>7} {'lag':>7} {'oversh.':>7} {'err_free':>8} "
             f"{'err_push':>8} {'F_max':>6} {'kappa':>6}"
@@ -351,16 +365,22 @@ def main() -> None:
                 err_free[i] * 1e3,
                 err_push[i] * 1e3,
             )
-            print(f"{var:<12} {gain:6.0f} {vel:5.2f} " + " ".join(f"{float(v):7.2f}" for v in values[:3]) + " "
-                  + " ".join(f"{float(v):8.2f}" for v in values[3:])
-                  + f" {float(f_max[i]):6.2f} {float(kappa_max[i]):6.2f}")
+            print(
+                f"{var:<12} {gain:6.0f} {vel:5.2f} "
+                + " ".join(f"{float(v):7.2f}" for v in values[:3])
+                + " "
+                + " ".join(f"{float(v):8.2f}" for v in values[3:])
+                + f" {float(f_max[i]):6.2f} {float(kappa_max[i]):6.2f}"
+            )
         for i, (var, gain, vel) in enumerate(combos):
-            print(f"RESULT variant={var} K_p={gain:.0f} speed={vel:.2f} "
-                  f"lag_steady_mm={float(lag_steady[i]) * 1e3:.2f} lag_mm={float(lag[i]) * 1e3:.2f} "
-                  f"overshoot_mm={float(overshoot[i].clamp(min=0)) * 1e3:.2f} "
-                  f"err_free_mm={float(err_free[i]) * 1e3:.2f} "
-                  f"err_push_mm={float(err_push[i]) * 1e3:.2f} F_max_N={float(f_max[i]):.3f} "
-                  f"kappa_max={float(kappa_max[i]):.2f}")
+            print(
+                f"RESULT variant={var} K_p={gain:.0f} speed={vel:.2f} "
+                f"lag_steady_mm={float(lag_steady[i]) * 1e3:.2f} lag_mm={float(lag[i]) * 1e3:.2f} "
+                f"overshoot_mm={float(overshoot[i].clamp(min=0)) * 1e3:.2f} "
+                f"err_free_mm={float(err_free[i]) * 1e3:.2f} "
+                f"err_push_mm={float(err_push[i]) * 1e3:.2f} F_max_N={float(f_max[i]):.3f} "
+                f"kappa_max={float(kappa_max[i]):.2f}"
+            )
         print(f"[INFO] curvature limit {params['damage']['max_curvature']} 1/m")
 
 

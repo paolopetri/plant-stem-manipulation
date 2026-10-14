@@ -86,6 +86,4 @@ def target_offset(env: ManagerBasedEnv, action_name: str = "tool_tip") -> torch.
     term: ToolTipImpedanceAction = env.action_manager.get_term(action_name)
     pos, quat = term.tool_pose()
     rot = rotvec_between(term.target_quat(), quat)
-    return torch.cat(
-        ((term.target() - pos) / term.cfg.max_target_offset, rot / term.cfg.max_target_rot_offset), dim=-1
-    )
+    return torch.cat(((term.target() - pos) / term.cfg.max_target_offset, rot / term.cfg.max_target_rot_offset), dim=-1)
