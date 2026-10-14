@@ -104,7 +104,8 @@ Task `StemManip-Push-Position-FR3-v0`, cfg in `src/stem_manip/tasks/push_positio
    (the last one the tip) for the previous and the current policy step, and the tip's target. Terms, their order and
    the arc lengths: `ObservationsCfg` in the env cfg; the stem-state terms are in `mdp/stem_state.py`. No contact
    forces (`docs/adr/0002-contact-forces-not-observed.md`). To be reduced to what the perception can deliver.
-4. **Reward / termination** (`mdp/rewards.py`, `mdp/terminations.py`; weights and thresholds in `RewardsCfg` /
+4. **Reward / termination** (`mdp/rewards.py`, `mdp/terminations.py`, contact forces read in
+   `mdp/contact.py`; weights and thresholds in `RewardsCfg` /
    `TerminationsCfg` of the env cfg, damage limits from `damage` in `assets/stem/stem.yaml`): distance of the stem
    point to the target (coarse and fine tanh, the fine one an ellipsoid that weighs the height error more) and a
    height term, fork-to-stem approach, curvature and contact-force penalties, action rate, early-termination

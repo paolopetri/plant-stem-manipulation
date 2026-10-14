@@ -7,9 +7,9 @@ reset), its value is recorded together with values computed here independently o
 - curvature per joint from the segment poses; contact force from the sensor's history (largest single
   segment-body contact per physics step, mean over the policy step); joint margin from the joint
   positions and limits.
-Decided values (user, 2026-10-09), fixed here, not read from the cfg: std 0.05 / 0.01 m (distance), 0.003 m (height),
-0.1 m (approach); curvature penalty above 0.8 x 5 1/m, limit 5 1/m; contact penalty above 2 N, limit 5 N; joint
-margin 0.25 rad; episode 15 s.
+Decided values (user, 2026-10-09; the height std and the fine distance's z-scale 2026-10-10), fixed here, not read
+from the cfg: std 0.05 / 0.01 m (distance), 0.003 m (height), 0.1 m (approach); curvature penalty above 0.8 x 5 1/m,
+limit 5 1/m; contact penalty above 2 N, limit 5 N; joint margin 0.25 rad; episode 15 s.
 
 Phases (the stem base fixed at x 0.65 m, y 0, except in `rest`):
 - rest: zero action for a whole episode (spawn area as in training). Time out fires exactly at the last step and
@@ -17,10 +17,10 @@ Phases (the stem base fixed at x 0.65 m, y 0, except in `rest`):
 - action_rate: alternating actions; the term equals sum((a_t - a_t-1)^2) of the actions sent.
 - push: drive the fork behind the stem at 0.30 m height (forward first, then down; the drive must reach its goal
   within 2 mm without a reset), at full speed until 1 cm before contact, then push it slowly (5 cm/s) 4 cm into the
-  slot. Approach
-  reward rises and is > 0.9 in contact; contact force > 0.05 N, below 2 N, penalty 0. Then, as a mechanism check with
-  lowered thresholds (not the decided values): penalty threshold 0 N -> penalty = F^2; limit at half the current force
-  -> `contact_force_limit` fires in every env.
+  slot. Approach reward rises and in contact is above 1 - tanh((d + 1 mm) / std), d from the slot geometry and the
+  push (`stem_reference.slot_approach_distance`; user, 2026-10-14); contact force > 0.05 N, below 2 N, penalty 0.
+  Then, as a mechanism check with lowered thresholds (not the decided values): penalty threshold 0 N -> penalty = F^2;
+  limit at half the current force -> `contact_force_limit` fires in every env.
 - impact: the fork at full speed into the stem at 0.25 m height (informational: the largest mean force of a policy
   step; whether the 5 N limit is reached by an impact; fails only if the fork does not reach / touch the stem).
 - curvature: a force on the tip segment, ramped 0 -> 2 N; the penalty becomes > 0 above 4 1/m and
@@ -30,7 +30,7 @@ Only `rest` runs on the decided 15 s episode; the scripted phases take longer an
 reset anywhere except where a phase makes a term fire fails the check. In every phase and at every step: each term
 equals its formula of the independent values (tolerance 1e-4 for the rewards, 0.5 mm on the approach distance), each
 termination fires exactly when its independent value crosses the limit, `terminated` = any early termination, metric
-`height_error` = dz.
+`height_error` = dz, metric `position_error` = d.
 
 Usage (from the repo root; headless unless a visualizer is requested):
     uv run --extra isaacsim python scripts/check_push_terms.py
@@ -62,7 +62,7 @@ from isaaclab.utils.math import subtract_frame_transforms
 import stem_manip.tasks  # noqa: F401  (registers the task)
 from stem_manip.assets.stem import stem_model, stem_params
 from stem_manip.tasks.push_position.env_cfg import STEM_MODEL, StemPushPositionEnvCfg
-from stem_manip.utils import check_report, rollout
+from stem_manip.utils import check_report, rollout, stem_reference
 from stem_manip.utils.stem_geometry import joint_curvature, point_pose, stem_points
 
 TASK = "StemManip-Push-Position-FR3-v0"
@@ -82,6 +82,11 @@ BEHIND = 0.20  # [m] tool tip this far behind the stem axis before a push (prong
 PUSH_HEIGHT, IMPACT_HEIGHT = 0.30, 0.25  # [m] tool-tip height of the slow push and of the impact
 REACH_TOL = 2e-3  # [m] the scripted drive must end this close to its goal, without a reset on the way
 PUSH_DEPTH = 0.04  # [m] slow push: tool tip this far beyond first contact of the slot bottom
+# Approach in contact (user, 2026-10-14): threshold = 1 - tanh((d + margin) / std), d from
+# `stem_reference.slot_approach_distance` (derivation there).
+# fork_v2 plate thickness at the slot bottom, below the tool tip (measured in fork_v2_visual.stl and _collision.stl)
+SLOT_PLATE_THICKNESS = 0.018  # [m]
+APPROACH_MARGIN = 1e-3  # [m] on d
 RAMP_FORCE, RAMP_STEPS = 2.0, 150  # [N], policy steps: tip force ramp of the curvature phase
 REWARD_TOL = 1e-4
 APPROACH_TOL = 5e-4  # [m]
@@ -163,7 +168,7 @@ def main() -> None:
                 wrap(env.reward_manager, name)
 
         # -- checks of every step against the formulas
-        errors = {key: 0.0 for key in ("rewards", "approach", "terminations", "height_error")}
+        errors = {key: 0.0 for key in ("rewards", "approach", "terminations", "height_error", "position_error")}
         fired_wrongly: list[str] = []
 
         def tanh_reward(x: torch.Tensor, std: float) -> torch.Tensor:
@@ -202,6 +207,8 @@ def main() -> None:
                 dz = (tip[:, 0] - command.command)[:, 2]
                 err = (command.metrics["height_error"] - dz)[kept].abs().max()
                 errors["height_error"] = max(errors["height_error"], float(err))
+                err = (command.metrics["position_error"] - (tip[:, 0] - command.command).norm(dim=-1))[kept].abs().max()
+                errors["position_error"] = max(errors["position_error"], float(err))
 
         step_time = env.step_dt * args_cli.slow_motion
         clock = {"t": time.perf_counter()}
@@ -331,11 +338,18 @@ def main() -> None:
                     if (snap["tool"][:, 0] >= goal[:, 0] - 1e-3).all():
                         break
                 approach_contact = float(recorded["approach"].min())
+                approach_d = stem_reference.slot_approach_distance(
+                    radius, SLOT_PLATE_THICKNESS, PUSH_HEIGHT, PUSH_DEPTH
+                )
+                approach_min = 1.0 - math.tanh((approach_d + APPROACH_MARGIN) / STD["approach"])
                 min_force_end = float(snap["force"].min())
                 results["push: approach"] = (
-                    reached and bool((approach_behind > approach_start + 0.01).all()) and approach_contact > 0.9,
+                    reached
+                    and bool((approach_behind > approach_start + 0.01).all())
+                    and approach_contact > approach_min,
                     f"{reach_info}; approach at the start {float(approach_start.mean()):.3f}, behind the stem "
-                    f"{float(approach_behind.mean()):.3f}, in contact (min) {approach_contact:.3f}",
+                    f"{float(approach_behind.mean()):.3f}, in contact (min) {approach_contact:.3f} "
+                    f"(expected > {approach_min:.3f}: d {approach_d * 1e3:.2f} mm + {APPROACH_MARGIN * 1e3:.0f} mm)",
                 )
                 results["push: contact"] = (
                     force_before == 0.0 and min_force_end > 0.05 and max_force < FREE_FORCE and max_penalty == 0.0,
@@ -440,9 +454,11 @@ def main() -> None:
             and errors["approach"] < APPROACH_TOL
             and errors["terminations"] == 0.0
             and errors["height_error"] < 1e-5
+            and errors["position_error"] < 1e-5
             and not fired_wrongly,
             f"rewards {errors['rewards']:.1e}, approach distance {errors['approach'] * 1e3:.3f} mm, terminated "
-            f"{errors['terminations']:.0f}, height_error {errors['height_error'] * 1e3:.4f} mm; terminations not "
+            f"{errors['terminations']:.0f}, height_error {errors['height_error'] * 1e3:.4f} mm, position_error "
+            f"{errors['position_error'] * 1e3:.4f} mm; terminations not "
             f"matching their limit: {fired_wrongly[:5] or 'none'}",
         )
         print(f"\n=== check_push_terms ({n} envs, phases {' '.join(args_cli.phases)}) ===")

@@ -18,7 +18,7 @@ import torch
 
 from isaaclab.managers import SceneEntityCfg
 
-from .rewards import robot_contact_force
+from .contact import robot_contact_force
 from .stem_state import stem_curvature
 
 if TYPE_CHECKING:
@@ -33,7 +33,7 @@ def curvature_limit(
 
 
 def contact_force_limit(env: ManagerBasedRLEnv, max_force: float, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
-    """True where the robot's contact force on the stem (`rewards.robot_contact_force`) exceeds `max_force` [N]."""
+    """True where the robot's contact force on the stem (`contact.robot_contact_force`) exceeds `max_force` [N]."""
     return robot_contact_force(env, sensor_cfg) > max_force
 
 
