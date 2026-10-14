@@ -6,7 +6,7 @@ The user-only skills (`/to-spec`, `/to-tickets`, `/implement`, `/implement-spec`
 
 ## Decide
 
-1. `/grill-with-docs`: settle the decisions; `CONTEXT.md` and ADRs are updated on the way.
+1. `/grill-with-docs`: settle the decisions; `GLOSSARY.md` and ADRs are updated on the way.
 2. `/to-spec`: one spec issue.
 3. `/to-tickets`: tickets with blocking edges. The user approves the granularity and the edges before they are published.
 

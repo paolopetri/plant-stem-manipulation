@@ -63,4 +63,4 @@ Before writing or reviewing code, read `CODING_STANDARDS.md`: decision tags, sin
 - `docs/agents/workflow.md`: how new work goes from decision to PR, which skills the user starts, context and model choice.
 - `docs/agents/issue-tracker.md`: GitHub issues via `gh`; every branch has an issue.
 - `docs/agents/triage-labels.md`: label vocabulary.
-- `docs/agents/domain.md`: domain docs, single-context: `CONTEXT.md` and `docs/adr/` at the repo root.
+- `docs/agents/domain.md`: domain docs, single-context: `GLOSSARY.md` and `docs/adr/` at the repo root.
