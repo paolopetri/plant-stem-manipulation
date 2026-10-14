@@ -5,7 +5,20 @@ High-level items and discussion: current milestone, roadmap, research directions
 ## Current milestone: M5 First training run
 Stem model `chain` in PhysX (decision 2026-10-06). Exit criterion: tag `v0.1-position-control` once a policy reaches the targets.
 - Current work: #77, #78, #79, #80, #81, #82, #84, #85, #86, #88, #94, #95.
-- Later (label `later`): #75, #76, #83, #87, #89, #90, #91, #92, #93, #100, #101, #103, #104.
+- Later (closed as not planned to keep the open list to current work, 2026-10-14; the full text stays in each issue, reopen when it becomes current):
+  - #75 Two targets in sequence within an episode
+  - #76 Refine the stem spawn area near the robot
+  - #83 Port the impedance controller to a libfranka 1 kHz loop
+  - #87 Contact forces as critic-only observations
+  - #89 Choose the randomization ranges for the stem parameters
+  - #90 Per-env stem parameters in the chain and the MDP terms
+  - #91 Tilted stem at reset
+  - #92 Real-robot identification of the FR3
+  - #93 Spawn the stem all around the robot
+  - #100 B3: inertia feedforward (operational-space control)
+  - #101 Re-checks over the stem randomization range
+  - #103 Stage 2: full pose control of the attached frame
+  - #104 Model-based baseline (nominal vs. oracle parameters)
 
 ## Roadmap
 1. Domain randomization of the stem parameters (stiffness, length, diameter, damping): ranges #89, per-env parameters #90, re-checks over the range #101.
@@ -41,4 +54,4 @@ Collected for one email.
 - **Real-robot setup:** is the Franka Control Interface (FCI, torque control) enabled on our FR3; which system and libfranka versions; is there a PC with a real-time kernel connected to it; does the lab already use a control stack (franka_ros2, frankapy, own C++) that the controller should be added to?
 
 ## Parked: Newton cable path
-Stem model `chain` chosen 2026-10-06; `cable` stays selectable for a later comparison. Issues (label `parked`): #96, #97, #98, #99. Solver measurements: `docs/overleaf_folder/open_questions/stem_model_tradeoff.tex`.
+Stem model `chain` chosen 2026-10-06; `cable` stays selectable for a later comparison. Issues (label `parked`, closed as not planned 2026-10-14; the text stays in each issue): #96 base-placement function for the stem models, #97 former M2: FR3 on Newton, #98 former M3: coupled scene, #99 questions if the cable comes back. Solver measurements: `docs/overleaf_folder/open_questions/stem_model_tradeoff.tex`.
