@@ -66,9 +66,17 @@ def rpy_matrix(rpy: Sequence[float]) -> torch.Tensor:
 
 
 def tool_tip_in_flange(ee: str) -> torch.Tensor:
-    """Tool-tip pose (4, 4) in the fr3_link8 frame, from `tool_tip` of assets/fr3/end_effectors/<ee>/<ee>.yaml."""
+    """Tool-tip pose (4, 4) in the fr3_link8 frame, from `tool_tip` of assets/fr3/end_effectors/<ee>/<ee>.yaml.
+
+    Raises ValueError unless the yaml's `mount` is the identity: the yaml gives `tool_tip` in the fr3_link8 frame,
+    the URDF builder (and so the task) puts it under the end-effector body; the two agree only with an identity mount.
+    """
     path = REPO_ASSETS_DIR / "fr3" / "end_effectors" / ee / f"{ee}.yaml"
-    tip = yaml.safe_load(path.read_text())["tool_tip"]
+    description = yaml.safe_load(path.read_text())
+    mount = description["mount"]
+    if any(v != 0 for v in (*mount["xyz"], *mount["rpy"])):
+        raise ValueError(f"{path.name}: mount {mount} is not the identity; tool_tip in fr3_link8 no longer holds")
+    tip = description["tool_tip"]
     pose = torch.eye(4, dtype=DTYPE)
     pose[:3, :3] = rpy_matrix(tip["rpy"])
     pose[:3, 3] = torch.tensor(tip["xyz"], dtype=DTYPE)

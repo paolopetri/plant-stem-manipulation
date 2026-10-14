@@ -34,10 +34,12 @@ Checks:
   observed tool-tip position and orientation (first two columns of its rotation matrix) equal the tool tip from the
   measured joint angles via the FR3 Denavit-Hartenberg parameters and the yaml's tool_tip
   (`stem_manip.utils.fr3_reference`, no code shared with the observations); the observed applied step x the decided
-  caps equals the target's motion over the policy step and, where the clamp did not act, the step the decided limits
-  (cap, step-change limit) give for the action, computed here; the observed target offset x the decided bounds
-  (4 mm, 3 deg) equals the target minus that tool tip. Tolerance 1e-5 m and 1e-5 rad: both sides use the same
-  nominal kinematics, so only float32 rounding remains (about 1e-6 over the chain); 10x margin.
+  caps equals the step the decided limits (cap, step-change limit) give for the action, computed here (independent,
+  but only in the policy steps where the clamp did not act; the row reports n of N), and the target's motion over the
+  policy step (self-consistency only: the target is the action term's own state); the observed target offset x the
+  decided bounds (4 mm, 3 deg) equals the target minus that tool tip. Tolerance 1e-5 m and 1e-5 rad (user,
+  2026-10-14): both sides use the same nominal kinematics, so only float32 rounding remains (about 1e-6 over the
+  chain); 10x margin.
 The expected limits are the decided values (option B1), not the cfg's: with an override flag those checks fail.
 Joint-limit guard: a check whose measurement window comes within 0.25 rad of a joint limit fails as invalid (there
 the arm, not the controller, limits the motion; user 2026-10-08, same threshold as scripts/sweep_action_poses.py).
@@ -101,22 +103,30 @@ OBS_STEP_POS, OBS_STEP_ROT, OBS_OFFSET_POS, OBS_OFFSET_ROT = slice(9, 12), slice
 TIP_ERRORS = (
     "position",
     "orientation",
-    "applied step = target motion",
-    "applied rotation = target turn",
-    "applied step = limits",
-    "applied rotation = limits",
+    "applied step = target motion (self-consistency)",
+    "applied rotation = target turn (self-consistency)",
+    "applied step = limits (independent)",
+    "applied rotation = limits (independent)",
     "target offset",
     "target rotation offset",
 )
-ROT_ERRORS = ("orientation", "applied rotation = target turn", "applied rotation = limits", "target rotation offset")
-LIMITS_ERRORS = ("applied step = limits", "applied rotation = limits")  # compared only where the clamp did not act
+ROT_ERRORS = (
+    "orientation",
+    "applied rotation = target turn (self-consistency)",
+    "applied rotation = limits (independent)",
+    "target rotation offset",
+)
+LIMITS_ERRORS = (
+    "applied step = limits (independent)",
+    "applied rotation = limits (independent)",
+)  # compared only where the clamp did not act
 # decided action limits (option B1, user 2026-10-07/08; docs/overleaf_folder/open_questions/action_limits_problem.tex);
 # fixed here, not read from the cfg, so that a wrong cfg value fails (with an override flag these checks fail too)
 FIRST_STEP, FIRST_ROT_STEP = 8e-5, 0.000349  # [m], [rad] step-change limits 0.08 mm (2026-10-08) / 0.02 deg
 CAP_STEP, CAP_ROT_STEP = 0.0032, 0.02513  # [m], [rad] speed caps 10 cm/s (2026-10-08) / 45 deg/s (2026-10-07)
 CLAMP_OFFSET = 4e-3  # [m] target clamp, 4 N at K_p 1000 (2026-10-08)
 CLAMP_ROT_OFFSET = 0.05236  # [rad] orientation clamp, 3 deg (2026-10-08)
-TIP_POS_TOL, TIP_ROT_TOL = 1e-5, 1e-5  # [m], [rad] tool-tip observations vs independent kinematics (float32 rounding)
+TIP_POS_TOL, TIP_ROT_TOL = 1e-5, 1e-5  # [m], [rad] tool-tip obs vs independent kinematics (user, 2026-10-14)
 JOINT_MARGIN_MIN = 0.25  # [rad] closer to a joint limit, a check is invalid (user, 2026-10-08)
 # clamp test path (test setup, not a criterion): +x first, so that the way down stays clear of joint 4's limit
 # (DOWN_STEPS leaves the blocked window well after the tool has reached the ground)
@@ -187,7 +197,8 @@ def main() -> None:
         ) -> dict[str, torch.Tensor]:
             """Differences (n,) of the tool-tip slices of `policy` from the independent kinematics, from the target's
             motion since (`target_before`, `target_quat_before`) and from the step the limits give for `action`
-            (`TIP_ERRORS`, see the module docstring)."""
+            (`TIP_ERRORS`, see the module docstring). Then sets `expected_step` to the step actually applied (the
+            target's motion, after the clamp), from which the next step's limits start."""
             tip = tool_tip_pose(robot.data.joint_pos.torch[:, fk_joint_ids], term.cfg.body_name)
             tip_pos, tip_rot = tip[:, :3, 3], tip[:, :3, :3]
             obs = policy.double()
@@ -199,16 +210,20 @@ def main() -> None:
             limits_rot = limited(action[3:].expand(n, 3), expected_step[:, 3:], CAP_ROT_STEP, FIRST_ROT_STEP).double()
             tip_rot6d = torch.cat((tip_rot[..., 0], tip_rot[..., 1]), dim=-1)
             offset_rot = rotvec_from_matrix(target_rot @ tip_rot.transpose(1, 2))
-            return {
+            errors = {
                 "position": (obs[:, OBS_TIP_POS] - tip_pos).norm(dim=-1),
                 "orientation": (obs[:, OBS_TIP_ROT] - tip_rot6d).abs().amax(dim=-1),
-                "applied step = target motion": (step_pos - (target - target_before.double())).norm(dim=-1),
-                "applied rotation = target turn": (step_rot - turned).norm(dim=-1),
-                "applied step = limits": (step_pos - limits_pos).norm(dim=-1),
-                "applied rotation = limits": (step_rot - limits_rot).norm(dim=-1),
+                "applied step = target motion (self-consistency)": (step_pos - (target - target_before.double())).norm(
+                    dim=-1
+                ),
+                "applied rotation = target turn (self-consistency)": (step_rot - turned).norm(dim=-1),
+                "applied step = limits (independent)": (step_pos - limits_pos).norm(dim=-1),
+                "applied rotation = limits (independent)": (step_rot - limits_rot).norm(dim=-1),
                 "target offset": (obs[:, OBS_OFFSET_POS] * CLAMP_OFFSET - (target - tip_pos)).norm(dim=-1),
                 "target rotation offset": (obs[:, OBS_OFFSET_ROT] * CLAMP_ROT_OFFSET - offset_rot).norm(dim=-1),
             }
+            expected_step[:] = torch.cat((target - target_before.double(), turned), dim=-1).to(expected_step.dtype)
+            return errors
 
         def window() -> None:
             """Start a measurement window of the joint-limit guard."""
@@ -226,10 +241,6 @@ def main() -> None:
                 error = error[free] if name in LIMITS_ERRORS else error
                 if error.numel() > 0:
                     obs_errors[name] = max(obs_errors[name], float(error.max()))
-            # the next step's limits start from the step actually applied (the target's motion, after the clamp)
-            expected_step[:] = torch.cat(
-                (term.target() - target_before, rotvec_between(term.target_quat(), target_quat_before)), dim=-1
-            )
             obs_checked += 1
             limits_checked += int(free.all())
             max_target_offset = max(max_target_offset, float(obs["policy"][:, OBS_OFFSET_POS].norm(dim=-1).max()))
@@ -461,8 +472,8 @@ def main() -> None:
         tip_ok = all(error < (TIP_ROT_TOL if name in ROT_ERRORS else TIP_POS_TOL) for name, error in obs_errors.items())
         results["tool-tip observations = independent kinematics"] = (
             tip_ok and obs_checked > 0 and limits_checked > 0,
-            f"largest differences over {obs_checked} policy steps ({limits_checked} without the clamp, for the "
-            "limits): "
+            f"largest differences over {obs_checked} policy steps (limits: only the {limits_checked} of "
+            f"{obs_checked} steps without the clamp): "
             + ", ".join(
                 f"{name} {error:.1e} rad" if name in ROT_ERRORS else f"{name} {error * 1e3:.5f} mm"
                 for name, error in obs_errors.items()

@@ -5,15 +5,16 @@ holds the start pose with zero torque, then applies a torque pulse (+`--torque` 
 and checks:
 - the articulation has the bodies fr3_link0..fr3_link7 + the end-effector;
 - the end-effector stays rigidly at 107 mm along z of fr3_link7 (flange offset), at the start pose and after the pulse;
-- the start pose is held with zero torque: gravity is off for every robot body (`fr3_cfg`; the real FR3 compensates
-  gravity itself), so the arm must not move (reports the per-joint deviation);
-- torque mode: under the pulse every joint moves by more than 0.01 rad (with the position mode's joint PD, stiffness
-  400 N m/rad, the pulse would deflect a joint by 1.25 mrad);
+- robot gravity off (user, 2026-10-14): PhysX reports gravity disabled for every robot body, the end-effector
+  included (the model of `fr3_cfg`: the real FR3 compensates gravity itself);
+- torque mode (user, 2026-10-14): under a +-0.5 N m pulse every joint moves by more than 0.01 rad (with the position
+  mode's joint PD, stiffness 400 N m/rad, the pulse would deflect a joint by 1.25 mrad);
 - tool tip = datasheet kinematics: the tool-tip pose the task uses (end-effector body pose + `tool_tip_offset(ee)`)
   equals the tool tip from the measured joint angles via the FR3 Denavit-Hartenberg parameters and the yaml's
   tool_tip (`stem_manip.utils.fr3_reference`), at the start pose and after the pulse.
-  Tolerance 1e-5 m and 1e-5 rad: both sides use the same nominal values (datasheet = URDF), so only float32 rounding
-  of the joint angles and link poses remains, about 1e-7 per transform, ~1e-6 over the chain; 10x margin.
+  Tolerance 1e-5 m and 1e-5 rad (user, 2026-10-14): both sides use the same nominal values (datasheet = URDF), so
+  only float32 rounding of the joint angles and link poses remains, about 1e-7 per transform, ~1e-6 over the chain;
+  10x margin.
 
 Usage (from the repo root; runs headless unless a visualizer is requested):
     uv run --extra isaacsim python scripts/check_fr3.py
@@ -27,7 +28,6 @@ from isaaclab.app import add_launcher_args, launch_simulation
 parser = argparse.ArgumentParser(description="Sanity check of the FR3 + end-effector asset.")
 parser.add_argument("--ee", default="fork_v2", help="End-effector folder name in assets/fr3/end_effectors/.")
 parser.add_argument("--steps", type=int, default=200, help="Physics steps to hold the start pose.")
-parser.add_argument("--max_joint_dev", type=float, default=0.1, help="Allowed start-pose deviation [rad].")
 parser.add_argument("--torque", type=float, default=0.5, help="Joint torque of the pulse [N m].")
 parser.add_argument("--pulse_steps", type=int, default=30, help="Physics steps per sign of the pulse.")
 add_launcher_args(parser)
@@ -51,8 +51,8 @@ from stem_manip.utils.fr3_reference import rotvec_from_matrix, tool_tip_pose
 
 FLANGE_OFFSET = torch.tensor([0.0, 0.0, 0.107])  # fr3_link7 -> fr3_link8 [m], FR3 kinematics
 POS_TOL = 1e-3  # [m] end-effector at the flange
-MIN_PULSE_MOVE = 0.01  # [rad] per joint under the pulse (8x the deflection the position mode's PD would allow)
-TIP_POS_TOL, TIP_ROT_TOL = 1e-5, 1e-5  # [m], [rad] tool tip vs datasheet kinematics (float32 rounding, see above)
+MIN_PULSE_MOVE = 0.01  # [rad] per joint under the +-0.5 N m pulse (user, 2026-10-14)
+TIP_POS_TOL, TIP_ROT_TOL = 1e-5, 1e-5  # [m], [rad] tool tip vs datasheet kinematics (user, 2026-10-14)
 
 
 def main() -> None:
@@ -102,8 +102,10 @@ def main() -> None:
             rot_err = rotvec_from_matrix(matrix_from_quat(tip_quat).double() @ reference[:, :3, :3].transpose(1, 2))
             return float(pos_err.max()), float(rot_err.norm(dim=-1).max())
 
+        gravity_off = robot.root_view.get_disable_gravities()
+        gravity_off = gravity_off if isinstance(gravity_off, torch.Tensor) else torch.as_tensor(gravity_off.numpy())
+        gravity_off = gravity_off.reshape(-1).bool().cpu().tolist()[: robot.num_bodies]
         run(0.0, args_cli.steps)
-        dev = (robot.data.joint_pos.torch - q0)[0].cpu()
         ee_errors = [ee_at_flange()]
         tip_errors = [tip_error()]
         q_held = robot.data.joint_pos.torch.clone()
@@ -120,10 +122,9 @@ def main() -> None:
             max(ee_errors) < POS_TOL,
             f"error at the start pose {ee_errors[0]:.2e} m, after the pulse {ee_errors[1]:.2e} m",
         )
-        max_dev = float(dev.abs().max())
-        results["start pose held"] = (
-            max_dev < args_cli.max_joint_dev,
-            f"zero torque: max |q - q0| = {max_dev:.3f} rad, per joint {[round(float(d), 3) for d in dev]}",
+        results["robot gravity off"] = (
+            len(gravity_off) == robot.num_bodies and all(gravity_off),
+            f"gravity disabled per body: {dict(zip(robot.body_names, gravity_off, strict=False))}",
         )
         results["torque mode"] = (
             bool((moved.abs() > MIN_PULSE_MOVE).all()),

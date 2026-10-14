@@ -5,6 +5,7 @@ import math
 import pytest
 import torch
 
+from stem_manip.utils import fr3_reference
 from stem_manip.utils.fr3_reference import flange_pose, rotvec_from_matrix, rpy_matrix, tool_tip_pose
 
 DTYPE = torch.float64
@@ -71,3 +72,16 @@ def test_rotvec_from_matrix_inverts_rodrigues(angle: float):
     rot = torch.eye(3, dtype=DTYPE) + math.sin(angle) * k + (1 - math.cos(angle)) * k @ k
     rotvec = rotvec_from_matrix(rot.unsqueeze(0))[0]
     assert torch.allclose(rotvec, angle * axis, atol=1e-12)
+
+
+def test_tool_tip_in_flange_rejects_a_non_identity_mount(tmp_path, monkeypatch):
+    """The yaml gives tool_tip in the fr3_link8 frame, the URDF builder puts it under the end-effector body: the two
+    agree only with an identity mount, so any other mount must fail loudly."""
+    ee_dir = tmp_path / "fr3" / "end_effectors" / "tilted"
+    ee_dir.mkdir(parents=True)
+    (ee_dir / "tilted.yaml").write_text(
+        "mount: {xyz: [0, 0, 0.01], rpy: [0, 0, 0]}\ntool_tip: {xyz: [0.04, 0, 0.01], rpy: [0, 0, 0]}\n"
+    )
+    monkeypatch.setattr(fr3_reference, "REPO_ASSETS_DIR", tmp_path)
+    with pytest.raises(ValueError, match="mount"):
+        fr3_reference.tool_tip_in_flange("tilted")
