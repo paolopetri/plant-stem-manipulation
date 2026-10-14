@@ -10,14 +10,20 @@
 # After every agent call the branch is pushed to origin (the agent itself may not push). Failed agent calls (e.g.
 # usage limit) are retried after 30 min. The agent writes logs/autotrain/DONE to end the loop early.
 #
-# Settings (environment): AUTOTRAIN_DEADLINE ("2026-10-12 07:00"), AUTOTRAIN_BRANCH (exp/m5-weekend),
-# AUTOTRAIN_GROUP (wandb group, m5-weekend), AUTOTRAIN_MAX_HOURS (cap per run, 4), AUTOTRAIN_CHECK_MIN (20),
+# Required (environment, no defaults: a stale default would work on an old branch): AUTOTRAIN_DEADLINE (e.g.
+# "2026-10-12 07:00"), AUTOTRAIN_BRANCH (e.g. exp/m5-weekend; must be checked out), AUTOTRAIN_GROUP (wandb group).
+# Optional: AUTOTRAIN_MAX_HOURS (cap per run, 4), AUTOTRAIN_CHECK_MIN (20),
 # AUTOTRAIN_MODEL (sonnet), AUTOTRAIN_EFFORT (high), AUTOTRAIN_NOTE (extra line for the agent, e.g. for a dry run).
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
-DEADLINE=${AUTOTRAIN_DEADLINE:-"2026-10-12 07:00"}
-BRANCH=${AUTOTRAIN_BRANCH:-exp/m5-weekend}
+if [[ -z ${AUTOTRAIN_DEADLINE:-} || -z ${AUTOTRAIN_BRANCH:-} || -z ${AUTOTRAIN_GROUP:-} ]]; then
+    echo "usage: AUTOTRAIN_DEADLINE=\"YYYY-MM-DD HH:MM\" AUTOTRAIN_BRANCH=<branch> AUTOTRAIN_GROUP=<wandb group> $0" >&2
+    echo "all three are required (deadline, the checked-out experiment branch, wandb group)" >&2
+    exit 2
+fi
+DEADLINE=$AUTOTRAIN_DEADLINE
+BRANCH=$AUTOTRAIN_BRANCH
 CHECK_MIN=${AUTOTRAIN_CHECK_MIN:-20}
 MODEL=${AUTOTRAIN_MODEL:-sonnet}
 EFFORT=${AUTOTRAIN_EFFORT:-high}
@@ -27,7 +33,7 @@ mkdir -p $STATE
 touch $STATE/runs.log  # read by the agent before the first launch
 # for launch_run.sh, called by the agent (which may not set environment variables: it calls the script bare)
 export AUTOTRAIN_BRANCH=$BRANCH
-export AUTOTRAIN_GROUP=${AUTOTRAIN_GROUP:-m5-weekend} AUTOTRAIN_MAX_HOURS=${AUTOTRAIN_MAX_HOURS:-4}
+export AUTOTRAIN_GROUP AUTOTRAIN_MAX_HOURS=${AUTOTRAIN_MAX_HOURS:-4}
 
 log() { echo "$(date -Iseconds) $*" | tee -a $STATE/driver.log; }
 run_pid() { [[ -f $STATE/current.pid ]] && cat $STATE/current.pid; }
