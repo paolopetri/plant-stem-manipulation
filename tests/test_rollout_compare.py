@@ -5,6 +5,8 @@ Requirements (issue #52):
 - A term that differs beyond the tolerance compares FAIL, and its row names the term and the max difference.
 - A term recorded in only one file, or with another shape, compares FAIL.
 - Recordings of different settings (task, envs, steps, seed, device, push rollout length) compare FAIL.
+- `never_nonzero` names the terms (of those required) that stay 0 / never fire or are missing, so `record` can fail
+  when the push stops exercising the damage limits.
 """
 
 from dataclasses import asdict, replace
@@ -85,3 +87,11 @@ def test_other_push_length_fails():
     b["meta"] = rollout_compare.meta(replace(SETTINGS, push_steps=6), commit="abc")
     ok, info = rollout_compare.compare(recording(), b)["settings"]
     assert not ok and "push_steps 5 vs 6" in info
+
+
+def test_never_nonzero_names_silent_and_missing_terms():
+    terms = recording()["terms"]
+    terms["push/reward/curvature"] = torch.zeros(3, 2)
+    required = ["zero/reward/distance_fine", "zero/termination/time_out", "push/reward/curvature", "push/x"]
+    assert rollout_compare.never_nonzero(terms, required) == ["push/reward/curvature", "push/x"]
+    assert rollout_compare.never_nonzero(terms, required[:2]) == []

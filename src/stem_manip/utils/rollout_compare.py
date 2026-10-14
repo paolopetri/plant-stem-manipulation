@@ -2,10 +2,11 @@
 
 A recording is `{"meta": {...}, "terms": {name: tensor}}`: the settings it was recorded with and one tensor per
 observation, reward and termination term, stacked over the policy steps. `compare` turns two recordings into
-`check_report` rows: one per term (max absolute difference) and one for the settings.
+`check_report` rows: one per term (max absolute difference) and one for the settings. `never_nonzero` lets `record`
+check that the push rollout still exercises the damage limits.
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, fields
 
 
@@ -53,3 +54,8 @@ def compare(a: Mapping, b: Mapping, tol: float = 0.0) -> dict[str, tuple[bool, s
             diff = float((x.double() - y.double()).abs().max()) if x.numel() else 0.0
             rows[name] = (diff <= tol, f"max |diff| {diff:.3g}")
     return rows
+
+
+def never_nonzero(terms: Mapping, names: Sequence[str]) -> list[str]:
+    """Those of `names` whose term is missing from `terms` or is 0 / False at every step and env, in order."""
+    return [name for name in names if name not in terms or not terms[name].any()]

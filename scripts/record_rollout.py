@@ -7,7 +7,8 @@ recorded after it:
   steps of zero actions, `--steps` of uniform random actions in [-1, 1] (a torch generator seeded with `--seed`),
   and a scripted push (stem base fixed at `PUSH_STEM_BASE`, the tool tip along `PUSH_PLAN`: twice behind the stem,
   down, then through the stem axis at full speed). The push makes the contact force, the contact-force and
-  curvature penalties non-zero and `curvature_limit` and `contact_force_limit` fire. It saves every policy
+  curvature penalties non-zero and `curvature_limit` and `contact_force_limit` fire; if one of these stays 0 / never
+  fires, `record` fails (exit status 1) naming it and saves nothing. It saves every policy
   observation term (at the reset and after each step), every reward term (weighted, before x dt), every termination
   term, and the raw robot-stem contact force and the largest stem curvature (after the step) per step and env, with
   the settings and the commit (`torch.save`).
@@ -51,6 +52,13 @@ PUSH_PLAN = (
     ((0.15, 0.0, 0.10), 130),
 )
 PUSH_STEPS = sum(steps for _, steps in PUSH_PLAN)
+# push terms that must be non-zero / fire at least once, or the push no longer exercises the damage limits
+PUSH_REQUIRED = (
+    "push/reward/contact_force",
+    "push/reward/curvature",
+    "push/termination/curvature_limit",
+    "push/termination/contact_force_limit",
+)
 
 parser = argparse.ArgumentParser(description="Record a fixed-seed rollout of the push task, or compare two.")
 commands = parser.add_subparsers(dest="command", required=True)
@@ -146,6 +154,11 @@ def record() -> None:
             return rollout.toward(obs[:, slices["tool_tip_pos"]], goal, tool_cfg.max_step, tool_cfg.max_step_change)
 
         run("push", PUSH_STEPS, push)
+        missing = rollout_compare.never_nonzero(terms, PUSH_REQUIRED)
+        if missing:
+            print(f"[ERROR] the push rollout no longer exercises the damage limits, 0 / never fired: {missing}")
+            env.close()
+            sys.exit(1)
 
         settings = rollout_compare.Settings(TASK, n, args_cli.steps, args_cli.seed, str(device), PUSH_STEPS)
         meta = rollout_compare.meta(settings, env_cfg.git_commit)
