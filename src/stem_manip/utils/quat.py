@@ -37,7 +37,7 @@ def quat_apply(q: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
 
 
 def quat_from_rotvec(rotvec: torch.Tensor) -> torch.Tensor:
-    """Unit quaternions (n, 4) (x, y, z, w) of rotation vectors (n, 3) (axis * angle [rad])."""
+    """Unit quaternions (..., 4) (x, y, z, w) of rotation vectors (..., 3) (axis * angle [rad])."""
     angle = rotvec.norm(dim=-1, keepdim=True)
     half = 0.5 * angle
     # sin(a/2)/a -> 1/2 for a -> 0 (series), keeps small and zero rotations exact
@@ -46,7 +46,7 @@ def quat_from_rotvec(rotvec: torch.Tensor) -> torch.Tensor:
 
 
 def rotvec_from_quat(quat: torch.Tensor) -> torch.Tensor:
-    """Rotation vectors (n, 3) (axis * angle [rad], angle in [0, pi]) of unit quaternions (n, 4) (x, y, z, w)."""
+    """Rotation vectors (..., 3) (axis * angle [rad], angle in [0, pi]) of unit quaternions (..., 4) (x, y, z, w)."""
     quat = torch.where(quat[..., 3:] < 0.0, -quat, quat)  # w >= 0: the shorter rotation
     sin_half = quat[..., :3].norm(dim=-1, keepdim=True)
     angle = 2.0 * torch.atan2(sin_half, quat[..., 3:])

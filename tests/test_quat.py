@@ -1,6 +1,8 @@
 """Unit tests of the torch-only quaternion module (x, y, z, w); no simulator needed."""
 
 import math
+import subprocess
+import sys
 
 import pytest
 import torch
@@ -52,3 +54,21 @@ def test_matches_isaaclab_math():
     assert torch.allclose(quat_mul(a, b), math_lab.quat_mul(a, b))
     assert torch.allclose(quat_conjugate(a), math_lab.quat_conjugate(a))
     assert torch.allclose(quat_apply(a, v), math_lab.quat_apply(a, v))
+
+
+def test_rotvec_matches_isaaclab_math():
+    math_lab = pytest.importorskip("isaaclab.utils.math")
+    generator = torch.Generator().manual_seed(3)
+    axis = torch.randn(N, 3, dtype=DTYPE, generator=generator)
+    axis = axis / axis.norm(dim=-1, keepdim=True)
+    angle = 0.05 + 2.9 * torch.rand(N, dtype=DTYPE, generator=generator)  # away from pi, where the sign is ambiguous
+    rotvec = axis * angle.unsqueeze(-1)
+    q = quat_from_rotvec(rotvec)
+    assert torch.allclose(q, math_lab.quat_from_angle_axis(angle, axis))
+    assert torch.allclose(rotvec_from_quat(q), math_lab.axis_angle_from_quat(q))
+
+
+def test_stem_geometry_import_loads_no_isaaclab():
+    code = "import sys, stem_manip.utils.stem_geometry; print([m for m in sys.modules if m.startswith('isaaclab')])"
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert result.stdout.strip() == "[]"
