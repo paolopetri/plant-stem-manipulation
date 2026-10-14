@@ -1,6 +1,6 @@
 """Unit tests for `stem_manip.utils.check_report`: the shared verdict and exit status of the `scripts/check_*.py`.
+The tests check:
 
-Requirements (issue #68):
 - All rows pass: verdict "all passed", exit status 0.
 - `finish` raises SystemExit with that status (inside `launch_simulation` the launcher passes it on).
 - Any FAIL row, or any NOT RUN row: verdict "FAILED", non-zero exit status.
