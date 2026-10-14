@@ -192,7 +192,9 @@ analyse the last run, change one thing (tuning or a proven bug fix, rules in `to
 launch the next run (train, then a play video uploaded to wandb). Journal: `docs/experiments/`.
 
 ```bash
-screen -S autotrain tools/autotrain/driver.sh   # on branch exp/m5-weekend; detach with Ctrl-a d, back: screen -r autotrain
+# deadline, branch (must be checked out) and wandb group are required; without them the driver prints a usage message
+AUTOTRAIN_DEADLINE="2026-10-12 07:00" AUTOTRAIN_BRANCH=exp/m5-weekend AUTOTRAIN_GROUP=m5-weekend \
+    screen -S autotrain tools/autotrain/driver.sh   # detach with Ctrl-a d, back: screen -r autotrain
 touch logs/autotrain/STOP                       # stop: the alive run finishes, the agent writes the summary
 tail -f logs/autotrain/driver.log               # what the driver does
 ```
