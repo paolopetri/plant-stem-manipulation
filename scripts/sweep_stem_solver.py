@@ -1,7 +1,8 @@
 """Accuracy of stem model `cable` for one solver / stiffness setting (stem alone on Newton VBD, base clamped).
 
 Runs one setting and prints one `RESULT` line; loop over settings in the shell to get a table. Defaults are the
-values of stem model `cable` (`assets/stem/stem.yaml` + `assets/stem/cable/cable.yaml`), so without options it measures the setting the project uses.
+values of stem model `cable` (`assets/stem/stem.yaml` + `assets/stem/cable/cable.yaml`), so without options it
+measures the setting the project uses.
 
 Tests:
 - `sag`: stem clamped horizontally, tip sag under its own weight after `--steps`, against the value computed
@@ -60,14 +61,14 @@ import time
 
 import numpy as np
 import torch
-from isaaclab_newton.physics import NewtonCfg, VBDSolverCfg
-from isaaclab_newton.physics import NewtonManager as SimulationManager
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import CableObjectCfg
 from isaaclab.scene import InteractiveScene, InteractiveSceneCfg
 from isaaclab.sim import SimulationContext
 from isaaclab.utils import configclass
+from isaaclab_newton.physics import NewtonCfg, VBDSolverCfg
+from isaaclab_newton.physics import NewtonManager as SimulationManager
 
 from stem_manip.assets.stem import stem_params
 from stem_manip.assets.stem.cable import fix_stem_base, register_body_forces, stem_cfg
@@ -178,7 +179,8 @@ def main() -> None:
 
         stretch_ratio = cfg.spawn.physics_material.stretch_stiffness / material["bend_modulus"]
         setting = (
-            f"test={args_cli.test} stretch_ratio={stretch_ratio:g} shear_ratio={shear_modulus / material['bend_modulus']:g}"
+            f"test={args_cli.test} stretch_ratio={stretch_ratio:g} "
+            f"shear_ratio={shear_modulus / material['bend_modulus']:g}"
             f" damping={args_cli.damping} substeps={substeps} iterations={iterations} cost={substeps * iterations}"
         )
         if args_cli.test == "sag":

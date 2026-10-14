@@ -289,7 +289,7 @@ def main() -> None:
         def close(value: float, reference: float, tol: float) -> bool:
             return abs(value - reference) <= tol * abs(reference)
 
-        arm = {link: round(float(f), 3) for link, f in zip(robot_links, max_arm_contact) if float(f) > 0.0}
+        arm = {link: round(float(f), 3) for link, f in zip(robot_links, max_arm_contact, strict=True) if float(f) > 0.0}
         results = {
             "start pose reached": (start_error < START_TOL, f"tool tip {start_error * 1e3:.2f} mm from the start"),
             "only the fork touches the stem": (

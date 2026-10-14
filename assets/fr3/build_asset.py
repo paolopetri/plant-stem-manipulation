@@ -120,7 +120,7 @@ def add_tool(robot: ET.Element, name: str, cfg: dict, tool_dir: Path, mesh_out: 
     parent = cfg["parent_link"]
     tip = cfg["tool_tip"]
 
-    links = {l.get("name") for l in robot.findall("link")}
+    links = {link.get("name") for link in robot.findall("link")}
     joints = {j.get("name") for j in robot.findall("joint")}
     if parent not in links:
         fail(f"parent link '{parent}' not in base URDF. Available: {sorted(links)}")

@@ -11,7 +11,8 @@ part as libfranka's `cartesian_impedance_control.cpp`), evaluated every simulati
 with D = 2 sqrt(K) (Franka's choice), e_o from the quaternion error as in Franka's code, the torque change limited
 to 1 N m per ms (Franka's `delta_tau_max`), and no Coriolis term (not available from PhysX here; at < 0.2 m/s it
 is small). Joint armature: the motors' reflected inertia from the FR3 URDF (`--armature`; the robot asset has
-none, and without it the simulated joints are far lighter than the real ones). Robot gravity is off in simulation (the real robot compensates it). v_d = 0 except for `plai_ff`.
+none, and without it the simulated joints are far lighter than the real ones). Robot gravity is off in simulation
+(the real robot compensates it). v_d = 0 except for `plai_ff`.
 
 Variants (how one policy action, a tool-tip displacement per policy step at 31.25 Hz, becomes the target):
 - `rel_current`: target = measured tool tip + action, held over the policy step (Isaac Lab's relative OSC
@@ -283,7 +284,7 @@ def main() -> None:
             """Commanded path position (n, 3) and phase index (n,) at time t."""
             s = torch.zeros(n, device=device)
             t_start = torch.zeros(n, device=device)
-            for (duration, length), t_end in zip(segments, t_ends):
+            for (duration, length), t_end in zip(segments, t_ends, strict=True):
                 duration = torch.as_tensor(duration, device=device).expand(n)
                 frac = ((t - t_start) / duration).clamp(0.0, 1.0)
                 s = s + frac * length
@@ -336,17 +337,28 @@ def main() -> None:
 
         print(f"\n=== sweep_impedance ({n} envs; damping {args_cli.damping}, K_o {k_rot} N m/rad, k_ns {k_ns}; "
               f"policy {1 / policy_dt:.2f} Hz) ===")
-        header = f"{'variant':<12} {'K_p':>6} {'v':>5} {'lag_ss':>7} {'lag':>7} {'oversh.':>7} {'err_free':>8} {'err_push':>8} " \
-                 f"{'F_max':>6} {'kappa':>6}"
+        header = (
+            f"{'variant':<12} {'K_p':>6} {'v':>5} {'lag_ss':>7} {'lag':>7} {'oversh.':>7} {'err_free':>8} "
+            f"{'err_push':>8} {'F_max':>6} {'kappa':>6}"
+        )
         print(header)
         print(f"{'':<12} {'N/m':>6} {'m/s':>5} {'mm':>7} {'mm':>7} {'mm':>7} {'mm':>8} {'mm':>8} {'N':>6} {'1/m':>6}")
         for i, (var, gain, vel) in enumerate(combos):
-            values = (lag_steady[i] * 1e3, lag[i] * 1e3, overshoot[i].clamp(min=0) * 1e3, err_free[i] * 1e3, err_push[i] * 1e3)
+            values = (
+                lag_steady[i] * 1e3,
+                lag[i] * 1e3,
+                overshoot[i].clamp(min=0) * 1e3,
+                err_free[i] * 1e3,
+                err_push[i] * 1e3,
+            )
             print(f"{var:<12} {gain:6.0f} {vel:5.2f} " + " ".join(f"{float(v):7.2f}" for v in values[:3]) + " "
-                  + " ".join(f"{float(v):8.2f}" for v in values[3:]) + f" {float(f_max[i]):6.2f} {float(kappa_max[i]):6.2f}")
+                  + " ".join(f"{float(v):8.2f}" for v in values[3:])
+                  + f" {float(f_max[i]):6.2f} {float(kappa_max[i]):6.2f}")
         for i, (var, gain, vel) in enumerate(combos):
-            print(f"RESULT variant={var} K_p={gain:.0f} speed={vel:.2f} lag_steady_mm={float(lag_steady[i]) * 1e3:.2f} lag_mm={float(lag[i]) * 1e3:.2f} "
-                  f"overshoot_mm={float(overshoot[i].clamp(min=0)) * 1e3:.2f} err_free_mm={float(err_free[i]) * 1e3:.2f} "
+            print(f"RESULT variant={var} K_p={gain:.0f} speed={vel:.2f} "
+                  f"lag_steady_mm={float(lag_steady[i]) * 1e3:.2f} lag_mm={float(lag[i]) * 1e3:.2f} "
+                  f"overshoot_mm={float(overshoot[i].clamp(min=0)) * 1e3:.2f} "
+                  f"err_free_mm={float(err_free[i]) * 1e3:.2f} "
                   f"err_push_mm={float(err_push[i]) * 1e3:.2f} F_max_N={float(f_max[i]):.3f} "
                   f"kappa_max={float(kappa_max[i]):.2f}")
         print(f"[INFO] curvature limit {params['damage']['max_curvature']} 1/m")
