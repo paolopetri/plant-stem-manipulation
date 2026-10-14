@@ -62,6 +62,7 @@ from isaaclab.utils.math import subtract_frame_transforms
 import stem_manip.tasks  # noqa: F401  (registers the task)
 from stem_manip.assets.stem import stem_model, stem_params
 from stem_manip.tasks.push_position.env_cfg import STEM_MODEL, StemPushPositionEnvCfg
+from stem_manip.utils import check_report
 from stem_manip.utils.stem_geometry import joint_curvature, point_pose, stem_points
 
 TASK = "StemManip-Push-Position-FR3-v0"
@@ -451,9 +452,7 @@ def main() -> None:
             f"matching their limit: {fired_wrongly[:5] or 'none'}",
         )
         print(f"\n=== check_push_terms ({n} envs, phases {' '.join(args_cli.phases)}) ===")
-        for name, (ok, info) in results.items():
-            print(f"[{'PASS' if ok else 'FAIL'}] {name}: {info}")
-        print("=== all passed ===" if all(ok for ok, _ in results.values()) else "=== FAILED ===")
+        check_report.finish(results)
         env.close()
 
 

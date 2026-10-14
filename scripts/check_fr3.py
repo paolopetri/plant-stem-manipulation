@@ -30,6 +30,7 @@ from isaaclab.sim import SimulationContext
 from isaaclab.utils.math import quat_apply_inverse
 
 from stem_manip.assets.fr3 import fr3_cfg
+from stem_manip.utils import check_report
 
 FLANGE_OFFSET = torch.tensor([0.0, 0.0, 0.107])  # fr3_link7 -> fr3_link8 [m], FR3 kinematics
 POS_TOL = 1e-3  # [m]
@@ -73,9 +74,7 @@ def main() -> None:
         )
 
         print(f"\n=== check_fr3 ({type(sim_cfg.physics).__name__}, ee={args_cli.ee}) ===")
-        for name, (ok, info) in results.items():
-            print(f"[{'PASS' if ok else 'FAIL'}] {name}: {info}")
-        print("=== all passed ===" if all(ok for ok, _ in results.values()) else "=== FAILED ===")
+        check_report.finish(results)
 
 
 if __name__ == "__main__":

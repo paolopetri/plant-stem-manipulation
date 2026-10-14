@@ -64,7 +64,7 @@ from isaaclab.utils.math import (
 
 from stem_manip.assets.fr3 import fr3_cfg, tool_tip_offset
 from stem_manip.assets.stem import stem_model, stem_params
-from stem_manip.utils import stem_geometry, stem_reference
+from stem_manip.utils import check_report, stem_geometry, stem_reference
 
 PUSH_HEIGHT = 0.30  # [m] tool-tip height = height of the push on the stem
 FORK_YAW = math.radians(45.0)  # direction of the fork (tool x) in the ground plane, from world +x
@@ -325,9 +325,6 @@ def main() -> None:
             checked = ["start pose reached", "only the fork touches the stem", "springs back"]
 
         print(f"\n=== check_contact, test {args_cli.test} ({depth * 100:.0f} cm push at {PUSH_HEIGHT} m) ===")
-        for name, (ok, info) in results.items():
-            label = ("PASS" if ok else "FAIL") if name in checked else "INFO"
-            print(f"[{label}] {name}: {info}")
         print(
             f"[INFO] max contact force {max_force:.3f} N; force on the stem at the end of the hold "
             f"{[round(float(v), 3) for v in hold['fork_force']]} N (world)"
@@ -336,7 +333,7 @@ def main() -> None:
             f"[INFO] stem point at {PUSH_HEIGHT} m in the tool frame: along the fork {in_tool[0] * 1e3:+.1f} mm, "
             f"sideways {in_tool[1] * 1e3:+.1f} mm, vertical {in_tool[2] * 1e3:+.1f} mm"
         )
-        print("=== all passed ===" if all(results[name][0] for name in checked) else "=== FAILED ===")
+        check_report.finish(results, checked=checked)
 
 
 if __name__ == "__main__":

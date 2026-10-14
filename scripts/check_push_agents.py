@@ -60,6 +60,7 @@ import torch
 
 import stem_manip.tasks  # noqa: F401  (registers the task)
 from stem_manip.tasks.push_position.env_cfg import StemPushPositionEnvCfg
+from stem_manip.utils import check_report
 
 TASK = "StemManip-Push-Position-FR3-v0"
 # decided values
@@ -336,13 +337,9 @@ def main() -> None:
                 break
 
         print(f"\n=== check_push_agents ({n} envs, agents {' '.join(args_cli.agents)}) ===")
-        for name, (ok, info) in results.items():
-            status = "NOT RUN" if name in results_not_run else "PASS" if ok else "FAIL"
-            print(f"[{status}] {name}: {info}")
         print(f"total {time.perf_counter() - t_start:.0f} s")
-        passed = all(ok for ok, _ in results.values()) and not results_not_run
-        print("=== all passed ===" if passed else "=== FAILED ===")
         env.close()
+        check_report.finish(results, not_run=results_not_run)
 
 
 if __name__ == "__main__":

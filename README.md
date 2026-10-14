@@ -45,6 +45,10 @@ through the `isaaclab` CLI as above (Isaac Lab's `scripts/environments/zero_agen
 this project's tasks), and they need `--max_steps`: without it they run until the process is killed.
 Training: see "Push task: training" below.
 
+Every `scripts/check_*.py` ends with `[PASS]`, `[FAIL]` or `[NOT RUN]` per row and a verdict line
+(`=== all passed ===` or `=== FAILED ===`). The exit status carries the verdict: 0 if all passed, 1 on any FAIL or
+NOT RUN (a crash is non-zero too). The unbuilt placeholder checks exit 1 with "not implemented".
+
 ## Watching the checks
 
 Simulation scripts run without a window unless a viewer is requested: `--viz kit` (Isaac Sim's window, PhysX
