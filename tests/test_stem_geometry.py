@@ -1,6 +1,5 @@
-"""Unit tests for `stem_manip.utils.stem_geometry` (no simulator needed).
+"""Unit tests for `stem_manip.utils.stem_geometry` (no simulator needed). The tests check:
 
-Requirements:
 - Straight rod -> zero curvature at every joint.
 - Segments sampled on a circular arc of radius R -> curvature 1/R (within discretization tolerance).
 - Straight rod with a pure twist -> zero curvature, twist rate = twist angle / L_dual.

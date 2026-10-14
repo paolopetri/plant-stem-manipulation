@@ -18,7 +18,7 @@ class StemPushPositionPPORunnerCfg(RslRlOnPolicyRunnerCfg):
 
     # hyperparameters: best config of the M5 weekend sweep (run 13), see docs/experiments/2026-10-10-m5-weekend.md
     num_steps_per_env = 48
-    max_iterations = 1500  # placeholder until the speed benchmark
+    max_iterations = 1500  # placeholder until the speed benchmark (#85)
     save_interval = 50
     experiment_name = "stem_push_position"
     logger = "wandb"
