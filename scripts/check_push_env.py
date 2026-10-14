@@ -29,7 +29,14 @@ Checks:
 - target clamp: at every physics step of the move down, the target the law uses is at most 4 mm from the tool; while
   the tool is blocked by the ground (last `BLOCKED_STEPS` policy steps) exactly 4 mm;
 - restart after contact: lifting off the ground, the applied step changes by at most 0.08 mm per policy step;
-- applied step within the caps (3.2 mm, 1.44 deg) in every phase.
+- applied step within the caps (3.2 mm, 1.44 deg) in every phase;
+- tool-tip observations = independent kinematics, after every policy step of every phase (incl. the clamp): the
+  observed tool-tip position and orientation (first two columns of its rotation matrix) equal the tool tip from the
+  measured joint angles via the FR3 Denavit-Hartenberg parameters and the yaml's tool_tip
+  (`stem_manip.utils.fr3_reference`, no code shared with the observations); the observed applied step x the decided
+  caps equals the target's motion over the policy step; the observed target offset x the decided bounds (4 mm, 3 deg)
+  equals the target minus that tool tip. Tolerance 1e-5 m and 1e-5 rad: both sides use the same nominal kinematics,
+  so only float32 rounding remains (about 1e-6 over the chain); 10x margin.
 The expected limits are the decided values (option B1), not the cfg's: with an override flag those checks fail.
 Joint-limit guard: a check whose measurement window comes within 0.25 rad of a joint limit fails as invalid (there
 the arm, not the controller, limits the motion; user 2026-10-08, same threshold as scripts/sweep_action_poses.py).
@@ -67,9 +74,12 @@ import time
 import gymnasium as gym
 import torch
 
+from isaaclab.utils.math import matrix_from_quat
+
 import stem_manip.tasks  # noqa: F401  (registers the task)
 from stem_manip.tasks.push_position.env_cfg import StemPushPositionEnvCfg
 from stem_manip.utils import check_report
+from stem_manip.utils.fr3_reference import rotvec_from_matrix, tool_tip_pose
 from stem_manip.utils.impedance import rotvec_between
 
 TASK = "StemManip-Push-Position-FR3-v0"
@@ -89,6 +99,8 @@ OBS_DIM = 57  # tool tip: position 3, orientation 6, applied step 6, target offs
 FIRST_STEP, FIRST_ROT_STEP = 8e-5, 0.000349  # [m], [rad] step-change limits 0.08 mm (2026-10-08) / 0.02 deg
 CAP_STEP, CAP_ROT_STEP = 0.0032, 0.02513  # [m], [rad] speed caps 10 cm/s (2026-10-08) / 45 deg/s (2026-10-07)
 CLAMP_OFFSET = 4e-3  # [m] target clamp, 4 N at K_p 1000 (2026-10-08)
+CLAMP_ROT_OFFSET = 0.05236  # [rad] orientation clamp, 3 deg (2026-10-08)
+TIP_POS_TOL, TIP_ROT_TOL = 1e-5, 1e-5  # [m], [rad] tool-tip observations vs independent kinematics (float32 rounding)
 JOINT_MARGIN_MIN = 0.25  # [rad] closer to a joint limit, a check is invalid (user, 2026-10-08)
 # clamp test path (test setup, not a criterion): +x first, so that the way down stays clear of joint 4's limit
 # (DOWN_STEPS leaves the blocked window well after the tool has reached the ground)
@@ -137,6 +149,35 @@ def main() -> None:
         limits = robot.data.joint_pos_limits.torch[:, joint_ids]  # (n, joints, 2)
         margin = math.inf  # smallest distance to a joint limit [rad] since the last `window()`
         max_applied = [0.0, 0.0]  # largest applied translation [m] and rotation [rad] step over all phases
+        fk_joint_ids = robot.find_joints([f"fr3_joint{i}" for i in range(1, 8)], preserve_order=True)[0]
+        # largest difference of the tool-tip observations (position, orientation, applied step translation and
+        # rotation, target offset translation and rotation) from the independent value [m or rad]
+        obs_errors = torch.zeros(6, dtype=torch.float64)
+        obs_checked = 0  # policy steps compared
+        max_target_offset = 0.0  # largest observed target offset (position part, normalized), to show the clamp's range
+
+        def tool_tip_obs_errors(
+            policy: torch.Tensor, target_before: torch.Tensor, target_quat_before: torch.Tensor
+        ) -> torch.Tensor:
+            """Largest differences (6,) of the tool-tip slices of `policy` from the independent kinematics and the
+            target's motion since (`target_before`, `target_quat_before`), see the module docstring."""
+            tip = tool_tip_pose(robot.data.joint_pos.torch[:, fk_joint_ids], term.cfg.body_name)
+            tip_pos, tip_rot = tip[:, :3, 3], tip[:, :3, :3]
+            obs = policy[:, :21].double()
+            target = term.target().double()
+            target_rot = matrix_from_quat(term.target_quat()).double()
+            turned = target_rot @ matrix_from_quat(target_quat_before).double().transpose(1, 2)
+            errors = (
+                (obs[:, 0:3] - tip_pos).norm(dim=-1),
+                (obs[:, 3:9] - torch.cat((tip_rot[..., 0], tip_rot[..., 1]), dim=-1)).abs().amax(dim=-1),
+                (obs[:, 9:12] * CAP_STEP - (target - target_before.double())).norm(dim=-1),
+                (obs[:, 12:15] * CAP_ROT_STEP - rotvec_from_matrix(turned)).norm(dim=-1),
+                (obs[:, 15:18] * CLAMP_OFFSET - (target - tip_pos)).norm(dim=-1),
+                (obs[:, 18:21] * CLAMP_ROT_OFFSET - rotvec_from_matrix(target_rot @ tip_rot.transpose(1, 2))).norm(
+                    dim=-1
+                ),
+            )
+            return torch.stack([e.max() for e in errors]).cpu()
 
         def window() -> None:
             """Start a measurement window of the joint-limit guard."""
@@ -144,9 +185,15 @@ def main() -> None:
             margin = math.inf
 
         def step(action: torch.Tensor, track_tilt: bool = True) -> None:
-            nonlocal frame_start, finite, max_angle, margin
+            nonlocal frame_start, finite, max_angle, margin, obs_errors, obs_checked, max_target_offset
+            target_before, target_quat_before = term.target().clone(), term.target_quat().clone()
             obs, _, _, _, _ = env.step(action.repeat(n, 1))
             finite = finite and bool(torch.isfinite(obs["policy"]).all())
+            obs_errors = torch.maximum(
+                obs_errors, tool_tip_obs_errors(obs["policy"], target_before, target_quat_before)
+            )
+            obs_checked += 1
+            max_target_offset = max(max_target_offset, float(obs["policy"][:, 15:18].norm(dim=-1).max()))
             q = robot.data.joint_pos.torch[:, joint_ids]
             margin = min(margin, float(torch.minimum(q - limits[..., 0], limits[..., 1] - q).min()))
             applied = term.processed_actions
@@ -371,6 +418,15 @@ def main() -> None:
                 f"{math.degrees(CAP_ROT_STEP):.2f} deg)",
             ),
         }
+        tip_ok = bool((obs_errors[[0, 2, 4]] < TIP_POS_TOL).all()) and bool((obs_errors[[1, 3, 5]] < TIP_ROT_TOL).all())
+        results["tool-tip observations = independent kinematics"] = (
+            tip_ok and obs_checked > 0,
+            f"largest differences over {obs_checked} policy steps: position {float(obs_errors[0]) * 1e3:.5f} mm, "
+            f"orientation {float(obs_errors[1]):.1e}; applied step {float(obs_errors[2]) * 1e3:.5f} mm, "
+            f"{float(obs_errors[3]):.1e} rad; target offset {float(obs_errors[4]) * 1e3:.5f} mm, "
+            f"{float(obs_errors[5]):.1e} rad (tol {TIP_POS_TOL * 1e3:.2f} mm, {TIP_ROT_TOL:.0e} rad); largest observed "
+            f"target offset {max_target_offset:.3f} of the bound",
+        )
         rot_ok = (
             float(rot_follow.max()) <= ROT_FOLLOW_TOL
             and float(rot_overshoot.clamp(min=0).max()) <= ROT_OVERSHOOT_TOL

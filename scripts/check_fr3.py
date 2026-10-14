@@ -1,10 +1,19 @@
 """Sanity check of the FR3 + end-effector asset in simulation (PhysX, the current backend of `fr3_cfg`).
 
-Loads `fr3_cfg(<ee>)` (default `fork_v2`), holds the start pose for a few hundred physics steps and checks:
+Loads `fr3_cfg(<ee>, control="torque")` (default `fork_v2`; the task's mode: no joint PD, the joints take efforts),
+holds the start pose with zero torque, then applies a torque pulse (+`--torque` on every joint, then -`--torque`)
+and checks:
 - the articulation has the bodies fr3_link0..fr3_link7 + the end-effector;
-- the end-effector stays rigidly at 107 mm along z of fr3_link7 (flange offset);
-- the start pose is held (reports the per-joint deviation; gravity is off for the robot, see `fr3_cfg`; with
-  gravity the arm sagged about 0.05 rad at joints 2 and 4).
+- the end-effector stays rigidly at 107 mm along z of fr3_link7 (flange offset), at the start pose and after the pulse;
+- the start pose is held with zero torque: gravity is off for every robot body (`fr3_cfg`; the real FR3 compensates
+  gravity itself), so the arm must not move (reports the per-joint deviation);
+- torque mode: under the pulse every joint moves by more than 0.01 rad (with the position mode's joint PD, stiffness
+  400 N m/rad, the pulse would deflect a joint by 1.25 mrad);
+- tool tip = datasheet kinematics: the tool-tip pose the task uses (end-effector body pose + `tool_tip_offset(ee)`)
+  equals the tool tip from the measured joint angles via the FR3 Denavit-Hartenberg parameters and the yaml's
+  tool_tip (`stem_manip.utils.fr3_reference`), at the start pose and after the pulse.
+  Tolerance 1e-5 m and 1e-5 rad: both sides use the same nominal values (datasheet = URDF), so only float32 rounding
+  of the joint angles and link poses remains, about 1e-7 per transform, ~1e-6 over the chain; 10x margin.
 
 Usage (from the repo root; runs headless unless a visualizer is requested):
     uv run --extra isaacsim python scripts/check_fr3.py
@@ -19,6 +28,8 @@ parser = argparse.ArgumentParser(description="Sanity check of the FR3 + end-effe
 parser.add_argument("--ee", default="fork_v2", help="End-effector folder name in assets/fr3/end_effectors/.")
 parser.add_argument("--steps", type=int, default=200, help="Physics steps to hold the start pose.")
 parser.add_argument("--max_joint_dev", type=float, default=0.1, help="Allowed start-pose deviation [rad].")
+parser.add_argument("--torque", type=float, default=0.5, help="Joint torque of the pulse [N m].")
+parser.add_argument("--pulse_steps", type=int, default=30, help="Physics steps per sign of the pulse.")
 add_launcher_args(parser)
 args_cli = parser.parse_args()
 
@@ -27,53 +38,108 @@ import torch
 import isaaclab.sim as sim_utils
 from isaaclab.assets import Articulation
 from isaaclab.sim import SimulationContext
-from isaaclab.utils.math import quat_apply_inverse
+from isaaclab.utils.math import (
+    combine_frame_transforms,
+    matrix_from_quat,
+    quat_apply_inverse,
+    subtract_frame_transforms,
+)
 
-from stem_manip.assets.fr3 import fr3_cfg
+from stem_manip.assets.fr3 import fr3_cfg, tool_tip_offset
 from stem_manip.utils import check_report
+from stem_manip.utils.fr3_reference import rotvec_from_matrix, tool_tip_pose
 
 FLANGE_OFFSET = torch.tensor([0.0, 0.0, 0.107])  # fr3_link7 -> fr3_link8 [m], FR3 kinematics
-POS_TOL = 1e-3  # [m]
+POS_TOL = 1e-3  # [m] end-effector at the flange
+MIN_PULSE_MOVE = 0.01  # [rad] per joint under the pulse (8x the deflection the position mode's PD would allow)
+TIP_POS_TOL, TIP_ROT_TOL = 1e-5, 1e-5  # [m], [rad] tool tip vs datasheet kinematics (float32 rounding, see above)
 
 
 def main() -> None:
-    """Spawn the robot, hold the start pose and print a pass/fail summary."""
+    """Spawn the robot, hold the start pose, apply the pulse and print a pass/fail summary."""
     sim_cfg = sim_utils.SimulationCfg(device=args_cli.device)
     with launch_simulation(sim_cfg, args_cli):
         sim = SimulationContext(sim_cfg)
         ground = sim_utils.GroundPlaneCfg()
         ground.func("/World/ground", ground)
-        cfg = fr3_cfg(args_cli.ee)
+        cfg = fr3_cfg(args_cli.ee, control="torque")
         cfg.prim_path = "/World/Robot"
         robot = Articulation(cfg)
         sim.reset()
-
+        # start at the start pose, as the task's reset event does (the spawned USD has all joints at 0)
         q0 = robot.data.default_joint_pos.torch.clone()
-        for _ in range(args_cli.steps):
-            robot.set_joint_position_target_index(target=q0)
-            robot.write_data_to_sim()
-            sim.step()
-            robot.update(sim.get_physics_dt())
+        robot.write_joint_position_to_sim_index(position=q0)
+        robot.write_joint_velocity_to_sim_index(velocity=torch.zeros_like(q0))
+        i7, i_ee = robot.body_names.index("fr3_link7"), robot.body_names.index(args_cli.ee)
+        offset_pos, offset_quat = (torch.tensor([v], device=sim.device) for v in tool_tip_offset(args_cli.ee))
+
+        def run(torque: float, steps: int) -> None:
+            for _ in range(steps):
+                robot.set_joint_effort_target_index(target=torch.full_like(robot.data.joint_pos.torch, torque))
+                robot.write_data_to_sim()
+                sim.step()
+                robot.update(sim.get_physics_dt())
+
+        def ee_at_flange() -> float:
+            """Distance of the end-effector body from 107 mm along z of fr3_link7 [m]."""
+            pos, quat = robot.data.body_pos_w.torch[0].cpu(), robot.data.body_quat_w.torch[0].cpu()
+            ee_in_link7 = quat_apply_inverse(quat[i7 : i7 + 1], (pos[i_ee] - pos[i7]).unsqueeze(0))[0]
+            return float((ee_in_link7 - FLANGE_OFFSET).norm())
+
+        def tip_error() -> tuple[float, float]:
+            """Tool tip as the task computes it vs the datasheet kinematics at the measured joints: position [m] and
+            angle [rad] differences."""
+            data = robot.data
+            pos_b, quat_b = subtract_frame_transforms(
+                data.root_pos_w.torch,
+                data.root_quat_w.torch,
+                data.body_pos_w.torch[:, i_ee],
+                data.body_quat_w.torch[:, i_ee],
+            )
+            tip_pos, tip_quat = combine_frame_transforms(pos_b, quat_b, offset_pos, offset_quat)
+            reference = tool_tip_pose(data.joint_pos.torch, args_cli.ee)
+            pos_err = (tip_pos.double() - reference[:, :3, 3]).norm(dim=-1)
+            rot_err = rotvec_from_matrix(matrix_from_quat(tip_quat).double() @ reference[:, :3, :3].transpose(1, 2))
+            return float(pos_err.max()), float(rot_err.norm(dim=-1).max())
+
+        run(0.0, args_cli.steps)
+        dev = (robot.data.joint_pos.torch - q0)[0].cpu()
+        ee_errors = [ee_at_flange()]
+        tip_errors = [tip_error()]
+        q_held = robot.data.joint_pos.torch.clone()
+        run(args_cli.torque, args_cli.pulse_steps)
+        run(-args_cli.torque, args_cli.pulse_steps)
+        moved = (robot.data.joint_pos.torch - q_held)[0].cpu()
+        ee_errors.append(ee_at_flange())
+        tip_errors.append(tip_error())
 
         results = {}
         expected_bodies = [f"fr3_link{i}" for i in range(8)] + [args_cli.ee]
         results["bodies"] = (robot.body_names == expected_bodies, f"{robot.body_names}")
-
-        pos = robot.data.body_pos_w.torch[0].cpu()
-        quat = robot.data.body_quat_w.torch[0].cpu()
-        i7, i_ee = robot.body_names.index("fr3_link7"), robot.body_names.index(args_cli.ee)
-        ee_in_link7 = quat_apply_inverse(quat[i7 : i7 + 1], (pos[i_ee] - pos[i7]).unsqueeze(0))[0]
-        ee_err = float((ee_in_link7 - FLANGE_OFFSET).norm())
-        results["ee rigid at flange"] = (ee_err < POS_TOL, f"{ee_in_link7.tolist()} (error {ee_err:.2e} m)")
-
-        dev = (robot.data.joint_pos.torch - q0)[0].cpu()
+        results["ee rigid at flange"] = (
+            max(ee_errors) < POS_TOL,
+            f"error at the start pose {ee_errors[0]:.2e} m, after the pulse {ee_errors[1]:.2e} m",
+        )
         max_dev = float(dev.abs().max())
         results["start pose held"] = (
             max_dev < args_cli.max_joint_dev,
-            f"max |q - q0| = {max_dev:.3f} rad, per joint {[round(float(d), 3) for d in dev]}",
+            f"zero torque: max |q - q0| = {max_dev:.3f} rad, per joint {[round(float(d), 3) for d in dev]}",
+        )
+        results["torque mode"] = (
+            bool((moved.abs() > MIN_PULSE_MOVE).all()),
+            f"pulse +-{args_cli.torque} N m x {args_cli.pulse_steps} steps: joints moved "
+            f"{[round(float(d), 3) for d in moved]} rad (each > {MIN_PULSE_MOVE} rad)",
+        )
+        results["tool tip = datasheet kinematics"] = (
+            all(p < TIP_POS_TOL and r < TIP_ROT_TOL for p, r in tip_errors),
+            "; ".join(
+                f"{where}: {p * 1e3:.5f} mm, {r:.1e} rad"
+                for where, (p, r) in zip(("start pose", "after the pulse"), tip_errors, strict=True)
+            )
+            + f" (tol {TIP_POS_TOL * 1e3:.2f} mm, {TIP_ROT_TOL:.0e} rad)",
         )
 
-        print(f"\n=== check_fr3 ({type(sim_cfg.physics).__name__}, ee={args_cli.ee}) ===")
+        print(f"\n=== check_fr3 ({type(sim_cfg.physics).__name__}, ee={args_cli.ee}, torque mode) ===")
         check_report.finish(results)
 
 
