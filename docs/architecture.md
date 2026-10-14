@@ -168,7 +168,6 @@ Open work is tracked in GitHub issues (`gh issue list`); this table says where i
 | Stage 1: position control | `src/stem_manip/tasks/push_position/` |
 | Stage 2: pose control (#103) | a new task package under `src/stem_manip/tasks/` |
 | Domain randomization of stem parameters | `tasks/<task>/mdp/events.py`, ranges in the task's env cfg |
-| Model-based baseline (#104) | a new package under `src/stem_manip/` |
 | Another end-effector | `assets/fr3/end_effectors/<ee>/` (see `assets/fr3/README.md`) |
 | Perception: camera-based stem state (with Alessio Caporali) | to decide |
 | Real robot deployment (stage 3) | to decide |

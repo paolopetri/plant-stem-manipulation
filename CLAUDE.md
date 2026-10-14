@@ -4,14 +4,9 @@ Project instructions for the plant-stem manipulation project. General coding gui
 
 ## Project
 
-Semester project (ETH Zurich MSc RSC, hosted at AUTOLAB, UNIMORE Modena):
-**Non-prehensile manipulation of flexible plant stems with reinforcement learning.**
+Semester project (ETH Zurich MSc RSC, hosted at AUTOLAB, UNIMORE Modena): **non-prehensile manipulation of flexible plant stems with reinforcement learning.** A robot pushes a flexible stem with a 3D-printed tool so that a selected point on the stem reaches a target pose, without damaging the stem; the stem's properties are domain-randomized.
 
-A robot pushes (does not grasp) a flexible stem with a 3D-printed tool so that a selected point on the stem, e.g. where a leaf is attached, reaches a target pose. The stem must not be damaged. The stem's mechanical properties (stiffness, length, diameter, damping) are unknown and vary per plant, so they are domain-randomized during training.
-
-The learned policy is a low-level skill. A future perception module will choose the target; that module is out of scope (unlike the stem-state perception below, which is in scope).
-
-Before modelling, reward or task-design decisions, read `docs/project.md` for the motivation, research question and scope.
+`docs/project.md` is the project description: motivation, research question, stages, scope, design constraints, people. Read it before modelling, reward or task-design decisions. The original proposal (`docs/proposal-original.md`) is frozen; where it differs, `docs/project.md` wins.
 
 ## Stack
 
@@ -22,20 +17,12 @@ Before modelling, reward or task-design decisions, read `docs/project.md` for th
 - Stem model: deformable linear object. Implemented: Newton cable (`cable`, M1) and a chain of rigid segments with bending/twist spring joints as a PhysX articulation (`chain`, M1b), which shares one solver with the robot. The supervisors chose `chain` for the training (2026-10-06); `cable` is kept for comparison. Stem models are kept modular (selectable by name, like the end-effectors). Background on the parked `cable` path (stem model, contact handling): parked issues #96–#99.
 - Assets are managed as USD files.
 
-## Task stages (in order)
-
-1. Position control of the selected stem point
-2. Full pose control (position + orientation) of the attached frame
-3. Real-robot validation on an artificial plant, with the stem state estimated from cameras
-
-Perception (camera-based stem-state estimate, with Alessio Caporali) runs in parallel with the first training runs. It was not in the original proposal, but the real-robot transfer is likely needed to answer the research question and gives the more interesting result (decision 2026-10-06). Stretch goal: distilling the policy into an end-to-end vision-based one.
-
 ## Key design constraints
 
-- Contact is **non-prehensile**: intermittent, unilateral, with friction and sliding. Never assume the tool is attached to the stem.
-- **No-damage constraint**: the working definition is a maximum curvature (minimum bending radius) on the stem. Treat it as a hard limit, enforced through termination and/or penalty.
-- In simulation the policy observes the stem state directly; on the real robot that state comes from cameras, so the observations must stay within what the perception can deliver. Contact forces are not observed; they may be used in rewards and terminations (decision 2026-10-06).
-- A model-based baseline (nominal parameters vs. oracle parameters) is planned where feasible.
+Full list in `docs/project.md`. The ones that most often matter in code:
+- Contact is **non-prehensile**. Never assume the tool is attached to the stem.
+- **No damage** is a hard limit, enforced through termination and/or penalty.
+- Observations stay within what the camera-based perception can deliver. Contact forces are never observed; they may be used in rewards and terminations.
 - Many modelling choices are still being decided with the supervisors. Ask before committing to one.
 
 ## Repo layout
