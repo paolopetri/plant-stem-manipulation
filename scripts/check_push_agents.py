@@ -61,6 +61,7 @@ import torch
 import stem_manip.tasks  # noqa: F401  (registers the task)
 from stem_manip.tasks.push_position.env_cfg import StemPushPositionEnvCfg
 from stem_manip.utils import check_report, rollout
+from stem_manip.utils.check_rewards import PENALTIES, POSITIVE_REWARDS, ZERO_PENALTIES
 
 TASK = "StemManip-Push-Position-FR3-v0"
 # decided values
@@ -83,9 +84,6 @@ SPAWN_X, SPAWN_Y = (0.50, 0.65), (-0.15, 0.15)  # [m] stem spawn area (user, 202
 AREA_TOL, GROUND_TOL = 1e-6, 1e-3  # [m] as in check_push_obs.py
 ARC_TOL = 1e-3  # [m]
 UNIT_TOL, NORM_TOL, CLAMP_ACTIVE = 1e-4, 1e-3, 1.0 - 1e-3
-POSITIVE_REWARDS = ("distance_coarse", "distance_fine", "height", "approach")  # tanh terms in [0, weight]
-PENALTIES = ("curvature", "contact_force", "action_rate", "terminated")
-ZERO_PENALTIES = ("curvature", "contact_force", "action_rate")  # zero agent: exactly 0
 PROGRESS_EVERY = 100  # [policy steps]
 
 
