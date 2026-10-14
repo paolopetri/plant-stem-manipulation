@@ -12,9 +12,10 @@ from typing import TYPE_CHECKING
 import torch
 
 from isaaclab.managers import SceneEntityCfg
-from isaaclab.utils.math import combine_frame_transforms, matrix_from_quat, subtract_frame_transforms
+from isaaclab.utils.math import matrix_from_quat
 
 from stem_manip.utils.impedance import rotvec_between
+from stem_manip.utils.tool_tip import tool_tip_pose
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
@@ -31,14 +32,15 @@ def tool_tip_pose_b(
     """
     robot = env.scene[asset_cfg.name]
     body = robot.body_names.index(body_name)
-    pos_b, quat_b = subtract_frame_transforms(
+    offset_pos, offset_quat = (torch.tensor(v, device=env.device).repeat(env.num_envs, 1) for v in offset)
+    return tool_tip_pose(
         robot.data.root_pos_w.torch,
         robot.data.root_quat_w.torch,
         robot.data.body_pos_w.torch[:, body],
         robot.data.body_quat_w.torch[:, body],
+        offset_pos,
+        offset_quat,
     )
-    offset_pos, offset_quat = (torch.tensor(v, device=env.device).repeat(env.num_envs, 1) for v in offset)
-    return combine_frame_transforms(pos_b, quat_b, offset_pos, offset_quat)
 
 
 def tool_tip_pos(

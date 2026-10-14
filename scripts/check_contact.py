@@ -55,16 +55,14 @@ import torch
 
 import isaaclab.sim as sim_utils
 from isaaclab.utils.math import (
-    combine_frame_transforms,
-    quat_apply,
     quat_apply_inverse,
     quat_from_matrix,
-    skew_symmetric_matrix,
 )
 
 from stem_manip.assets.fr3 import fr3_cfg, tool_tip_offset
 from stem_manip.assets.stem import stem_model, stem_params
 from stem_manip.utils import check_report, stem_geometry, stem_reference
+from stem_manip.utils.tool_tip import ToolTipKinematics
 
 PUSH_HEIGHT = 0.30  # [m] tool-tip height = height of the push on the stem
 FORK_YAW = math.radians(45.0)  # direction of the fork (tool x) in the ground plane, from world +x
@@ -170,28 +168,18 @@ def main() -> None:
         robot.write_joint_velocity_to_sim_index(velocity=torch.zeros_like(default_joint_pos))
         robot.set_joint_position_target_index(target=default_joint_pos)
 
-        # differential IK on the tool tip: Jacobian of the end-effector body, shifted to the tool tip
-        ee = robot.body_names.index("fork_v2")
-        jacobian_body = ee - 1 if robot.is_fixed_base else ee
+        # differential IK on the tool tip; the robot stands at the env origin, unrotated: base frame = env frame
         arm_joints = list(range(7))
-        jacobian_columns = [robot.num_base_dofs + j for j in arm_joints]
-        offset_pos, offset_quat = (torch.tensor(v, device=device).unsqueeze(0) for v in tool_tip_offset("fork_v2"))
+        tool = ToolTipKinematics(robot, "fork_v2", tool_tip_offset("fork_v2"), arm_joints)
+        tool_pose = tool.pose
         ik = DifferentialIKController(
             DifferentialIKControllerCfg(command_type="pose", use_relative_mode=False, ik_method="dls"), 1, device
         )
 
-        def tool_pose() -> tuple[torch.Tensor, torch.Tensor]:
-            """Tool-tip position (env frame) and orientation."""
-            pos, quat = robot.data.body_pos_w.torch[:, ee] - origin, robot.data.body_quat_w.torch[:, ee]
-            return combine_frame_transforms(pos, quat, offset_pos, offset_quat)
-
         def command(target_pos: torch.Tensor, target_quat: torch.Tensor) -> None:
             pos, quat = tool_pose()
             ik.set_command(torch.cat([target_pos.view(1, 3), target_quat.view(1, 4)], dim=-1))
-            jacobian = robot.data.body_link_jacobian_w.torch[:, jacobian_body, :, jacobian_columns].clone()
-            lever = quat_apply(robot.data.body_quat_w.torch[:, ee], offset_pos)
-            jacobian[:, 0:3, :] += torch.bmm(-skew_symmetric_matrix(lever), jacobian[:, 3:, :])
-            joint_pos = ik.compute(pos, quat, jacobian, robot.data.joint_pos.torch[:, arm_joints])
+            joint_pos = ik.compute(pos, quat, tool.jacobian(), robot.data.joint_pos.torch[:, arm_joints])
             robot.set_joint_position_target_index(target=joint_pos, joint_ids=arm_joints)
 
         render_every = max(1, round(RENDER_DT / sim_dt))
