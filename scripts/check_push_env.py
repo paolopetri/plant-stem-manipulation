@@ -8,6 +8,8 @@ full move down (-z) into the ground and a lift (target clamp, restart after cont
 translation and rotation step, robot base frame) is Franka's Cartesian impedance law with an
 integrated target, speed cap, step-change limit and target-offset clamp (`mdp.ToolTipImpedanceAction`). With the
 step-change limit the target ramps up at the start of a move and brakes during the hold.
+The controller is tested without the stem: the spawn area is switched off and the stem stands out of the fork's reach
+behind the robot (`STEM_AWAY`); the clamp test pushes the fork into the ground instead.
 Checks:
 - shapes: observation (num_envs, 57) and action (num_envs, 6), all observations finite;
 - start pose: tool tip within 5 mm of (0.40, 0, 0.50) m and within 1 deg of its orientation at reset after the hold;

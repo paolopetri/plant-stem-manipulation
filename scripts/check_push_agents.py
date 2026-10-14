@@ -26,8 +26,8 @@ action-rate penalties 0. Random agent: the terminations that fire are reported (
 
 Every loop has a fixed number of steps and a progress line is printed every 100 steps. The check fails when it takes
 longer than `--max_minutes`; the limit is checked between policy steps, so a hang inside `env.step` (or at startup)
-is not caught: run it under an outer `timeout` when it runs unattended. Rows of an agent cut short by the limit
-print NOT RUN unless they had already failed.
+is not caught: run it under an outer `timeout` when it runs unattended (`timeout 20m uv run ...`). Rows of an agent
+cut short by the limit print NOT RUN unless they had already failed. Takes about 3 min with 4 envs.
 
 Usage (from the repo root; headless unless a visualizer is requested):
     uv run --extra isaacsim python scripts/check_push_agents.py

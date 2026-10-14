@@ -30,6 +30,8 @@ Cable only, at the end: the upright stem is at rest and compressed by its own we
 - axial strain (reported, not checked): `joint_axial_strain` against the strain computed by hand
   (`stem_reference.chain_weight_strain`), for the envs nearest to and farthest from the world origin. At the
   current solver cost the stretch direction is not converged (docs/TODO.md -> M4).
+Prints one `[PASS]` / `[FAIL]` line per check (`[INFO]` for the reported values). Run it after every change to the
+stem model or its yaml. `--env_spacing 0` stacks all envs at the world origin.
 
 Usage (from the repo root; headless unless a visualizer is requested: `--viz newton_gl` (both models) or
 `--viz kit` (Isaac Sim's window, chain only; the very first start takes several minutes); `--slow_motion 5` plays
