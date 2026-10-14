@@ -62,7 +62,7 @@ from isaaclab.utils.math import subtract_frame_transforms
 import stem_manip.tasks  # noqa: F401  (registers the task)
 from stem_manip.assets.stem import stem_model, stem_params
 from stem_manip.tasks.push_position.env_cfg import STEM_MODEL, StemPushPositionEnvCfg
-from stem_manip.utils import check_report
+from stem_manip.utils import check_report, rollout
 from stem_manip.utils.stem_geometry import joint_curvature, point_pose, stem_points
 
 TASK = "StemManip-Push-Position-FR3-v0"
@@ -224,14 +224,8 @@ def main() -> None:
             return torch.zeros(n, 6, device=device)
 
         def toward(goal: torch.Tensor, speed: float = 1.0) -> torch.Tensor:
-            """Action that moves the tool tip toward `goal` (n, 3), robot base frame, at most `speed` x the cap, and
-            brakes in time for the step-change limit (stopping distance s^2 / (2 ds) at step s)."""
-            offset = goal - action_term.tool_pose()[0]
-            distance = offset.norm(dim=-1, keepdim=True)
-            size = torch.sqrt(2.0 * max_step_change * distance).clamp(max=speed * max_step)
-            action = zeros()
-            action[:, :3] = offset / distance.clamp(min=1e-9) * size / max_step
-            return action
+            """Action that moves the tool tip toward `goal` (n, 3), robot base frame (`rollout.toward`)."""
+            return rollout.toward(action_term.tool_pose()[0], goal, max_step, max_step_change, speed)
 
         def place_stem(fixed: bool) -> None:
             """Stem base at STEM_BASE for the scripted phases, or the spawn area of the training."""

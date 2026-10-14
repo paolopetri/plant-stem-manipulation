@@ -3,18 +3,20 @@
 The `check_*.py` scripts test against bands, so a refactor could change behaviour inside them unnoticed. This
 script records a short rollout of `StemManip-Push-Position-FR3-v0` before the refactor and compares it with one
 recorded after it:
-- `record <out>`: seeds the env (`--seed`, also the seed of every reset) and runs two rollouts of `--steps` policy
-  steps: zero actions, then uniform random actions in [-1, 1] (a torch generator seeded with `--seed`). It saves
-  every policy observation term (at the reset and after each step), every reward term (weighted, before x dt) and
-  every termination term per step and env, together with the settings and the commit, with `torch.save`.
+- `record <out>`: seeds the env (`--seed`, also the seed of every reset) and runs three rollouts: `--steps` policy
+  steps of zero actions, `--steps` of uniform random actions in [-1, 1] (a torch generator seeded with `--seed`),
+  and a scripted push (stem base fixed at `PUSH_STEM_BASE`, the tool tip along `PUSH_PLAN`: behind the stem, down,
+  then through the stem axis at full speed). The push makes the contact force, the contact-force and curvature
+  penalties non-zero and `curvature_limit` fire. It saves every policy observation term (at the reset and after each
+  step), every reward term (weighted, before x dt), every termination term, and the raw robot-stem contact force and
+  the largest stem curvature (after the step) per step and env, with the settings and the commit (`torch.save`).
 - `compare <a> <b>`: prints one row per term with its max absolute difference: PASS if within `--tol`, FAIL
   naming the term otherwise; a term missing in one recording, another shape, or other settings (task, envs, steps,
   seed, device) are FAIL. Exit status 0 if all passed, 1 otherwise. No simulator needed.
 
-Default tolerance 0 (bit-exact): two recordings with the same settings on the same machine were bit-identical on
-the GPU and on the CPU, also over 500 steps with resets (issue #52). Compare recordings of one device: GPU and CPU
-recordings differ. Neither rollout pushes the stem (contact and curvature terms stay 0), so a change that only
-acts in contact is not seen.
+Tolerance (user, 2026-10-14): bit-exact (`--tol 0`, the default) on the same device; GPU and CPU recordings differ.
+A refactor that legitimately changes the floating-point order may pass `--tol` (e.g. 1e-6) and states the reason in
+its PR.
 
 Refactor workflow: recordings go under `logs/` (not committed); the baseline is recorded on `main` right before the
 refactor, so no golden file goes stale.
@@ -24,7 +26,7 @@ refactor, so no golden file goes stale.
     uv run --extra isaacsim python scripts/record_rollout.py record logs/rollout/refactor.pt
     uv run python scripts/record_rollout.py compare logs/rollout/main.pt logs/rollout/refactor.pt
 
-Recording takes about 15 s with the defaults (4 envs, 50 steps), 100 s with `--steps 500`.
+Recording takes about 1 min with the defaults (4 envs, 50 steps).
 """
 
 import argparse
@@ -33,15 +35,18 @@ import time
 from pathlib import Path
 
 TASK = "StemManip-Push-Position-FR3-v0"
-AGENTS = ("zero", "random")
-ACTION_DIM = 6
+# push rollout: stem base (world x, y) [m], as in check_push_terms.py; tool-tip waypoints relative to the stem base
+# (robot base frame) [m] and the policy steps spent on each: behind the stem at the start height, down to 0.15 m,
+# then toward 0.15 m beyond the stem axis (`curvature_limit` fires on the way and resets the envs)
+PUSH_STEM_BASE = (0.65, 0.0)
+PUSH_PLAN = (((-0.20, 0.0, 0.50), 70), ((-0.20, 0.0, 0.15), 180), ((0.15, 0.0, 0.15), 110))
 
 parser = argparse.ArgumentParser(description="Record a fixed-seed rollout of the push task, or compare two.")
 commands = parser.add_subparsers(dest="command", required=True)
 record_parser = commands.add_parser("record", help="Record a rollout to a file.")
 record_parser.add_argument("out", type=Path, help="Output file, e.g. logs/rollout/main.pt.")
 record_parser.add_argument("--num_envs", type=int, default=4, help="Number of envs.")
-record_parser.add_argument("--steps", type=int, default=50, help="Policy steps per rollout.")
+record_parser.add_argument("--steps", type=int, default=50, help="Policy steps of the zero and random rollouts.")
 record_parser.add_argument("--seed", type=int, default=42, help="Seed of the env and of the random actions.")
 compare_parser = commands.add_parser("compare", help="Compare two recordings.")
 compare_parser.add_argument("a", type=Path, help="Baseline recording.")
@@ -56,16 +61,15 @@ args_cli = parser.parse_args()
 
 import torch  # noqa: E402
 
-from stem_manip.utils import check_report, rollout_compare  # noqa: E402
+from stem_manip.utils import check_report, rollout, rollout_compare  # noqa: E402
 
 
 def record() -> None:
-    """Run the zero and the random rollout and save the recording."""
-    import math
-
+    """Run the zero, random and push rollouts and save the recording."""
     import gymnasium as gym
 
     import stem_manip.tasks  # noqa: F401  (registers the task)
+    from stem_manip.tasks.push_position import mdp
     from stem_manip.tasks.push_position.env_cfg import StemPushPositionEnvCfg
 
     env_cfg = StemPushPositionEnvCfg()
@@ -76,44 +80,64 @@ def record() -> None:
     with launch_simulation(env_cfg, args_cli):
         env = gym.make(TASK, cfg=env_cfg).unwrapped
         n, device = env.num_envs, env.device
-        obs_names = env.observation_manager.active_terms["policy"]
-        obs_dims = env.observation_manager.group_obs_term_dim["policy"]
-        slices, start = {}, 0
-        for name, dims in zip(obs_names, obs_dims, strict=True):
-            slices[name] = slice(start, start + math.prod(dims))
-            start += math.prod(dims)
+        action_dim = env.action_manager.total_action_dim
+        tool_cfg = env.action_manager.get_term("tool_tip").cfg
+        slices = rollout.obs_term_slices(
+            env.observation_manager.active_terms["policy"], env.observation_manager.group_obs_term_dim["policy"]
+        )
         reward_names = env.reward_manager.active_terms
         term_names = env.termination_manager.active_terms
+        # the contact sensor and the stem model of the damage terms, from their cfg
+        sensor_cfg = env.reward_manager.get_term_cfg("contact_force").params["sensor_cfg"]
+        stem_model = env.reward_manager.get_term_cfg("curvature").params["model"]
         terms: dict[str, torch.Tensor] = {}
-        for agent in AGENTS:
+
+        def run(agent: str, steps: int, policy) -> None:
+            """Reset with the seed, run `steps` policy steps of `policy(obs) -> action`, add the terms."""
             obs = [env.reset(seed=args_cli.seed)[0]["policy"].clone()]
             rewards, terminations = [], {name: [] for name in term_names}
-            generator = torch.Generator(device=device).manual_seed(args_cli.seed)
-            for _ in range(args_cli.steps):
-                if agent == "zero":
-                    action = torch.zeros(n, ACTION_DIM, device=device)
-                else:
-                    action = 2 * torch.rand(n, ACTION_DIM, device=device, generator=generator) - 1
-                obs_dict = env.step(action)[0]
-                obs.append(obs_dict["policy"].clone())
-                rewards.append(env.reward_manager._step_reward.clone())  # weighted, per term (before x dt)
+            state = {"robot_contact_force": [], "max_curvature": []}
+            for _ in range(steps):
+                obs.append(env.step(policy(obs[-1]))[0]["policy"].clone())
+                # weighted reward per term (before x dt); the manager has no public accessor for it
+                rewards.append(env.reward_manager._step_reward.clone())
                 for name in term_names:
                     terminations[name].append(env.termination_manager.get_term(name).clone())
+                # raw damage quantities after the step (after the reset in envs that were reset)
+                state["robot_contact_force"].append(mdp.robot_contact_force(env, sensor_cfg))
+                state["max_curvature"].append(mdp.stem_curvature(env, stem_model).amax(dim=-1))
             obs_all, reward_all = torch.stack(obs).cpu(), torch.stack(rewards).cpu()
-            for name in obs_names:
-                terms[f"{agent}/obs/{name}"] = obs_all[..., slices[name]]
+            for name, part in slices.items():
+                terms[f"{agent}/obs/{name}"] = obs_all[..., part]
             for i, name in enumerate(reward_names):
                 terms[f"{agent}/reward/{name}"] = reward_all[..., i]
             for name in term_names:
                 terms[f"{agent}/termination/{name}"] = torch.stack(terminations[name]).cpu()
-        meta = {
-            "task": TASK,
-            "num_envs": n,
-            "steps": args_cli.steps,
-            "seed": args_cli.seed,
-            "device": str(device),
-            "commit": env_cfg.git_commit,
-        }
+            for name, values in state.items():
+                terms[f"{agent}/state/{name}"] = torch.stack(values).cpu()
+
+        for agent in ("zero", "random"):
+            generator = torch.Generator(device=device).manual_seed(args_cli.seed)
+            run(agent, args_cli.steps, lambda _obs, a=agent, g=generator: rollout.agent_action(a, n, action_dim, g))
+
+        # push: the stem base at PUSH_STEM_BASE, the tool tip along PUSH_PLAN (relative to the stem base)
+        params = env.event_manager.get_term_cfg("spawn_stem").params
+        params.update(x_range=(PUSH_STEM_BASE[0],) * 2, y_range=(PUSH_STEM_BASE[1],) * 2)
+        plan = [(torch.tensor(offset, device=device), steps) for offset, steps in PUSH_PLAN]
+        clock = {"step": 0}
+
+        def push(obs: torch.Tensor) -> torch.Tensor:
+            k, leg = clock["step"], 0
+            while k >= plan[leg][1]:
+                k, leg = k - plan[leg][1], leg + 1
+            clock["step"] += 1
+            goal = obs[:, slices["stem_base"]] + plan[leg][0]
+            return rollout.toward(obs[:, slices["tool_tip_pos"]], goal, tool_cfg.max_step, tool_cfg.max_step_change)
+
+        run("push", sum(steps for _, steps in PUSH_PLAN), push)
+
+        settings = rollout_compare.Settings(TASK, n, args_cli.steps, args_cli.seed, str(device))
+        meta = rollout_compare.meta(settings, env_cfg.git_commit)
         args_cli.out.parent.mkdir(parents=True, exist_ok=True)
         torch.save({"meta": meta, "terms": terms}, args_cli.out)
         print(f"[INFO] recorded {len(terms)} terms ({meta}) to {args_cli.out} in {time.perf_counter() - t_start:.0f} s")

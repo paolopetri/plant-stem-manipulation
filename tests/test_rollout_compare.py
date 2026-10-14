@@ -7,11 +7,13 @@ Requirements (issue #52):
 - Recordings of different settings (task, envs, steps, seed, device) compare FAIL.
 """
 
+from dataclasses import asdict, replace
+
 import torch
 
 from stem_manip.utils import check_report, rollout_compare
 
-META = {"task": "T", "num_envs": 2, "steps": 3, "seed": 1, "device": "cuda:0", "commit": "abc"}
+SETTINGS = rollout_compare.Settings(task="T", num_envs=2, steps=3, seed=1, device="cuda:0")
 
 
 def recording(**overrides: torch.Tensor) -> dict:
@@ -21,10 +23,10 @@ def recording(**overrides: torch.Tensor) -> dict:
         "zero/termination/time_out": torch.tensor([[False, False], [False, True], [True, True]]),
     }
     terms.update(overrides)
-    return {"meta": dict(META), "terms": terms}
+    return {"meta": rollout_compare.meta(SETTINGS, commit="abc"), "terms": terms}
 
 
-def test_identical_recordings_pass(capsys):
+def test_identical_recordings_pass():
     rows = rollout_compare.compare(recording(), recording())
     assert set(rows) == {
         "settings",
@@ -35,7 +37,7 @@ def test_identical_recordings_pass(capsys):
     assert check_report.report(rows) is True
 
 
-def test_differing_term_fails_and_is_named(capsys):
+def test_differing_term_fails_and_is_named():
     changed = torch.full((3, 2), 0.5)
     changed[1, 0] = 0.75
     rows = rollout_compare.compare(recording(), recording(**{"zero/reward/distance_fine": changed}))
@@ -71,5 +73,8 @@ def test_other_settings_fail_commit_does_not_count():
     b = recording()
     b["meta"]["commit"] = "def"
     assert rollout_compare.compare(recording(), b)["settings"][0]
-    b["meta"]["seed"] = 2
-    assert not rollout_compare.compare(recording(), b)["settings"][0]
+    for key in asdict(SETTINGS):
+        b = recording()
+        b["meta"] = rollout_compare.meta(replace(SETTINGS, **{key: "other"}), commit="abc")
+        ok, info = rollout_compare.compare(recording(), b)["settings"]
+        assert not ok and key in info

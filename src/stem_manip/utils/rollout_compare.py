@@ -6,9 +6,23 @@ observation, reward and termination term, stacked over the policy steps. `compar
 """
 
 from collections.abc import Mapping
+from dataclasses import asdict, dataclass, fields
 
-# settings that must match for two recordings to be comparable; the commit differs on purpose (before / after)
-SETTINGS = ("task", "num_envs", "steps", "seed", "device")
+
+@dataclass(frozen=True)
+class Settings:
+    """Settings a recording was made with; two recordings are comparable only with equal settings."""
+
+    task: str
+    num_envs: int
+    steps: int
+    seed: int
+    device: str
+
+
+def meta(settings: Settings, commit: str) -> dict:
+    """The `meta` entry of a recording: the settings and the commit (which differs on purpose: before / after)."""
+    return asdict(settings) | {"commit": commit}
 
 
 def compare(a: Mapping, b: Mapping, tol: float = 0.0) -> dict[str, tuple[bool, str]]:
@@ -19,7 +33,8 @@ def compare(a: Mapping, b: Mapping, tol: float = 0.0) -> dict[str, tuple[bool, s
         tol: Largest absolute difference that passes; 0 means bit-exact.
     """
     rows: dict[str, tuple[bool, str]] = {}
-    diff_settings = [k for k in SETTINGS if a["meta"].get(k) != b["meta"].get(k)]
+    keys = [f.name for f in fields(Settings)]
+    diff_settings = [k for k in keys if a["meta"].get(k) != b["meta"].get(k)]
     rows["settings"] = (
         not diff_settings,
         ", ".join(f"{k} {a['meta'].get(k)} vs {b['meta'].get(k)}" for k in diff_settings)

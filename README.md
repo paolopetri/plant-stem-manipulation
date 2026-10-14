@@ -54,9 +54,8 @@ through the `isaaclab` CLI as above (Isaac Lab's `scripts/environments/zero_agen
 this project's tasks), and they need `--max_steps`: without it they run until the process is killed.
 Training: see "Push task: training" below.
 
-Refactor of simulator code (action term, observations, rewards, scripts): `record_rollout.py record` on `main` right
-before the refactor, again on the refactor branch, then `compare` the two: PASS means bit-identical observations,
-rewards and terminations; FAIL names the terms that differ. Recordings stay under `logs/` (not committed).
+Before a refactor of simulator code, record a rollout on `main` and compare it with one recorded after the
+refactor: workflow in the docstring of `scripts/record_rollout.py`.
 
 Every `scripts/check_*.py` ends with `[PASS]`, `[FAIL]` or `[NOT RUN]` per row and a verdict line
 (`=== all passed ===` or `=== FAILED ===`). The exit status carries the verdict: 0 if all passed, 1 on any FAIL or
