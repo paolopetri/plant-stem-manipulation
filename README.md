@@ -47,7 +47,7 @@ Training: see "Push task: training" below.
 
 Every `scripts/check_*.py` ends with `[PASS]`, `[FAIL]` or `[NOT RUN]` per row and a verdict line
 (`=== all passed ===` or `=== FAILED ===`). The exit status carries the verdict: 0 if all passed, 1 on any FAIL or
-NOT RUN (a crash is non-zero too). The unbuilt placeholder checks exit 1 with "not implemented".
+NOT RUN (a crash is non-zero too).
 
 ## Watching the checks
 
