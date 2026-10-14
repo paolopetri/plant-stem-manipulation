@@ -17,7 +17,7 @@ project on Monday, and possibly during the weekend.
 - PPO hyperparameters in `src/stem_manip/tasks/push_position/agents/rsl_rl_ppo_cfg.py`; `--max_iterations`,
   `--seed`, `--num_envs` at launch.
 - Weights and stds of the existing reward terms in `env_cfg.py`, including switching on `height` (pre-listed in
-  docs/TODO.md, M5: if `height_error` stays positive at a few mm, switch on `height` or reduce the fine std to 5 mm).
+  issue #36: if `height_error` stays positive at a few mm, switch on `height` or reduce the fine std to 5 mm).
   These values are pinned in `tests/test_push_task_cfg.py` / `tests/test_push_agent_cfg.py`: change the pinned value
   in the same commit, with a comment `# exp/m5-weekend run NN`. Change no other test expectation.
 - Bug fixes: only with a test or check that reproduces the bug first (fails before, passes after), and the existing
@@ -32,8 +32,8 @@ length, start pose; stem parameters; check or test criteria; anything on another
 
 ## Every call
 1. Read the journal header and the last 3 run sections (not the whole file if long), `git log --oneline -15`,
-   `tail -n 20 logs/autotrain/runs.log`, and the M5 section of `docs/TODO.md` (watch items: side-push optimum /
-   `height_error`, joint-margin terminations, slow exploration under the acceleration limit, contact-force limit).
+   and `tail -n 20 logs/autotrain/runs.log`. Watch items: side-push optimum / `height_error` (#36), joint-margin
+   terminations, slow exploration under the acceleration limit, contact-force limit.
 2. Shell commands: one command per Bash call, no `;`, `&&`, pipes into non-allowed commands, or environment-variable
    prefixes: a call is refused unless every part is on the allowlist (`tools/autotrain/settings.json`). Current
    branch: `git rev-parse --abbrev-ref HEAD`. Call `tools/autotrain/launch_run.sh` exactly in the form below; the

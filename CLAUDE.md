@@ -19,7 +19,7 @@ Before modelling, reward or task-design decisions, read `docs/project.md` for th
 - RL framework: Isaac Lab (PPO)
 - Reference robot: Franka Research 3. Actions are defined in end-effector space so the skill is not tied to one arm.
 - End-effector: `fork_v2` (`assets/fr3/end_effectors/fork_v2/`). `fork` is the first design, kept but not used.
-- Stem model: deformable linear object. Implemented: Newton cable (`cable`, M1) and a chain of rigid segments with bending/twist spring joints as a PhysX articulation (`chain`, M1b), which shares one solver with the robot. The supervisors chose `chain` for the training (2026-10-06); `cable` is kept for comparison. Stem models are kept modular (selectable by name, like the end-effectors). Background: `docs/TODO.md`, section "Parked: Newton cable path" (stem model, contact handling).
+- Stem model: deformable linear object. Implemented: Newton cable (`cable`, M1) and a chain of rigid segments with bending/twist spring joints as a PhysX articulation (`chain`, M1b), which shares one solver with the robot. The supervisors chose `chain` for the training (2026-10-06); `cable` is kept for comparison. Stem models are kept modular (selectable by name, like the end-effectors). Background on the parked `cable` path (stem model, contact handling): parked issues #96–#99.
 - Assets are managed as USD files.
 
 ## Task stages (in order)
