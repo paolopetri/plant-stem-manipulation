@@ -2,7 +2,7 @@ Closes #
 
 ## Summary
 
-<!-- The smallest view that makes the key point clear: diagram, diff sketch, or tree. Brief prose, domain language from CONTEXT.md. -->
+<!-- The smallest view that makes the key point clear: diagram, diff sketch, or tree. Brief prose, domain language from GLOSSARY.md. -->
 
 ## Evidence
 
