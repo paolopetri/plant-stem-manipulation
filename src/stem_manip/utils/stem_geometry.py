@@ -16,7 +16,7 @@ from collections.abc import Sequence
 
 import torch
 
-from isaaclab.utils.math import quat_apply, quat_conjugate, quat_mul
+from stem_manip.utils.quat import quat_apply, quat_conjugate, quat_mul
 
 
 def _dual_lengths(segment_lengths: torch.Tensor) -> torch.Tensor:
