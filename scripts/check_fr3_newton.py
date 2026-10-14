@@ -8,3 +8,7 @@ Requirements:
 
 Verify: runs without errors; checks pass. See docs/TODO.md -> M2.
 """
+
+from stem_manip.utils import check_report
+
+check_report.not_implemented("check_fr3_newton.py", "#54")

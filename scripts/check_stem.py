@@ -48,6 +48,7 @@ import argparse
 from isaaclab.app import add_launcher_args, launch_simulation
 
 from stem_manip.assets.stem import STEM_MODELS, stem_model, stem_params
+from stem_manip.utils import check_report
 
 parser = argparse.ArgumentParser(description="Sanity check of the stem model.")
 parser.add_argument("--stem_model", choices=STEM_MODELS, default="cable", help="Stem model to check.")
@@ -356,9 +357,7 @@ def main() -> None:
                 )
 
         print(f"\n=== check_stem, model {args_cli.stem_model} ({args_cli.num_envs} envs) ===")
-        for name, (ok, info) in results.items():
-            print(f"[{'PASS' if ok else 'FAIL'}] {name}: {info}")
-        print("=== all passed ===" if all(ok for ok, _ in results.values()) else "=== FAILED ===")
+        check_report.finish(results)
 
 
 if __name__ == "__main__":

@@ -57,6 +57,7 @@ from isaaclab.utils.math import subtract_frame_transforms
 import stem_manip.tasks  # noqa: F401  (registers the task)
 from stem_manip.assets.stem import stem_model, stem_params
 from stem_manip.tasks.push_position.env_cfg import STEM_MODEL, StemPushPositionEnvCfg
+from stem_manip.utils import check_report
 from stem_manip.utils.stem_geometry import point_pose
 from stem_manip.utils.stem_target import deepest_drop_factor
 
@@ -265,10 +266,8 @@ def main() -> None:
             ),
         }
         print(f"\n=== check_push_obs ({n} envs, push {args_cli.push_force} N on segment {TIP_SEGMENT}) ===")
-        for name, (ok, info) in results.items():
-            print(f"[{'PASS' if ok else 'FAIL'}] {name}: {info}")
-        print("=== all passed ===" if all(ok for ok, _ in results.values()) else "=== FAILED ===")
         env.close()
+        check_report.finish(results)
 
 
 if __name__ == "__main__":

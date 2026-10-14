@@ -8,3 +8,7 @@ Requirements:
 
 Verify: runs without errors; behavior as described. See docs/TODO.md -> M3.
 """
+
+from stem_manip.utils import check_report
+
+check_report.not_implemented("check_scene.py", "#54")

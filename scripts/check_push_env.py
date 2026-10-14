@@ -69,6 +69,7 @@ import torch
 
 import stem_manip.tasks  # noqa: F401  (registers the task)
 from stem_manip.tasks.push_position.env_cfg import StemPushPositionEnvCfg
+from stem_manip.utils import check_report
 from stem_manip.utils.impedance import rotvec_between
 
 TASK = "StemManip-Push-Position-FR3-v0"
@@ -387,10 +388,8 @@ def main() -> None:
             f"{rot_margin:.2f} rad",
         )
         print(f"\n=== check_push_env ({n} envs, policy at {1 / env.step_dt:.2f} Hz, damping {term.cfg.damping}) ===")
-        for name, (ok, info) in results.items():
-            print(f"[{'PASS' if ok else 'FAIL'}] {name}: {info}")
-        print("=== all passed ===" if all(ok for ok, _ in results.values()) else "=== FAILED ===")
         env.close()
+        check_report.finish(results)
 
 
 if __name__ == "__main__":
