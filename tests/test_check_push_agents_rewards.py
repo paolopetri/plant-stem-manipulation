@@ -7,7 +7,7 @@ so the check must not infer its terms from there.
 from isaaclab.managers import RewardTermCfg
 
 from stem_manip.tasks.push_position.env_cfg import StemPushPositionEnvCfg
-from stem_manip.utils.check_rewards import PENALTIES, POSITIVE_REWARDS
+from stem_manip.utils.check_rewards import PENALTIES, POSITIVE_REWARDS, ZERO_PENALTIES
 
 
 def test_every_reward_term_is_in_exactly_one_list():
@@ -15,3 +15,7 @@ def test_every_reward_term_is_in_exactly_one_list():
     declared = [name for name, value in vars(cfg.rewards).items() if isinstance(value, RewardTermCfg)]
     classified = [*POSITIVE_REWARDS, *PENALTIES]
     assert sorted(classified) == sorted(declared)  # none missing, none stale, none in both lists
+
+
+def test_zero_penalties_are_penalties():
+    assert set(ZERO_PENALTIES) <= set(PENALTIES)
