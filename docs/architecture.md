@@ -97,7 +97,8 @@ Task `StemManip-Push-Position-FR3-v0`, cfg in `src/stem_manip/tasks/push_positio
    `ToolTipImpedanceAction`). Speed caps, acceleration limits and the target clamp at every physics step (which
    bounds the contact force) are fields of `ToolTipImpedanceActionCfg` (`mdp/actions_cfg.py`). The arm is torque
    controlled, as on the real FR3. Reasons for the limits: `docs/overleaf_folder/open_questions/action_limits_problem.tex`.
-   Why this controller: `docs/adr/0003-cartesian-impedance-action.md`.
+   Why this controller: `docs/adr/0003-cartesian-impedance-action.md`. Tool-tip pose and Jacobian in the base
+   frame: `ToolTipKinematics` (`mdp/tool_tip.py`, reads the robot), formulas in `stem_manip.utils.tool_tip`.
 2. **Simulation:** PhysX steps robot and stem (`chain`) together in one solver.
 3. **Observation** (stem state read from the simulation; on the real robot it will come from cameras): robot base
    frame, raw meters; the tool tip's pose, applied step and target offset, the stem base, points along the stem

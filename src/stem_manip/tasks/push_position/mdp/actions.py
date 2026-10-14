@@ -31,9 +31,9 @@ from stem_manip.utils.impedance import (
     rotvec_between,
     substep_command,
 )
-from stem_manip.utils.tool_tip import ToolTipKinematics
 
 from .actions_cfg import ToolTipImpedanceActionCfg
+from .tool_tip import ToolTipKinematics
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
@@ -49,7 +49,6 @@ class ToolTipImpedanceAction(ActionTerm):
         super().__init__(cfg, env)
         self._joint_ids, _ = self._asset.find_joints(cfg.joint_names)
         self._tool = ToolTipKinematics(self._asset, cfg.body_name, cfg.tool_offset, self._joint_ids)
-        self._jacobi_joint_ids = [j + self._asset.num_base_dofs for j in self._joint_ids]
 
         n, device = self.num_envs, self.device
         self._q_ns = self._asset.data.default_joint_pos.torch[:, self._joint_ids].clone()
@@ -149,7 +148,7 @@ class ToolTipImpedanceAction(ActionTerm):
         damping = None
         if cfg.damping == "apparent_mass":
             # PhysX's mass matrix excludes the joint armature (motor inertia); add it
-            joints = self._jacobi_joint_ids
+            joints = self._tool.jacobian_joint_ids
             mass_matrix = data.mass_matrix.torch[:, joints][:, :, joints]
             mass_matrix = mass_matrix + torch.diag_embed(data.joint_armature.torch[:, self._joint_ids])
             damping = apparent_mass_damping(jacobian, mass_matrix, cfg.stiffness_pos, cfg.stiffness_rot)

@@ -1,18 +1,17 @@
-"""Tool-tip kinematics: pose and geometric Jacobian of the tool tip in the robot base frame.
+"""Tool-tip kinematics: pose and geometric Jacobian of the tool tip in the robot base frame (tensor math only).
 
 The tool tip is a fixed offset (position, quaternion (x, y, z, w)) in the end-effector body, e.g.
-`stem_manip.assets.fr3.tool_tip_offset("fork_v2")`. Used by the push task's action term and observations and by
-the scripts that drive the robot directly (`check_contact.py`, `sweep_impedance.py`).
+`stem_manip.assets.fr3.tool_tip_offset("fork_v2")`. `tool_tip_pose` and `tool_tip_jacobian` are pure tensor
+functions (tests: `tests/test_tool_tip.py`); the push task's `mdp/tool_tip.py` (`ToolTipKinematics`) reads their
+inputs from the robot articulation for the action term and the scripts, the observations call `tool_tip_pose`.
+Batched over the first dimension (num_envs); the Jacobian rows are linear velocity then angular velocity, as in
+`stem_manip.utils.impedance`.
 
-`tool_tip_pose` and `tool_tip_jacobian` are pure tensor functions (tests: `tests/test_tool_tip.py`);
-`ToolTipKinematics` reads their inputs from an Isaac Lab `Articulation`. Batched over the first dimension
-(num_envs); the Jacobian rows are linear velocity then angular velocity, as in `stem_manip.utils.impedance`.
+`isaaclab.utils.math` is plain torch math (no simulator); it is used instead of `stem_manip.utils.quat` so that the
+action term and the observations stay bit-exact with the formulas they used before this module.
 """
 
 from __future__ import annotations
-
-from collections.abc import Sequence
-from typing import TYPE_CHECKING
 
 import torch
 
@@ -25,9 +24,6 @@ from isaaclab.utils.math import (
     skew_symmetric_matrix,
     subtract_frame_transforms,
 )
-
-if TYPE_CHECKING:
-    from isaaclab.assets import Articulation
 
 
 def tool_tip_pose(
@@ -68,55 +64,3 @@ def tool_tip_jacobian(
     lever = quat_apply(body_quat_b, offset_pos)
     jacobian[:, :3] += torch.bmm(-skew_symmetric_matrix(lever), jacobian[:, 3:])
     return jacobian
-
-
-class ToolTipKinematics:
-    """Tool-tip pose and Jacobian of an articulation's end-effector body, read from its current data.
-
-    Args:
-        robot: the robot articulation.
-        body_name: end-effector body that carries the tool.
-        offset: tool tip in that body, (position, quaternion (x, y, z, w)).
-        joint_ids: articulation joint indices of the Jacobian's columns (the arm joints).
-    """
-
-    def __init__(
-        self,
-        robot: Articulation,
-        body_name: str,
-        offset: tuple[Sequence[float], Sequence[float]],
-        joint_ids: Sequence[int],
-    ):
-        body_ids, body_names = robot.find_bodies(body_name)
-        if len(body_ids) != 1:
-            raise ValueError(f"Expected one body for '{body_name}', found {body_names}")
-        self._robot = robot
-        self._body_idx = body_ids[0]
-        # PhysX's Jacobians omit the fixed root body and put the floating base's dofs first
-        self._jacobi_body_idx = self._body_idx - 1 if robot.is_fixed_base else self._body_idx
-        self._jacobi_joint_ids = [j + robot.num_base_dofs for j in joint_ids]
-        self._offset_pos, self._offset_quat = (
-            torch.tensor(v, device=robot.device, dtype=torch.float32).repeat(robot.num_instances, 1) for v in offset
-        )
-
-    def pose(self) -> tuple[torch.Tensor, torch.Tensor]:
-        """Tool-tip position (n, 3) and orientation (n, 4) in the robot base frame."""
-        data = self._robot.data
-        return tool_tip_pose(
-            data.root_pos_w.torch,
-            data.root_quat_w.torch,
-            data.body_pos_w.torch[:, self._body_idx],
-            data.body_quat_w.torch[:, self._body_idx],
-            self._offset_pos,
-            self._offset_quat,
-        )
-
-    def jacobian(self) -> torch.Tensor:
-        """Geometric Jacobian of the tool tip in the robot base frame (n, 6, len(joint_ids))."""
-        data = self._robot.data
-        return tool_tip_jacobian(
-            data.body_link_jacobian_w.torch[:, self._jacobi_body_idx, :, self._jacobi_joint_ids],
-            data.root_quat_w.torch,
-            data.body_quat_w.torch[:, self._body_idx],
-            self._offset_pos,
-        )
