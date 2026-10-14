@@ -81,15 +81,11 @@ import time
 import torch
 
 import isaaclab.sim as sim_utils
-from isaaclab.utils.math import (
-    combine_frame_transforms,
-    quat_apply,
-    quat_from_matrix,
-    skew_symmetric_matrix,
-)
+from isaaclab.utils.math import quat_from_matrix
 
 from stem_manip.assets.fr3 import fr3_cfg, tool_tip_offset
 from stem_manip.assets.stem import stem_model, stem_params
+from stem_manip.tasks.push_position.mdp.tool_tip import ToolTipKinematics
 from stem_manip.utils import stem_geometry
 from stem_manip.utils.impedance import apparent_mass_damping, cartesian_impedance_torque, limit_torque_rate
 
@@ -111,6 +107,8 @@ URDF_ARMATURE = (0.6057, 0.6057, 0.4625, 0.4625, 0.2055, 0.2055, 0.2055)
 TORQUE_RATE = 1.0e3  # [N m/s] Franka's delta_tau_max = 1 N m per 1 ms
 CONTACT_THRESHOLD = 1e-3  # [N]
 RENDER_DT = 1.0 / 30.0  # [s]
+BASE_POS_TOL = 1e-5  # [m] robot base vs env origin (float32 rounding of the env origins)
+BASE_ROT_TOL = 1e-5  # [rad] robot base rotation
 
 
 def main() -> None:
@@ -185,26 +183,21 @@ def main() -> None:
         robot.write_joint_velocity_to_sim_index(velocity=torch.zeros_like(default_joint_pos))
         robot.set_joint_position_target_index(target=default_joint_pos)
 
-        ee = robot.body_names.index("fork_v2")
-        jacobian_body = ee - 1 if robot.is_fixed_base else ee
+        # the tool pose is in the robot base frame, the path in the env frame: each base must be its env origin,
+        # unrotated (rotation angle ~ 2 |q_xyz|, sign-independent)
+        base_offset = float((robot.data.root_pos_w.torch - origins).norm(dim=-1).max())
+        base_rotation = 2.0 * float(robot.data.root_quat_w.torch[:, :3].norm(dim=-1).max())
+        if base_offset >= BASE_POS_TOL or base_rotation >= BASE_ROT_TOL:
+            raise RuntimeError(
+                f"robot base not at the env origin, unrotated: offset {base_offset:.1e} m (tol {BASE_POS_TOL:.0e}), "
+                f"rotation {base_rotation:.1e} rad (tol {BASE_ROT_TOL:.0e})"
+            )
         arm = list(range(7))
-        jacobian_columns = [robot.num_base_dofs + j for j in arm]
-        offset_pos, offset_quat = (per_env(v).repeat(n, 1) for v in tool_tip_offset("fork_v2"))
+        tool = ToolTipKinematics(robot, "fork_v2", tool_tip_offset("fork_v2"), arm)
+        tool_pose, tool_jacobian = tool.pose, tool.jacobian
         ik = DifferentialIKController(
             DifferentialIKControllerCfg(command_type="pose", use_relative_mode=False, ik_method="dls"), n, device
         )
-
-        def tool_pose() -> tuple[torch.Tensor, torch.Tensor]:
-            """Tool-tip position (env frame) and orientation (robot root = env frame axes)."""
-            pos, quat = robot.data.body_pos_w.torch[:, ee] - origins, robot.data.body_quat_w.torch[:, ee]
-            return combine_frame_transforms(pos, quat, offset_pos, offset_quat)
-
-        def tool_jacobian() -> torch.Tensor:
-            """Geometric Jacobian (n, 6, 7) of the tool tip: linear rows shifted from the fork body."""
-            jacobian = robot.data.body_link_jacobian_w.torch[:, jacobian_body, :, jacobian_columns].clone()
-            lever = quat_apply(robot.data.body_quat_w.torch[:, ee], offset_pos)
-            jacobian[:, 0:3, :] += torch.bmm(-skew_symmetric_matrix(lever), jacobian[:, 3:, :])
-            return jacobian
 
         render_every = max(1, round(RENDER_DT / sim_dt))
         clock = {"steps": 0, "frame_start": time.perf_counter()}
