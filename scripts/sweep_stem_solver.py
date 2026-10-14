@@ -6,29 +6,50 @@ measures the setting the project uses.
 
 Tests:
 - `sag`: stem clamped horizontally, tip sag under its own weight after `--steps`, against the value computed
-  by hand for the segment chain (bending + shear, `stem_reference.chain_tip_sag`). `ratio` = simulated / expected.
+  by hand for the segment chain (bending + shear, `stem_reference.chain_tip_sag`). Reports `sag_mm`,
+  `expected_mm`, `ratio` = simulated / expected (about 1.01 for the current yaml) and `drift_last_100_steps_mm`
+  (how much the tip still moved in the last 100 steps; near 0 = at rest).
 - `kick`: stem upright, tip kicked sideways with 1 m/s (linear velocity profile). Reports the first peak of the
-  tip deflection, the oscillation frequency, the damping ratio (`stem_reference.analyze_oscillation`) and the tip
-  offset at the end. For the placeholder stem expect roughly 33 mm, 4.7 Hz,
-  a damping ratio of 0.06 (`damping_time` 3.2 ms) and a final offset near zero.
+  tip deflection (`first_peak_mm`), the oscillation frequency (`frequency_hz`), the damping ratio
+  (`damping_ratio`, `stem_reference.analyze_oscillation`) and the tip offset at the end (`final_offset_mm`). For
+  the placeholder stem expect roughly 33 mm, 4.7 Hz, a damping ratio of 0.06 (`damping_time` 3.2 ms) and a final
+  offset near zero.
 - `push`: stem upright, its last segment pushed sideways with a constant force (`--push_force`). Reports the
-  deflection of the pushed point after `--steps`, against the value computed by hand without gravity
-  (`stem_reference.chain_push_deflection`). Expect a `ratio` of about 1.04: the stem's own weight makes it lean
-  a little further.
+  deflection of the pushed point after `--steps` (`deflection_mm`), against the value computed by hand without
+  gravity (`by_hand_without_gravity_mm`, `stem_reference.chain_push_deflection`), their `ratio` and
+  `drift_last_100_steps_mm`. Expect a `ratio` of about 1.04: the stem's own weight makes it lean a little further.
 
-`cost` = substeps x iterations per simulation step. Results and trade-offs: docs/notes/2026-09-30.md.
+Every RESULT line also reports `cost` = substeps x iterations per simulation step (the solver work) and
+`ms_per_step` (computing time per simulation step; a large `--num_envs` measures it for training). One simulation
+step is `solver.sim_dt` of `cable.yaml`, so `--steps` sets the simulated time. Results and trade-offs:
+docs/notes/2026-09-30.md. Why stretch and shear are softer than in a real stem, and what that costs: the cable
+path's parked questions, #99.
 
 With a viewer (`--viz newton_gl`) the test is paced to real time (`--slow_motion 5` = five times slower) and,
 after the RESULT line, replayed from the start until the window is closed. The viewer's left panel has a
-"Pause Simulation" / "Resume Simulation" button. Timing (`ms_per_step`) excludes rendering and pacing.
+"Pause Simulation" / "Resume Simulation" button; the camera can be moved while paused. Timing (`ms_per_step`)
+excludes rendering and pacing.
 
 Usage (from the repo root; headless unless a visualizer is requested):
     uv run --extra isaacsim python scripts/sweep_stem_solver.py --test sag
     uv run --extra isaacsim python scripts/sweep_stem_solver.py --test kick --viz newton_gl --slow_motion 5
     uv run --extra isaacsim python scripts/sweep_stem_solver.py --test push --stretch_ratio 0.1
+    # compare several shear ratios without a viewer (one RESULT line each)
     for r in 1 0.1 0.01 0.001; do
         uv run --extra isaacsim python scripts/sweep_stem_solver.py --test sag --shear_ratio $r | grep RESULT
     done
+    # watch the kick test, five times slower, 2 s per replay; without damping the stem keeps swinging
+    uv run --extra isaacsim python scripts/sweep_stem_solver.py --test kick --viz newton_gl --slow_motion 5 --steps 200
+    uv run --extra isaacsim python scripts/sweep_stem_solver.py --test kick --viz newton_gl --slow_motion 5 \
+        --damping none
+    # watch the push test (the stem leans over and stays there) and the horizontal stem's sag
+    uv run --extra isaacsim python scripts/sweep_stem_solver.py --test push --viz newton_gl --slow_motion 5 --steps 300
+    uv run --extra isaacsim python scripts/sweep_stem_solver.py --test sag --viz newton_gl
+    # physical stiffness ratios with the earlier solver setting: bending does not converge, the stem falls over
+    uv run --extra isaacsim python scripts/sweep_stem_solver.py --test kick --viz newton_gl --slow_motion 5 \
+        --stretch_ratio 1 --shear_ratio 1 --damping all --iterations 20
+    # computing time per step with 1024 stems
+    uv run --extra isaacsim python scripts/sweep_stem_solver.py --test kick --steps 120 --num_envs 1024
 """
 
 import argparse

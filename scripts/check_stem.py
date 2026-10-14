@@ -12,13 +12,13 @@ Spawns the model's `stem_cfg()` in a few envs on a ground plane, and checks that
 Then clamps the base (`fix_stem_base`), kicks the upright stem (everything above the first joint rotates rigidly,
 the centre of the last segment starts with 1 m/s sideways) and steps the simulation:
 - the base segment keeps its start pose;
-- the stem deflects (tip moves sideways) and all poses stay finite;
-- the stem springs back (tip returns to its start position);
+- the stem deflects (tip moves sideways by more than 1 cm) and all poses stay finite;
+- the stem springs back (tip back within 1 mm of its start position at the end);
 - swing frequency: within 15 % of the first bending frequency of a clamped beam. Its free length is the stem
   length minus half a segment: the first joint stands for the stem half a segment to either side of it. The
   simulated stem swings a little slower than this ideal beam (its own weight; the cable's soft shear spring);
 - damping ratio: within 0.02 of damping_time * pi * frequency (the solvers add about 0.01-0.02 of their own).
-After the swing has died out, the last segment of the upright stem is pushed sideways with a constant force:
+After the swing has died out, the last segment of the upright stem is pushed sideways with a constant force (0.05 N):
 - deflects when pushed: deflection of the pushed point at rest within 10 % of the value computed by hand
   (`stem_reference.chain_push_deflection`; the formula ignores gravity, which adds about 4 %);
 - returns after the push: the point is back within 1 mm after the force is removed.
@@ -30,6 +30,8 @@ Cable only, at the end: the upright stem is at rest and compressed by its own we
 - axial strain (reported, not checked): `joint_axial_strain` against the strain computed by hand
   (`stem_reference.chain_weight_strain`), for the envs nearest to and farthest from the world origin. At the
   current solver cost the stretch direction is not converged (docs/TODO.md -> M4).
+Prints one `[PASS]` / `[FAIL]` line per check (`[INFO]` for the reported values). Run it after every change to the
+stem model or its yaml. `--env_spacing 0` stacks all envs at the world origin.
 
 Usage (from the repo root; headless unless a visualizer is requested: `--viz newton_gl` (both models) or
 `--viz kit` (Isaac Sim's window, chain only; the very first start takes several minutes); `--slow_motion 5` plays

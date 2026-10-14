@@ -21,7 +21,8 @@ Checks:
   bowl (drop 0.6 r^2 / s, the stem pushed at its tip) and above the deepest shape within 0.8 x 5 1/m
   (`stem_target.deepest_drop_factor`), relative to each env's own base; constant during the episode; different
   between envs; all different after a reset and again in the region around the new base.
-Visual check: the target (command marker) and the 5 observed points (small spheres, drawn by this script).
+Visual check: the target (command marker: red sphere, green within 1 cm of the tip), the tip and the 5 observed
+points (blue spheres, the points drawn by this script); with 4 or more envs the stems stand at different places.
 
 Usage (from the repo root; headless unless a visualizer is requested):
     uv run --extra isaacsim python scripts/check_push_obs.py
