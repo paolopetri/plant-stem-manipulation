@@ -69,7 +69,8 @@ def summarize(run_dir: Path, points: int = 10, window: int = 0, until: int | Non
     lines = [
         f"run {run_dir}",
         f"git_commit {_commit(run_dir)} | last iteration {max(logged)} | {len(logged)} iterations logged",
-        f"{'iteration':<{width}} " + " ".join(f"{it:>9}" for it in iterations)
+        f"{'iteration':<{width}} "
+        + " ".join(f"{it:>9}" for it in iterations)
         + (f" {f'mean{window}':>9}" if window > 0 else ""),
     ]
     flags = []

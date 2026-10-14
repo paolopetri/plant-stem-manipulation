@@ -51,18 +51,19 @@ def main() -> None:
     if not path.is_file():
         raise SystemExit(f"missing {path} -> run: uv run build_asset.py --ee {args.ee}")
     # mesh paths in the URDF are relative to its folder; yourdfpy only warns about missing ones
-    missing = [m.get("filename") for m in ET.parse(path).iter("mesh")
-               if not (path.parent / m.get("filename")).is_file()]
+    missing = [
+        m.get("filename") for m in ET.parse(path).iter("mesh") if not (path.parent / m.get("filename")).is_file()
+    ]
     if missing:
         raise SystemExit(f"missing meshes {missing} -> run: uv run build_asset.py --ee {args.ee}")
-    urdf = yourdfpy.URDF.load(str(path), mesh_dir=str(path.parent),
-                              build_collision_scene_graph=True, load_collision_meshes=True)
+    urdf = yourdfpy.URDF.load(
+        str(path), mesh_dir=str(path.parent), build_collision_scene_graph=True, load_collision_meshes=True
+    )
     print_check(urdf, args.ee)
 
     server = viser.ViserServer(port=args.port)
     robot = ViserUrdf(server, urdf, load_collision_meshes=True)
-    frames = {name: server.scene.add_frame(f"/frames/{name}", axes_length=0.05, axes_radius=0.002)
-              for name in FRAMES}
+    frames = {name: server.scene.add_frame(f"/frames/{name}", axes_length=0.05, axes_radius=0.002) for name in FRAMES}
 
     def update(cfg: np.ndarray) -> None:
         robot.update_cfg(cfg)

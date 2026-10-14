@@ -69,7 +69,8 @@ without geometry into plain frames. For the task frame, use the end-effector bod
 
 ```python
 from stem_manip.assets.fr3 import fr3_cfg, tool_tip_offset
-pos, rot = tool_tip_offset("fork_v2")   # rot as quaternion (x, y, z, w), the Isaac Lab 3.0 order
+
+pos, rot = tool_tip_offset("fork_v2")  # rot as quaternion (x, y, z, w), the Isaac Lab 3.0 order
 # e.g. body_name="fork_v2", body_offset=OffsetCfg(pos=pos, rot=rot) in the IK action, or in a FrameTransformer
 ```
 

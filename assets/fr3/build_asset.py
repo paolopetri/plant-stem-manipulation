@@ -51,7 +51,7 @@ def add_origin(parent: ET.Element, xyz=(0, 0, 0), rpy=(0, 0, 0)) -> None:
 def resolve_base_mesh(filename: str, base_dir: Path, franka_root: Path | None) -> tuple[Path, Path]:
     """Return (source file, destination relative to build/meshes) for a mesh of the base URDF."""
     if filename.startswith("package://"):
-        pkg, _, rel = filename[len("package://"):].partition("/")
+        pkg, _, rel = filename[len("package://") :].partition("/")
         if pkg != "franka_description":
             fail(f"unexpected ROS package in mesh path: {filename}")
         if franka_root is None:
@@ -59,12 +59,12 @@ def resolve_base_mesh(filename: str, base_dir: Path, franka_root: Path | None) -
         return franka_root / rel, Path("franka") / rel
 
     if filename.startswith("file://"):
-        filename = filename[len("file://"):]
+        filename = filename[len("file://") :]
     src = Path(filename)
     if not src.is_absolute():
         src = base_dir / src
     parts = src.parts
-    rel = Path(*parts[parts.index("meshes"):]) if "meshes" in parts else Path(src.name)
+    rel = Path(*parts[parts.index("meshes") :]) if "meshes" in parts else Path(src.name)
     return src, Path("franka") / rel
 
 
@@ -96,10 +96,16 @@ def check_inertia(i: dict) -> None:
 
 
 REQUIRED_KEYS = [
-    "parent_link", "mount.xyz", "mount.rpy", "meshes.visual", "meshes.collision",
-    "inertial.cad_mass", "inertial.com",
+    "parent_link",
+    "mount.xyz",
+    "mount.rpy",
+    "meshes.visual",
+    "meshes.collision",
+    "inertial.cad_mass",
+    "inertial.com",
     *(f"inertial.inertia.{k}" for k in ("ixx", "ixy", "ixz", "iyy", "iyz", "izz")),
-    "tool_tip.xyz", "tool_tip.rpy",
+    "tool_tip.xyz",
+    "tool_tip.rpy",
 ]
 
 
@@ -120,7 +126,7 @@ def add_tool(robot: ET.Element, name: str, cfg: dict, tool_dir: Path, mesh_out: 
     parent = cfg["parent_link"]
     tip = cfg["tool_tip"]
 
-    links = {l.get("name") for l in robot.findall("link")}
+    links = {link.get("name") for link in robot.findall("link")}
     joints = {j.get("name") for j in robot.findall("joint")}
     if parent not in links:
         fail(f"parent link '{parent}' not in base URDF. Available: {sorted(links)}")
@@ -184,9 +190,12 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--ee", required=True, help="end-effector name = folder in end_effectors/ (e.g. fork)")
     ap.add_argument("--base", type=Path, default=ROOT / "base" / "fr3.urdf", help="FR3 URDF without end-effector")
-    ap.add_argument("--franka-description", type=Path, default=os.environ.get("FRANKA_DESCRIPTION"),
-                    help="franka_description repo (needed if the base URDF uses package:// paths); "
-                         "or set FRANKA_DESCRIPTION")
+    ap.add_argument(
+        "--franka-description",
+        type=Path,
+        default=os.environ.get("FRANKA_DESCRIPTION"),
+        help="franka_description repo (needed if the base URDF uses package:// paths); or set FRANKA_DESCRIPTION",
+    )
     ap.add_argument("--out", type=Path, default=ROOT / "build", help="output directory")
     args = ap.parse_args()
 

@@ -83,7 +83,7 @@ def test_chain_weight_strain():
     assert len(strain) == 19
     assert strain[0] == pytest.approx(-1000.0 * 9.81 * 0.02 * 19 / 5.0e6)  # base joint carries 19 segments
     assert strain[-1] == pytest.approx(strain[0] / 19)  # top joint carries one segment
-    assert all(a < b < 0.0 for a, b in zip(strain, strain[1:]))  # compression decreases upwards
+    assert all(a < b < 0.0 for a, b in zip(strain, strain[1:], strict=False))  # compression decreases upwards
 
 
 def test_beam_first_frequency():

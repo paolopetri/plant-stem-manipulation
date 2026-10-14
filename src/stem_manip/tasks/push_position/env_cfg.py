@@ -112,7 +112,8 @@ class StemPushSceneCfg(InteractiveSceneCfg):
 
 @configclass
 class ActionsCfg:
-    """Relative tool-tip pose (at most `max_step` / `max_rot_step` per policy step), Franka's Cartesian impedance law."""
+    """Relative tool-tip pose (at most `max_step` / `max_rot_step` per policy step), Franka's Cartesian
+    impedance law."""
 
     tool_tip = mdp.ToolTipImpedanceActionCfg(
         asset_name="robot",

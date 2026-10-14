@@ -30,18 +30,18 @@ import math
 import os
 from collections.abc import Callable
 from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
 import torch
-
-from isaaclab_physx.physics import PhysxCfg
-from isaaclab_physx.sim.schemas import PhysxArticulationCfg
 
 import isaaclab.sim as sim_utils
 from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets import Articulation, ArticulationCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.math import quat_apply
+from isaaclab_physx.physics import PhysxCfg
+from isaaclab_physx.sim.schemas import PhysxArticulationCfg
 
 from stem_manip.assets.stem import STEM_DIR, stem_params
 
@@ -110,7 +110,7 @@ def write_chain_usd(path: str, num_segments: int, length: float, diameter: float
             drive.CreateTargetPositionAttr(0.0)
     # write only on change: Kit watches open layers and asks to reload a file that was rewritten
     content = stage.GetRootLayer().ExportToString()
-    if not os.path.isfile(path) or open(path).read() != content:
+    if not os.path.isfile(path) or Path(path).read_text() != content:
         with open(path, "w") as file:
             file.write(content)
 

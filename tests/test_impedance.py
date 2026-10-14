@@ -92,7 +92,8 @@ def test_nullspace_does_not_move_the_tool():
     state["q_ns"] = state["q"] + 0.3
     tau = cartesian_impedance_torque(**state, **GAINS)
     # torques in the null space of J^T satisfy pinv(J^T) tau = 0, i.e. no task-space force
-    assert torch.allclose(torch.linalg.pinv(state["jacobian"].transpose(1, 2)) @ tau.unsqueeze(-1), torch.zeros(N, 6, 1), atol=1e-4)
+    wrench = torch.linalg.pinv(state["jacobian"].transpose(1, 2)) @ tau.unsqueeze(-1)
+    assert torch.allclose(wrench, torch.zeros(N, 6, 1), atol=1e-4)
     assert tau.abs().max() > 1e-3
 
 

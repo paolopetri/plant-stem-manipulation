@@ -28,12 +28,12 @@ from typing import ClassVar
 import numpy as np
 import torch
 import warp as wp
-from isaaclab_newton.physics import NewtonCfg, NewtonManager, VBDSolverCfg
 from newton import BodyFlags, ModelFlags
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import CableObject, CableObjectCfg
 from isaaclab.utils import configclass
+from isaaclab_newton.physics import NewtonCfg, NewtonManager, VBDSolverCfg
 
 from stem_manip.assets.stem import stem_params
 

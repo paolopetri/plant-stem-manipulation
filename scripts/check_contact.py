@@ -289,7 +289,7 @@ def main() -> None:
         def close(value: float, reference: float, tol: float) -> bool:
             return abs(value - reference) <= tol * abs(reference)
 
-        arm = {link: round(float(f), 3) for link, f in zip(robot_links, max_arm_contact) if float(f) > 0.0}
+        arm = {link: round(float(f), 3) for link, f in zip(robot_links, max_arm_contact, strict=True) if float(f) > 0.0}
         results = {
             "start pose reached": (start_error < START_TOL, f"tool tip {start_error * 1e3:.2f} mm from the start"),
             "only the fork touches the stem": (
@@ -328,10 +328,14 @@ def main() -> None:
         for name, (ok, info) in results.items():
             label = ("PASS" if ok else "FAIL") if name in checked else "INFO"
             print(f"[{label}] {name}: {info}")
-        print(f"[INFO] max contact force {max_force:.3f} N; force on the stem at the end of the hold "
-              f"{[round(float(v), 3) for v in hold['fork_force']]} N (world)")
-        print(f"[INFO] stem point at {PUSH_HEIGHT} m in the tool frame: along the fork {in_tool[0] * 1e3:+.1f} mm, "
-              f"sideways {in_tool[1] * 1e3:+.1f} mm, vertical {in_tool[2] * 1e3:+.1f} mm")
+        print(
+            f"[INFO] max contact force {max_force:.3f} N; force on the stem at the end of the hold "
+            f"{[round(float(v), 3) for v in hold['fork_force']]} N (world)"
+        )
+        print(
+            f"[INFO] stem point at {PUSH_HEIGHT} m in the tool frame: along the fork {in_tool[0] * 1e3:+.1f} mm, "
+            f"sideways {in_tool[1] * 1e3:+.1f} mm, vertical {in_tool[2] * 1e3:+.1f} mm"
+        )
         print("=== all passed ===" if all(results[name][0] for name in checked) else "=== FAILED ===")
 
 

@@ -61,7 +61,7 @@ def main() -> None:
         pos = robot.data.body_pos_w.torch[0].cpu()
         quat = robot.data.body_quat_w.torch[0].cpu()
         i7, i_ee = robot.body_names.index("fr3_link7"), robot.body_names.index(args_cli.ee)
-        ee_in_link7 = quat_apply_inverse(quat[i7:i7 + 1], (pos[i_ee] - pos[i7]).unsqueeze(0))[0]
+        ee_in_link7 = quat_apply_inverse(quat[i7 : i7 + 1], (pos[i_ee] - pos[i7]).unsqueeze(0))[0]
         ee_err = float((ee_in_link7 - FLANGE_OFFSET).norm())
         results["ee rigid at flange"] = (ee_err < POS_TOL, f"{ee_in_link7.tolist()} (error {ee_err:.2e} m)")
 

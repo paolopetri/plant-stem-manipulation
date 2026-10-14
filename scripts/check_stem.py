@@ -243,9 +243,7 @@ def main() -> None:
         for current in run(args_cli.kick_time):
             finite = finite and bool(torch.isfinite(current).all())
             base_error = torch.maximum(base_error, (current[:, 0] - start_poses[:, 0]).abs().max(dim=-1).values)
-            tip_deflection = torch.maximum(
-                tip_deflection, (current[:, -1, :2] - start_poses[:, -1, :2]).norm(dim=-1)
-            )
+            tip_deflection = torch.maximum(tip_deflection, (current[:, -1, :2] - start_poses[:, -1, :2]).norm(dim=-1))
             tip_x.append((current[:, -1, 0] - start_poses[:, -1, 0]).cpu())
             max_curvature = max(max_curvature, float(stem_geometry.joint_curvature(current, segment_lengths).max()))
 
@@ -275,11 +273,12 @@ def main() -> None:
         damping_ratios = [damping_ratio for _, _, damping_ratio in swings]
         results["swing frequency"] = (
             all(abs(f - expected_frequency) <= FREQUENCY_REL_TOL * expected_frequency for f in frequencies),
-            f"{[round(f, 2) for f in frequencies]} Hz (clamped beam of {free_length:.2f} m: {expected_frequency:.2f} Hz)",
+            f"{[round(f, 2) for f in frequencies]} Hz "
+            f"(clamped beam of {free_length:.2f} m: {expected_frequency:.2f} Hz)",
         )
         expected_damping = [damping_time * math.pi * f for f in frequencies]
         results["damping ratio"] = (
-            all(abs(z - e) <= DAMPING_RATIO_TOL for z, e in zip(damping_ratios, expected_damping)),
+            all(abs(z - e) <= DAMPING_RATIO_TOL for z, e in zip(damping_ratios, expected_damping, strict=True)),
             f"{[round(z, 3) for z in damping_ratios]} (damping_time * pi * frequency = "
             f"{[round(e, 3) for e in expected_damping]})",
         )
@@ -304,7 +303,8 @@ def main() -> None:
         results["deflects when pushed"] = (
             bool(((push_deflection - expected_deflection).abs() <= PUSH_REL_TOL * expected_deflection).all()),
             f"{[round(float(d) * 1e3, 2) for d in push_deflection]} mm with {PUSH_FORCE} N (by hand, without gravity: "
-            f"{expected_deflection * 1e3:.2f} mm = bending {bend_deflection * 1e3:.2f} + shear {shear_deflection * 1e3:.2f})",
+            f"{expected_deflection * 1e3:.2f} mm = bending {bend_deflection * 1e3:.2f} "
+            f"+ shear {shear_deflection * 1e3:.2f})",
         )
         results["returns after the push"] = (
             float(push_rest_offset.max()) < MAX_TIP_REST_OFFSET,

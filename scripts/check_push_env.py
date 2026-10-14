@@ -310,7 +310,10 @@ def main() -> None:
                 f"tool tip {start_error * 1e3:.1f} mm from {START_POS}, orientation {math.degrees(hold_angle):.2f} deg "
                 f"(at reset: {[round(float(v), 3) for v in pos0[0]]} m)",
             ),
-            "holds still": (hold_move < HOLD_TOL, f"tool tip moved {hold_move * 1e3:.2f} mm in the 2nd half of the hold"),
+            "holds still": (
+                hold_move < HOLD_TOL,
+                f"tool tip moved {hold_move * 1e3:.2f} mm in the 2nd half of the hold",
+            ),
             "follows the actions": (
                 follows and max_angle < ORIENTATION_TOL and moves_margin >= JOINT_MARGIN_MIN,
                 "; ".join(
