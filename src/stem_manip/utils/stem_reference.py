@@ -1,6 +1,6 @@
 """Reference values for the stem checks: hand-computed sag of the stem model and analysis of a decaying swing.
 
-Used by `scripts/check_stem.py` and `scripts/sweep_stem_solver.py`. No simulator needed.
+Used by `scripts/check_stem.py`, `scripts/sweep_stem_solver.py` and `scripts/check_push_terms.py`. No simulator needed.
 Tests: `tests/test_stem_reference.py`.
 """
 
@@ -136,6 +136,33 @@ def chain_weight_strain(
         -density * gravity * segment_length * (num_segments - 1 - joint) / stretch_modulus
         for joint in range(num_segments - 1)
     ]
+
+
+def slot_approach_distance(radius: float, plate_thickness: float, push_height: float, push_depth: float) -> float:
+    """Distance d from the tool tip to the stem's centre line with the stem pushed into the fork's slot.
+
+    The tool tip sits at the slot bottom on the plate's top face; the plate is `plate_thickness` thick below it.
+    The slot bottom seats the upright stem with its centre `radius` from the tool tip. Pushed, the stem leans away
+    from the fork by theta and rests against the slot bottom at the plate's bottom face, where its centre is
+    radius / cos(theta) from the slot bottom, so d = radius + plate_thickness * sin(theta). theta is the slope of
+    the clamped stem at a point load at a = push_height - plate_thickness (cantilever, small deflections:
+    slope = 1.5 * delta / a), with the deflection delta = push_depth - radius + radius / cos(theta) there, where
+    `push_depth` is how far the tool tip moves beyond first contact with the upright stem's surface.
+
+    Args:
+        radius: Stem radius [m].
+        plate_thickness: Plate thickness at the slot bottom, below the tool tip [m].
+        push_height: Height of the tool tip above the stem base [m].
+        push_depth: Tool-tip travel beyond first contact [m].
+
+    Returns:
+        d [m].
+    """
+    lever = push_height - plate_thickness
+    theta = 0.0
+    for _ in range(50):  # fixed point of theta = atan(1.5 * delta(theta) / lever); delta depends weakly on theta
+        theta = math.atan(1.5 * (push_depth - radius + radius / math.cos(theta)) / lever)
+    return radius + plate_thickness * math.sin(theta)
 
 
 def beam_first_frequency(length: float, diameter: float, density: float, bend_modulus: float) -> float:
