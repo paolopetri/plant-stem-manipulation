@@ -17,7 +17,9 @@ the stem needs for its measured deflection at the push height (`stem_reference.c
 only, no gravity; the upright stem's own weight makes it about 4 % softer), and the bending moment in the stem's
 first joint divided by its lever arm.
 
-Checks (`slot`, `side`; `slot_far` checks only the first two and the last):
+Checks (`slot`, `side`; `slot_far` checks only the first three and the last):
+- robot base at the env origin, unrotated (the tool pose is in the base frame and the path in the env frame):
+  within 1e-5 m and 1e-5 rad (float32 rounding of the env origins);
 - start pose reached: tool tip within 1 mm of the start;
 - only the fork touches the stem: no contact with the arm links during the whole test, and no contact at all
   before the push;
@@ -54,15 +56,12 @@ import time
 import torch
 
 import isaaclab.sim as sim_utils
-from isaaclab.utils.math import (
-    quat_apply_inverse,
-    quat_from_matrix,
-)
+from isaaclab.utils.math import quat_apply_inverse, quat_from_matrix
 
 from stem_manip.assets.fr3 import fr3_cfg, tool_tip_offset
 from stem_manip.assets.stem import stem_model, stem_params
+from stem_manip.tasks.push_position.mdp.tool_tip import ToolTipKinematics
 from stem_manip.utils import check_report, stem_geometry, stem_reference
-from stem_manip.utils.tool_tip import ToolTipKinematics
 
 PUSH_HEIGHT = 0.30  # [m] tool-tip height = height of the push on the stem
 FORK_YAW = math.radians(45.0)  # direction of the fork (tool x) in the ground plane, from world +x
@@ -82,6 +81,8 @@ FOLLOW_REL_TOL = 0.10
 FORCE_REL_TOL = 0.10
 REST_TOL = 1e-3  # [m]
 CONTACT_THRESHOLD = 1e-3  # [N] first contact
+BASE_POS_TOL = 1e-5  # [m] robot base vs env origin (float32 rounding of the env origins)
+BASE_ROT_TOL = 1e-5  # [rad] robot base rotation
 
 
 def main() -> None:
@@ -168,7 +169,12 @@ def main() -> None:
         robot.write_joint_velocity_to_sim_index(velocity=torch.zeros_like(default_joint_pos))
         robot.set_joint_position_target_index(target=default_joint_pos)
 
-        # differential IK on the tool tip; the robot stands at the env origin, unrotated: base frame = env frame
+        # the tool pose is in the robot base frame, the path in the env frame: the base must be the env origin,
+        # unrotated (rotation angle ~ 2 |q_xyz|, sign-independent)
+        base_offset = float((robot.data.root_pos_w.torch[0] - origin).norm())
+        base_rotation = 2.0 * float(robot.data.root_quat_w.torch[0, :3].norm())
+
+        # differential IK on the tool tip
         arm_joints = list(range(7))
         tool = ToolTipKinematics(robot, "fork_v2", tool_tip_offset("fork_v2"), arm_joints)
         tool_pose = tool.pose
@@ -279,6 +285,11 @@ def main() -> None:
 
         arm = {link: round(float(f), 3) for link, f in zip(robot_links, max_arm_contact, strict=True) if float(f) > 0.0}
         results = {
+            "robot base at the env origin": (
+                base_offset < BASE_POS_TOL and base_rotation < BASE_ROT_TOL,
+                f"offset {base_offset:.1e} m (tol {BASE_POS_TOL:.0e}), rotation {base_rotation:.1e} rad "
+                f"(tol {BASE_ROT_TOL:.0e})",
+            ),
             "start pose reached": (start_error < START_TOL, f"tool tip {start_error * 1e3:.2f} mm from the start"),
             "only the fork touches the stem": (
                 not arm and approach_contact == 0.0,
@@ -310,7 +321,12 @@ def main() -> None:
         }
         checked = list(results)
         if args_cli.test == "slot_far":
-            checked = ["start pose reached", "only the fork touches the stem", "springs back"]
+            checked = [
+                "robot base at the env origin",
+                "start pose reached",
+                "only the fork touches the stem",
+                "springs back",
+            ]
 
         print(f"\n=== check_contact, test {args_cli.test} ({depth * 100:.0f} cm push at {PUSH_HEIGHT} m) ===")
         print(

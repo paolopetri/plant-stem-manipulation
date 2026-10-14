@@ -85,9 +85,9 @@ from isaaclab.utils.math import quat_from_matrix
 
 from stem_manip.assets.fr3 import fr3_cfg, tool_tip_offset
 from stem_manip.assets.stem import stem_model, stem_params
+from stem_manip.tasks.push_position.mdp.tool_tip import ToolTipKinematics
 from stem_manip.utils import stem_geometry
 from stem_manip.utils.impedance import apparent_mass_damping, cartesian_impedance_torque, limit_torque_rate
-from stem_manip.utils.tool_tip import ToolTipKinematics
 
 PUSH_HEIGHT = 0.30  # [m] tool-tip height
 FORK_YAW = math.radians(45.0)  # fork direction in the ground plane (as check_contact)
@@ -107,6 +107,8 @@ URDF_ARMATURE = (0.6057, 0.6057, 0.4625, 0.4625, 0.2055, 0.2055, 0.2055)
 TORQUE_RATE = 1.0e3  # [N m/s] Franka's delta_tau_max = 1 N m per 1 ms
 CONTACT_THRESHOLD = 1e-3  # [N]
 RENDER_DT = 1.0 / 30.0  # [s]
+BASE_POS_TOL = 1e-5  # [m] robot base vs env origin (float32 rounding of the env origins)
+BASE_ROT_TOL = 1e-5  # [rad] robot base rotation
 
 
 def main() -> None:
@@ -160,7 +162,7 @@ def main() -> None:
         scene = InteractiveScene(SweepSceneCfg(num_envs=num_envs, env_spacing=2.0))
         sim.reset()
         robot, stem, fork_sensor = scene["robot"], scene["stem"], scene["fork_contact"]
-        device = sim.device
+        device, origins = sim.device, scene.env_origins
         n = num_envs
 
         def per_env(values) -> torch.Tensor:
@@ -181,7 +183,15 @@ def main() -> None:
         robot.write_joint_velocity_to_sim_index(velocity=torch.zeros_like(default_joint_pos))
         robot.set_joint_position_target_index(target=default_joint_pos)
 
-        # tool-tip kinematics; the robots stand at the env origins, unrotated: base frame = env frame
+        # the tool pose is in the robot base frame, the path in the env frame: each base must be its env origin,
+        # unrotated (rotation angle ~ 2 |q_xyz|, sign-independent)
+        base_offset = float((robot.data.root_pos_w.torch - origins).norm(dim=-1).max())
+        base_rotation = 2.0 * float(robot.data.root_quat_w.torch[:, :3].norm(dim=-1).max())
+        if base_offset >= BASE_POS_TOL or base_rotation >= BASE_ROT_TOL:
+            raise RuntimeError(
+                f"robot base not at the env origin, unrotated: offset {base_offset:.1e} m (tol {BASE_POS_TOL:.0e}), "
+                f"rotation {base_rotation:.1e} rad (tol {BASE_ROT_TOL:.0e})"
+            )
         arm = list(range(7))
         tool = ToolTipKinematics(robot, "fork_v2", tool_tip_offset("fork_v2"), arm)
         tool_pose, tool_jacobian = tool.pose, tool.jacobian
