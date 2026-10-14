@@ -11,7 +11,7 @@ A robot pushes (does not grasp) a flexible stem with a 3D-printed tool so that a
 
 The learned policy is a low-level skill. A future perception module will choose the target; that module is out of scope (unlike the stem-state perception below, which is in scope).
 
-Before modelling, reward or task-design decisions, read `docs/project.md` for the motivation, research question and scope (created by #56, which then shortens the three sections below to a summary).
+Before modelling, reward or task-design decisions, read `docs/project.md` for the motivation, research question and scope.
 
 ## Stack
 
@@ -71,9 +71,9 @@ Before writing or reviewing code, read `CODING_STANDARDS.md`: decision tags, sin
 - `docs/TODO.md`: high-level open items and discussion (direction, open questions, parked topics). Concrete, actionable work items are GitHub issues. When a TODO item is done or turned into issues, delete it there and log it in today's note.
 - After finishing a unit of work, add an entry to today's note and update `docs/TODO.md`. In orchestrated or parallel work the orchestrator writes the day's note, not each agent.
 
-## Agent docs
+## Agent skills
 
 - `docs/agents/workflow.md`: how new work goes from decision to PR, which skills the user starts, context and model choice.
 - `docs/agents/issue-tracker.md`: GitHub issues via `gh`; every branch has an issue.
 - `docs/agents/triage-labels.md`: label vocabulary.
-- `docs/agents/domain.md`: domain docs, single-context: `GLOSSARY.md` and `docs/adr/` at the repo root (created by #57).
+- `docs/agents/domain.md`: domain docs, single-context: `GLOSSARY.md` and `docs/adr/` at the repo root.

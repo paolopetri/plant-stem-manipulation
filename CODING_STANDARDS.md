@@ -7,7 +7,7 @@ The rules for writing and reviewing code in this repo; `/code-review` checks a d
 - A decided value carries a short tag `(user, YYYY-MM-DD)` and nothing about how it got there. History lives in git, `docs/notes/` and ADRs (`docs/adr/`).
   - `# Start pose (user, 2026-10-09): ...`, not `# Start pose (user, 2026-10-09; was (0.30, 0, 0.55) m, 2026-10-06): ...`
   - Also history: "Step 2", "Implemented (M4, part 1)".
-- Docstrings and comments say what the code is and why. Where the reason is long, link it (daily note, write-up, journal, ADR).
+- Docstrings and comments say what the code is and why, not how it got there. Where the reason is long, link it (daily note, write-up, journal, ADR).
 - Code points at open work by issue number (`#42`), never into `docs/TODO.md`.
 
 ## Single source of truth
@@ -19,7 +19,7 @@ The rules for writing and reviewing code in this repo; `/code-review` checks a d
 ## Python
 
 - Type hints and docstrings on public functions; Isaac Lab's config-class style.
-- A module is created together with its code. The spec of an unbuilt feature lives in its issue.
+- No placeholder modules: a module is created together with its code. The spec of an unbuilt feature lives in its issue.
 
 ## Verification
 

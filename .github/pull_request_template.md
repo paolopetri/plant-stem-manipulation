@@ -7,10 +7,12 @@ Closes #
 ## Evidence
 
 - **Before:** <!-- output / failing test or check run -->
-  **After:** <!-- output / passing test or check run; "none: docs only" for docs-only PRs -->
+  **After:** <!-- output / passing test or check run -->
 
 ## Merge Danger
 
 **Door:** <!-- one-way or two-way -->
+
+<!-- optional: description -->
 
 **Blast Radius:** <!-- one word, then optional ramifications -->

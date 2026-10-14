@@ -19,4 +19,4 @@ Edit the "Label in our tracker" column to match whatever vocabulary you actually
 | Label    | Meaning                                                      |
 | -------- | ------------------------------------------------------------ |
 | `later`  | Not part of the current milestone; picked up after it        |
-| `parked` | Newton cable path; only for a later comparison with `chain`  |
+| `parked` | Deliberately paused; revisit only when a trigger occurs (e.g. the Newton cable path, kept for a later comparison with `chain`) |
