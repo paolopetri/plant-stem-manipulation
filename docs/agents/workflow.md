@@ -12,15 +12,15 @@ The user-only skills (`/to-spec`, `/to-tickets`, `/implement`, `/implement-spec`
 
 ## Implement
 
-Pick by how much review each ticket needs:
+Agent-run tickets are the way of working: the agent implements, commits and opens the PR on its own, and stops at the open PR. The merge needs the user's OK. Pick the way by how much review each ticket needs:
 
 | Case | How |
 |---|---|
-| One ticket, one session | `/implement #N` on the ticket's branch, then a PR. |
+| One ticket, one session | `/implement #N` on the ticket's branch (`/code-review` at the end), then a PR. |
 | Many tickets, little review each | `/implement-spec`: one integration branch, one `/code-review`, one PR. |
-| Many tickets, each reviewed by the user (rules, docs, decisions) | An orchestrator session, one PR per ticket, as in #47. |
+| Many tickets, each reviewed by the user (rules, docs, decisions) | An orchestrator session starts one agent per ticket; each opens a PR, the orchestrator runs `/code-review` on it. As in #47. |
 
-An agent-run ticket ends at an open PR; the merge needs the user's OK.
+PR bodies follow the `pr` skill (`.github/pull_request_template.md`).
 
 ## Architecture
 

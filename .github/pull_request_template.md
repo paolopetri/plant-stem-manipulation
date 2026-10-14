@@ -1,11 +1,16 @@
 Closes #
 
-## What changed
+## Summary
 
-## Checks run
+<!-- The smallest view that makes the key point clear: diagram, diff sketch, or tree. Brief prose, domain language from GLOSSARY.md. -->
 
-<!-- Paste each check's PASS/FAIL line (`uv run pytest`, `scripts/check_*.py`), or "none: docs only". -->
+## Evidence
 
-## Decisions taken
+- **Before:** <!-- output / failing test or check run -->
+  **After:** <!-- output / passing test or check run; "none: docs only" for docs-only PRs -->
 
-<!-- Each decision and who took it, or "none". -->
+## Merge Danger
+
+**Door:** <!-- one-way or two-way -->
+
+**Blast Radius:** <!-- one word, then optional ramifications -->
