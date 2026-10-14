@@ -96,10 +96,11 @@ UNIT_TOL, NORM_TOL = 1e-4, 1e-3
 # the clamp agent's speed and braking, and the target clamp
 CAP_STEP, STEP_CHANGE = 0.0032, 8e-5  # [m] speed cap 10 cm/s, step-change limit 0.08 mm per policy step
 CLAMP_OFFSET = 4e-3  # [m] target clamp (4 N at K_p 1000)
-PHYSICS_DT, DECIMATION = 2e-3, 16  # [s] physics step, physics steps per policy step (32 ms; user, 2026-10-09)
+SPEED_CAP = 0.10  # [m/s] translation speed cap (user, 2026-10-08)
+PHYSICS_DT = 2e-3  # [s] physics step: `solver.sim_dt` of assets/stem/chain/chain.yaml
 # observed target_offset, position part (user, 2026-10-14): may exceed 1 by one physics step of tool motion at the
 # speed cap, 10 cm/s x 2 ms / 4 mm = 0.05 (the clamp acts before the last physics step, the observation after it)
-OFFSET_TOL = CAP_STEP / (DECIMATION * PHYSICS_DT) * PHYSICS_DT / CLAMP_OFFSET
+OFFSET_TOL = SPEED_CAP * PHYSICS_DT / CLAMP_OFFSET
 # clamp agent's path (test setup, not a criterion): sideways at the start height (above the 0.40 m stems) to y 0.40 m,
 # 25 cm from the stem spawn area, then down to a goal below the ground, so that the ground blocks the tool and the
 # clamp holds. At that reach the way down stays clear of the joint-margin termination (straight down from the start
