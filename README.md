@@ -43,6 +43,8 @@ uv run --extra isaacsim python scripts/sweep_action_poses.py  # push task: follo
 uv run --extra isaacsim python scripts/check_push_obs.py      # push task: target command and stem observations
 uv run --extra isaacsim python scripts/check_push_terms.py    # push task: rewards and terminations
 uv run --extra isaacsim python scripts/check_push_agents.py   # push task: zero / random agent, shapes and ranges
+uv run --extra isaacsim python scripts/record_rollout.py record logs/rollout/<name>.pt   # fixed-seed rollout
+uv run python scripts/record_rollout.py compare logs/rollout/main.pt logs/rollout/<name>.pt   # pass/fail
 uv run --extra isaacsim isaaclab zero_agent --task StemManip-Push-Position-FR3-v0 --num_envs 4 --max_steps 700
 uv run --extra isaacsim isaaclab random_agent --task StemManip-Push-Position-FR3-v0 --num_envs 4 --max_steps 700
 ```
@@ -51,6 +53,9 @@ uv run --extra isaacsim isaaclab random_agent --task StemManip-Push-Position-FR3
 through the `isaaclab` CLI as above (Isaac Lab's `scripts/environments/zero_agent.py` run directly does not register
 this project's tasks), and they need `--max_steps`: without it they run until the process is killed.
 Training: see "Push task: training" below.
+
+Before a refactor of simulator code, record a rollout on `main` and compare it with one recorded after the
+refactor: workflow in the docstring of `scripts/record_rollout.py`.
 
 Every `scripts/check_*.py` ends with `[PASS]`, `[FAIL]` or `[NOT RUN]` per row and a verdict line
 (`=== all passed ===` or `=== FAILED ===`). The exit status carries the verdict: 0 if all passed, 1 on any FAIL or

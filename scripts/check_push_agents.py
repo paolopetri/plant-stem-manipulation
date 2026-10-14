@@ -60,7 +60,7 @@ import torch
 
 import stem_manip.tasks  # noqa: F401  (registers the task)
 from stem_manip.tasks.push_position.env_cfg import StemPushPositionEnvCfg
-from stem_manip.utils import check_report
+from stem_manip.utils import check_report, rollout
 
 TASK = "StemManip-Push-Position-FR3-v0"
 # decided values
@@ -104,11 +104,7 @@ def main() -> None:
         term_names = env.termination_manager.active_terms
         obs_names = env.observation_manager.active_terms["policy"]
         obs_dims = dict(zip(obs_names, env.observation_manager.group_obs_term_dim["policy"], strict=True))
-        slices, start = {}, 0
-        for name in obs_names:
-            size = math.prod(obs_dims[name])
-            slices[name] = slice(start, start + size)
-            start += size
+        slices = rollout.obs_term_slices(obs_names, obs_dims.values())
         results: dict[str, tuple[bool, str]] = {}
         results["shapes"] = (
             {k: math.prod(v) for k, v in obs_dims.items()} == TERM_DIMS
@@ -190,10 +186,7 @@ def main() -> None:
                     break
                 steps_run = step
                 frame_start = time.perf_counter()
-                if agent == "zero":
-                    action = torch.zeros(n, ACTION_DIM, device=device)
-                else:
-                    action = 2 * torch.rand(n, ACTION_DIM, device=device, generator=generator) - 1
+                action = rollout.agent_action(agent, n, ACTION_DIM, generator)
                 obs_dict, reward, terminated, truncated, _ = env.step(action)
                 obs = obs_dict["policy"]
                 done = terminated | truncated
