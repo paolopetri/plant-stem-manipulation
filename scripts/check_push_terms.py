@@ -452,8 +452,8 @@ def main() -> None:
             f"matching their limit: {fired_wrongly[:5] or 'none'}",
         )
         print(f"\n=== check_push_terms ({n} envs, phases {' '.join(args_cli.phases)}) ===")
-        check_report.finish(results)
         env.close()
+        check_report.finish(results)
 
 
 if __name__ == "__main__":

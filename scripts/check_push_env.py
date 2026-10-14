@@ -388,8 +388,8 @@ def main() -> None:
             f"{rot_margin:.2f} rad",
         )
         print(f"\n=== check_push_env ({n} envs, policy at {1 / env.step_dt:.2f} Hz, damping {term.cfg.damping}) ===")
-        check_report.finish(results)
         env.close()
+        check_report.finish(results)
 
 
 if __name__ == "__main__":

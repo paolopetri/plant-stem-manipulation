@@ -266,8 +266,8 @@ def main() -> None:
             ),
         }
         print(f"\n=== check_push_obs ({n} envs, push {args_cli.push_force} N on segment {TIP_SEGMENT}) ===")
-        check_report.finish(results)
         env.close()
+        check_report.finish(results)
 
 
 if __name__ == "__main__":
