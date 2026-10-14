@@ -6,7 +6,8 @@ import pytest
 
 from stem_manip.utils import stem_reference
 
-# placeholder stem of stem model `cable` (assets/stem/stem.yaml + assets/stem/cable/cable.yaml)
+# the plant's values from assets/stem/stem.yaml (shared by all stem models) and the shear modulus of stem model
+# `cable` (assets/stem/cable/cable.yaml); `chain` has no shear spring: see the `inf` tests
 STEM = dict(length=0.4, num_segments=20, diameter=0.008, density=1000.0, bend_modulus=5.0e8, shear_modulus=5.0e5)
 
 
@@ -27,6 +28,13 @@ def test_chain_tip_sag_approaches_the_beam_formula():
     assert shear_sag < 1e-9
 
 
+def test_chain_tip_sag_without_a_shear_spring_is_all_bending():
+    """Stem model `chain` (rigid in shear): shear_modulus = inf -> no shear sag, bending part unchanged."""
+    bend_sag, shear_sag = stem_reference.chain_tip_sag(**STEM | dict(shear_modulus=math.inf))
+    assert shear_sag == 0.0
+    assert bend_sag == pytest.approx(14.17e-3, abs=0.005e-3)
+
+
 def test_chain_tip_sag_scales_with_the_moduli():
     bend_sag, shear_sag = stem_reference.chain_tip_sag(**STEM)
     stiffer = STEM | dict(bend_modulus=2 * STEM["bend_modulus"], shear_modulus=4 * STEM["shear_modulus"])
@@ -42,6 +50,14 @@ def test_chain_push_deflection_of_the_placeholder_stem():
     bend_deflection, shear_deflection = stem_reference.chain_push_deflection(force=0.05, **PUSH)
     assert bend_deflection == pytest.approx(9.09e-3, abs=0.005e-3)
     assert shear_deflection == pytest.approx(0.76e-3, abs=0.005e-3)
+
+
+def test_chain_push_deflection_without_a_shear_spring_is_all_bending():
+    bend_deflection, shear_deflection = stem_reference.chain_push_deflection(
+        force=0.05, **PUSH | dict(shear_modulus=math.inf)
+    )
+    assert shear_deflection == 0.0
+    assert bend_deflection == pytest.approx(9.09e-3, abs=0.005e-3)
 
 
 def test_chain_push_deflection_approaches_the_beam_formula():

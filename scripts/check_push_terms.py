@@ -7,9 +7,9 @@ reset), its value is recorded together with values computed here independently o
 - curvature per joint from the segment poses; contact force from the sensor's history (largest single
   segment-body contact per physics step, mean over the policy step); joint margin from the joint
   positions and limits.
-Decided values (user, 2026-10-09), fixed here, not read from the cfg: std 0.05 / 0.01 m (distance), 0.003 m (height),
-0.1 m (approach); curvature penalty above 0.8 x 5 1/m, limit 5 1/m; contact penalty above 2 N, limit 5 N; joint
-margin 0.25 rad; episode 15 s.
+Decided values (user, 2026-10-09; the height std and the fine distance's z-scale 2026-10-10), fixed here, not read
+from the cfg: std 0.05 / 0.01 m (distance), 0.003 m (height), 0.1 m (approach); curvature penalty above 0.8 x 5 1/m,
+limit 5 1/m; contact penalty above 2 N, limit 5 N; joint margin 0.25 rad; episode 15 s.
 
 Phases (the stem base fixed at x 0.65 m, y 0, except in `rest`):
 - rest: zero action for a whole episode (spawn area as in training). Time out fires exactly at the last step and
@@ -30,7 +30,7 @@ Only `rest` runs on the decided 15 s episode; the scripted phases take longer an
 reset anywhere except where a phase makes a term fire fails the check. In every phase and at every step: each term
 equals its formula of the independent values (tolerance 1e-4 for the rewards, 0.5 mm on the approach distance), each
 termination fires exactly when its independent value crosses the limit, `terminated` = any early termination, metric
-`height_error` = dz.
+`height_error` = dz, metric `position_error` = d.
 
 Usage (from the repo root; headless unless a visualizer is requested):
     uv run --extra isaacsim python scripts/check_push_terms.py
@@ -163,7 +163,7 @@ def main() -> None:
                 wrap(env.reward_manager, name)
 
         # -- checks of every step against the formulas
-        errors = {key: 0.0 for key in ("rewards", "approach", "terminations", "height_error")}
+        errors = {key: 0.0 for key in ("rewards", "approach", "terminations", "height_error", "position_error")}
         fired_wrongly: list[str] = []
 
         def tanh_reward(x: torch.Tensor, std: float) -> torch.Tensor:
@@ -202,6 +202,8 @@ def main() -> None:
                 dz = (tip[:, 0] - command.command)[:, 2]
                 err = (command.metrics["height_error"] - dz)[kept].abs().max()
                 errors["height_error"] = max(errors["height_error"], float(err))
+                err = (command.metrics["position_error"] - (tip[:, 0] - command.command).norm(dim=-1))[kept].abs().max()
+                errors["position_error"] = max(errors["position_error"], float(err))
 
         step_time = env.step_dt * args_cli.slow_motion
         clock = {"t": time.perf_counter()}
@@ -440,9 +442,11 @@ def main() -> None:
             and errors["approach"] < APPROACH_TOL
             and errors["terminations"] == 0.0
             and errors["height_error"] < 1e-5
+            and errors["position_error"] < 1e-5
             and not fired_wrongly,
             f"rewards {errors['rewards']:.1e}, approach distance {errors['approach'] * 1e3:.3f} mm, terminated "
-            f"{errors['terminations']:.0f}, height_error {errors['height_error'] * 1e3:.4f} mm; terminations not "
+            f"{errors['terminations']:.0f}, height_error {errors['height_error'] * 1e3:.4f} mm, position_error "
+            f"{errors['position_error'] * 1e3:.4f} mm; terminations not "
             f"matching their limit: {fired_wrongly[:5] or 'none'}",
         )
         print(f"\n=== check_push_terms ({n} envs, phases {' '.join(args_cli.phases)}) ===")

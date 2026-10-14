@@ -84,7 +84,6 @@ END_TOL = 1e-3  # [m] after the hold following a move
 DRIFT_TOL = 2e-3  # [m]
 ROT_FOLLOW_TOL, ROT_OVERSHOOT_TOL, ROT_DRIFT_TOL = math.radians(2.0), math.radians(2.0), 2e-3  # user, 2026-10-07
 OBS_DIM = 57  # tool tip: position 3, orientation 6, applied step 6, target offset 6; stem base 3, 5 stem points x 2
-# policy steps 30, target 3 (user, 2026-10-08)
 # decided action limits (option B1, user 2026-10-07/08; docs/overleaf_folder/open_questions/action_limits_problem.tex);
 # fixed here, not read from the cfg, so that a wrong cfg value fails (with an override flag these checks fail too)
 FIRST_STEP, FIRST_ROT_STEP = 8e-5, 0.000349  # [m], [rad] step-change limits 0.08 mm (2026-10-08) / 0.02 deg
@@ -202,7 +201,7 @@ def main() -> None:
                 }
             )
 
-        # -- rotation about the vertical (+z), reported only
+        # -- rotation about the vertical (+z), checked as "follows the rotation" below
         rotate = torch.zeros(6, device=device)
         rotate[5] = 1.0
         moves_margin = margin
