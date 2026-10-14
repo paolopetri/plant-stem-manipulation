@@ -16,6 +16,7 @@ uv run isaaclab train/play --task <ID>      Isaac Lab's own CLI, nothing custom
 ```
 
 The repo is an installable uv package (`stem_manip`), following Isaac Lab 3's external-project template.
+`src/stem_manip/utils/` holds simulator-free helpers (unit-tested in `tests/`).
 `scripts/` holds sanity checks and small tools. `tests/` holds unit tests that don't need the simulator.
 `tools/autotrain/` holds the unattended training loop (driver, launch scripts, agent prompt and permissions);
 its journal goes to `docs/experiments/`.
