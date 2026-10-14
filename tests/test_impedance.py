@@ -250,15 +250,16 @@ SUBSTEP = {"policy_dt": 0.032, "max_offset": 0.004, "max_rot_offset": math.radia
 
 def test_substep_command_free_motion():
     """Free motion: the target is interpolated through the step, the clamp is inactive and the feedforward velocity
-    is the step's velocity (the tool lags 0.5 mm, far below the bound)."""
+    is the step's velocity (the tool lags 0.5 mm, far below the bound); the held flags are False."""
     start = torch.zeros(N, 3)
     start_quat = quat_from_rotvec(torch.zeros(N, 3))
     step = torch.tensor([[0.0032, 0.0, 0.0, 0.0, 0.0, 0.0251], [0.0, 0.002, 0.0, 0.01, 0.0, 0.0]])
     pos = start - torch.tensor([0.0005, 0.0, 0.0])
     tool_vel = torch.full((N, 3), 0.05)  # must not be used: the target is not held
-    pos_t, quat_t, vel, ang_vel = substep_command(
+    pos_t, quat_t, vel, ang_vel, held = substep_command(
         start, start_quat, step, 0.5, pos, start_quat, tool_vel, tool_vel, **SUBSTEP
     )
+    assert held.tolist() == [[False, False], [False, False]]
     assert torch.allclose(pos_t, start + 0.5 * step[:, :3])
     assert torch.allclose(rotvec_between(quat_t, start_quat), 0.5 * step[:, 3:], atol=1e-6)
     assert torch.allclose(vel, step[:, :3] / 0.032)
@@ -267,7 +268,8 @@ def test_substep_command_free_motion():
 
 def test_substep_command_blocked():
     """Blocked tool: the target is held at the bound (4 mm / 3 deg from the tool) and moves with the tool, so the
-    feedforward velocity is the tool's (the damping adds no force on top of the spring); env 1 stays free."""
+    feedforward velocity is the tool's (the damping adds no force on top of the spring); env 1 stays free. The held
+    flags (translation, rotation) say where the clamp acted."""
     pos = torch.zeros(N, 3)
     quat = quat_from_rotvec(torch.zeros(N, 3))
     start = torch.tensor([[0.003, 0.0, 0.0], [0.0, 0.0, 0.0]])  # env 0: target already 3 mm ahead
@@ -275,9 +277,10 @@ def test_substep_command_blocked():
     step = torch.tensor([[0.0032, 0.0, 0.0, 0.0, 0.0, math.radians(1.44)], [0.001, 0.0, 0.0, 0.0, 0.0, 0.0]])
     tool_vel = torch.tensor([[0.01, 0.0, 0.0], [0.05, 0.0, 0.0]])
     tool_ang_vel = torch.tensor([[0.0, 0.0, 0.02], [0.0, 0.0, 0.0]])
-    pos_t, quat_t, vel, ang_vel = substep_command(
+    pos_t, quat_t, vel, ang_vel, held = substep_command(
         start, start_quat, step, 1.0, pos, quat, tool_vel, tool_ang_vel, **SUBSTEP
     )
+    assert held.tolist() == [[True, True], [False, False]]
     assert torch.allclose(pos_t[0], torch.tensor([0.004, 0.0, 0.0]))
     assert torch.allclose(rotvec_between(quat_t, quat)[0], torch.tensor([0.0, 0.0, math.radians(3.0)]), atol=1e-6)
     assert torch.allclose(vel[0], tool_vel[0])

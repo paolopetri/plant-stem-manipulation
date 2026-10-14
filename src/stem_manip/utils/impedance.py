@@ -117,7 +117,7 @@ def substep_command(
     policy_dt: float,
     max_offset: float,
     max_rot_offset: float,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Target pose and velocity the law uses at one physics (torque-loop) step within a policy step.
 
     The target moves linearly (turns at constant rate) from (`target_start`, `target_quat_start`) by `step` (n, 6:
@@ -128,7 +128,7 @@ def substep_command(
     so its velocity is the tool's (`tool_vel`, `tool_ang_vel`): the damping then adds no force to the bounded spring
     force. Runs at the physics rate in simulation and in the 1 kHz loop on the real FR3.
     Returns (target position (n, 3), target orientation (n, 4), target velocity (n, 3), target angular velocity
-    (n, 3)).
+    (n, 3), held (n, 2) bool: where the clamp acted on the position / orientation).
     """
     target_pos, held = clamp_target_offset(target_start + fraction * step[:, :3], pos, max_offset)
     target_quat = _quat_mul(quat_from_rotvec(fraction * step[:, 3:]), target_quat_start)
@@ -137,7 +137,7 @@ def substep_command(
     )
     target_vel = torch.where(held.unsqueeze(-1), tool_vel, step[:, :3] / policy_dt)
     target_ang_vel = torch.where(held_rot.unsqueeze(-1), tool_ang_vel, step[:, 3:] / policy_dt)
-    return target_pos, target_quat, target_vel, target_ang_vel
+    return target_pos, target_quat, target_vel, target_ang_vel, torch.stack((held, held_rot), dim=-1)
 
 
 def _sqrtm_spd(matrix: torch.Tensor) -> torch.Tensor:

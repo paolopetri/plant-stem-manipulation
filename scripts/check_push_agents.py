@@ -1,17 +1,23 @@
-"""Env check for stage 1 (`StemManip-Push-Position-FR3-v0`): zero and random agent, shapes and value ranges.
+"""Env check for stage 1 (`StemManip-Push-Position-FR3-v0`): zero, random and clamp agent, shapes and value ranges.
 
 Runs the task as Isaac Lab's `isaaclab zero_agent` / `random_agent` do (zero actions; uniform random actions in
-[-1, 1], seeded) for `--episodes` episodes and checks every policy step. The expected values are the decided ones,
-fixed here, not read from the cfg:
+[-1, 1], seeded), and a scripted clamp agent that moves the tool tip sideways, away from the stem, and then drives it
+down into the ground (as the clamp test of `check_push_env.py`), so that the target clamp holds; each for
+`--episodes` episodes, checking every policy step. The expected values are the decided ones, fixed here, not read
+from the cfg:
 - shapes: observation (num_envs, 57), action (num_envs, 6); terms tool_tip_pos 3, tool_tip_rot 6, applied_step 6,
   target_offset 6, stem_base 3, stem_points 30 (5 points, previous and current policy step), target_pos 3;
 - finite: observations, rewards, terminated / truncated flags;
 - tool_tip_rot: both columns unit length and orthogonal (1e-4);
 - after every reset: tool tip within 5 mm of the start pose (0.40, 0, 0.50) m and within 1 deg (rotation angle) of
   the orientation at the first reset (tolerances of `check_push_env.py`);
-- target_offset: position part and rotation part each of norm <= 1 (target clamp 4 mm / 3 deg, 2026-10-08);
-- applied_step: translation and rotation part each of norm <= 1 (speed caps), except at steps where the clamp holds
-  the target (target_offset part >= 1 - 1e-3: there the clamp drags the target along, see `mdp.applied_step`);
+- target_offset: position part and rotation part each of norm <= 1 (target clamp 4 mm / 3 deg, 2026-10-08); each
+  may exceed 1 by one physics step of tool motion at its speed cap (position +0.05, `OFFSET_TOL`; rotation +0.03,
+  `ROT_OFFSET_TOL`): the clamp acts on the pose before the last physics step, the observation is taken after it (the
+  exact 4 mm bound on the command pose is checked in `check_push_env.py`);
+- applied_step: translation and rotation part each of norm <= 1 (speed caps), except at steps where the clamp held
+  that part's target in any physics step (the action term's `clamp_held`: there the clamp drags the target along,
+  see `mdp.applied_step`); the number of such env-steps is printed;
 - stem_base: in the spawn area x 0.50-0.65 m, y +-0.15 m (1e-6 m), z 0 (1 mm), as in `check_push_obs.py`;
   stem base constant within an episode (1e-6 m, user 2026-10-09: the stem stays bit-identical in the world, but the
   robot root pose PhysX returns after the first physics step differs from the written one by ~1e-8 in the
@@ -23,11 +29,13 @@ fixed here, not read from the cfg:
 Zero agent in addition: only the time out fires, exactly at step 469 (15 s / 32 ms) of every episode in every env;
 the tool tip stays within 2 mm of its reset position (lag criterion of the action sweep); curvature, contact and
 action-rate penalties 0. Random agent: the terminations that fire are reported (counts per term), not checked.
+Clamp agent: the clamp holds the position target in at least one env-step, so that the exemption and the
+target_offset bound are exercised (the random agent rarely engages the clamp).
 
 Every loop has a fixed number of steps and a progress line is printed every 100 steps. The check fails when it takes
 longer than `--max_minutes`; the limit is checked between policy steps, so a hang inside `env.step` (or at startup)
 is not caught: run it under an outer `timeout` when it runs unattended (`timeout 20m uv run ...`). Rows of an agent
-cut short by the limit print NOT RUN unless they had already failed. Takes about 3 min with 4 envs.
+cut short by the limit print NOT RUN unless they had already failed. Takes about 5 min with 4 envs.
 
 Usage (from the repo root; headless unless a visualizer is requested):
     uv run --extra isaacsim python scripts/check_push_agents.py
@@ -39,8 +47,8 @@ import argparse
 
 from isaaclab.app import add_launcher_args, launch_simulation
 
-AGENTS = ("zero", "random")
-parser = argparse.ArgumentParser(description="Zero / random agent check for the stage-1 push task.")
+AGENTS = ("zero", "random", "clamp")
+parser = argparse.ArgumentParser(description="Zero / random / clamp agent check for the stage-1 push task.")
 parser.add_argument("--agents", nargs="+", default=list(AGENTS), choices=AGENTS, help="Agents to run, in order.")
 parser.add_argument("--num_envs", type=int, default=4, help="Number of envs.")
 parser.add_argument("--episodes", type=int, default=2, help="Episodes (of 469 steps) per agent.")
@@ -83,7 +91,26 @@ HOLD_TOL = 2e-3  # [m] zero agent: tool tip vs its reset position (lag criterion
 SPAWN_X, SPAWN_Y = (0.50, 0.65), (-0.15, 0.15)  # [m] stem spawn area (user, 2026-10-09)
 AREA_TOL, GROUND_TOL = 1e-6, 1e-3  # [m] as in check_push_obs.py
 ARC_TOL = 1e-3  # [m]
-UNIT_TOL, NORM_TOL, CLAMP_ACTIVE = 1e-4, 1e-3, 1.0 - 1e-3
+UNIT_TOL = 1e-4
+# decided action limits (option B1, user 2026-10-08; docs/overleaf_folder/open_questions/action_limits_problem.tex):
+# the clamp agent's speed and braking, and the target clamp
+CAP_STEP, STEP_CHANGE = 0.0032, 8e-5  # [m] speed cap 10 cm/s, step-change limit 0.08 mm per policy step
+CLAMP_OFFSET = 4e-3  # [m] target clamp (4 N at K_p 1000)
+SPEED_CAP = 0.10  # [m/s] translation speed cap (user, 2026-10-08)
+CLAMP_ROT_OFFSET = 3.0  # [deg] target rotation clamp
+ROT_SPEED_CAP = 45.0  # [deg/s] rotation speed cap (user, 2026-10-07)
+PHYSICS_DT = 2e-3  # [s] physics step: `solver.sim_dt` of assets/stem/chain/chain.yaml
+# observed target_offset (user, 2026-10-14): each part may exceed 1 by one physics step of tool motion at its speed
+# cap (the clamp acts before the last physics step, the observation after it): position 10 cm/s x 2 ms / 4 mm = 0.05,
+# rotation 45 deg/s x 2 ms / 3 deg = 0.03
+OFFSET_TOL = SPEED_CAP * PHYSICS_DT / CLAMP_OFFSET
+ROT_OFFSET_TOL = ROT_SPEED_CAP * PHYSICS_DT / CLAMP_ROT_OFFSET
+# clamp agent's path (test setup, not a criterion): sideways at the start height (above the 0.40 m stems) to y 0.40 m,
+# 25 cm from the stem spawn area, then down to a goal below the ground, so that the ground blocks the tool and the
+# clamp holds. At that reach the way down stays clear of the joint-margin termination (straight down from the start
+# pose, at x 0.40-0.45 m and y 0, it fires); a diagonal way down bends tall stems.
+CLAMP_SIDE, CLAMP_GOAL = (0.40, 0.40, 0.50), (0.40, 0.40, -0.10)  # [m] robot base frame
+CLAMP_SIDE_TOL = 0.01  # [m] in y: the tool tip has reached the side, go down
 PROGRESS_EVERY = 100  # [policy steps]
 
 
@@ -103,6 +130,7 @@ def main() -> None:
         obs_names = env.observation_manager.active_terms["policy"]
         obs_dims = dict(zip(obs_names, env.observation_manager.group_obs_term_dim["policy"], strict=True))
         slices = rollout.obs_term_slices(obs_names, obs_dims.values())
+        action_term = env.action_manager.get_term("tool_tip")
         results: dict[str, tuple[bool, str]] = {}
         results["shapes"] = (
             {k: math.prod(v) for k, v in obs_dims.items()} == TERM_DIMS
@@ -112,7 +140,9 @@ def main() -> None:
             + ", ".join(f"{k} {math.prod(v)}" for k, v in obs_dims.items()),
         )
         arc = torch.tensor(ARC_LENGTHS, device=device)
+        offset_bound = torch.tensor((1 + OFFSET_TOL, 1 + ROT_OFFSET_TOL), device=device)  # position, rotation part
         start_pos = torch.tensor(START_POS, device=device)
+        clamp_side, clamp_goal = (torch.tensor(v, device=device).expand(n, 3) for v in (CLAMP_SIDE, CLAMP_GOAL))
         step_time = env.step_dt * args_cli.slow_motion
         generator = torch.Generator(device=device).manual_seed(args_cli.seed)
         timed_out = False
@@ -127,6 +157,7 @@ def main() -> None:
             rot_ref = obs[:, slices["tool_tip_rot"]].clone()  # orientation at the first reset
             fails: dict[str, list[str]] = {}
             stats = {"step_out": 0.0, "offset": 0.0, "unit": 0.0, "arc": -1.0, "hold": 0.0, "start": 0.0, "angle": 0.0}
+            clamp_count = [0, 0]  # env-steps where the clamp held the position / orientation target
             fired = {name: 0 for name in term_names}
             returns = torch.zeros(n, device=device)
             episode_returns: list[float] = []
@@ -184,7 +215,13 @@ def main() -> None:
                     break
                 steps_run = step
                 frame_start = time.perf_counter()
-                action = rollout.agent_action(agent, n, ACTION_DIM, generator)
+                if agent == "clamp":
+                    tool_pos = obs[:, slices["tool_tip_pos"]]
+                    at_side = ((tool_pos[:, 1] - CLAMP_SIDE[1]).abs() < CLAMP_SIDE_TOL).unsqueeze(-1)
+                    goal = torch.where(at_side, clamp_goal, clamp_side)
+                    action = rollout.toward(tool_pos, goal, CAP_STEP, STEP_CHANGE)
+                else:
+                    action = rollout.agent_action(agent, n, ACTION_DIM, generator)
                 obs_dict, reward, terminated, truncated, _ = env.step(action)
                 obs = obs_dict["policy"]
                 done = terminated | truncated
@@ -210,10 +247,12 @@ def main() -> None:
                 offset = part_norms(obs[:, slices["target_offset"]])
                 applied = part_norms(obs[:, slices["applied_step"]])
                 stats["offset"] = max(stats["offset"], float(offset.max()))
-                free = offset < CLAMP_ACTIVE  # the clamp does not hold that part's target
+                held = action_term.clamp_held()  # (n, 2): the clamp held that part's target in this policy step
+                clamp_count = [c + int(h) for c, h in zip(clamp_count, held.sum(dim=0).tolist(), strict=True)]
+                free = ~held
                 stats["step_out"] = max(stats["step_out"], float(applied[free].max()) if free.any() else 0.0)
-                if (offset > 1 + NORM_TOL).any():
-                    fail("target_offset <= 1", f"step {step}: {offset.max():.4f}")
+                if (offset > offset_bound).any():
+                    fail("target_offset within one physics step of 1", f"step {step}: {offset.max():.4f}")
                 if (applied[free] > 1 + UNIT_TOL).any():
                     fail("applied_step <= 1 (clamp free)", f"step {step}: {applied[free].max():.4f}")
                 base = obs[:, slices["stem_base"]]
@@ -283,7 +322,7 @@ def main() -> None:
                 "shapes",
                 "start pose after reset",
                 "stem base in the spawn area",
-                "target_offset <= 1",
+                "target_offset within one physics step of 1",
                 "applied_step <= 1 (clamp free)",
                 "stem points within their arc length",
                 "stem_base constant within an episode",
@@ -294,12 +333,19 @@ def main() -> None:
             if agent == "zero":
                 checks += ["zero agent: only the time out, at step 469", "zero agent: tool tip holds",
                            "zero agent: penalties 0"]  # fmt: skip
+            if agent == "clamp":
+                checks.append("clamp holds")
+                if clamp_count[0] == 0:
+                    fail("clamp holds", "never")
             if timed_out:
                 checks.append("wall-clock limit")
             values = {
                 "start pose after reset": f"{stats['start'] * 1e3:.2f} mm, {stats['angle']:.3f} deg",
-                "target_offset <= 1": f"max {stats['offset']:.4f}",
-                "applied_step <= 1 (clamp free)": f"max {stats['step_out']:.4f}",
+                "target_offset within one physics step of 1": f"max {stats['offset']:.4f} (bound position "
+                f"{1 + OFFSET_TOL:.4f}, rotation {1 + ROT_OFFSET_TOL:.4f})",
+                "applied_step <= 1 (clamp free)": f"max {stats['step_out']:.4f}, clamp held in "
+                f"{clamp_count[0]} / {clamp_count[1]} env-steps (position / orientation)",
+                "clamp holds": f"position in {clamp_count[0]} env-steps",
                 "stem points within their arc length": f"max excess {stats['arc'] * 1e3:.3f} mm",
                 "zero agent: tool tip holds": f"max {stats['hold'] * 1e3:.3f} mm",
             }
