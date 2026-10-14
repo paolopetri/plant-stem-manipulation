@@ -139,7 +139,9 @@ def record() -> None:
             generator = torch.Generator(device=device).manual_seed(args_cli.seed)
             run(agent, args_cli.steps, lambda _obs, a=agent, g=generator: rollout.agent_action(a, n, action_dim, g))
 
-        # push: the stem base at PUSH_STEM_BASE, the tool tip along PUSH_PLAN (relative to the stem base)
+        # push: the stem base at PUSH_STEM_BASE, the tool tip along PUSH_PLAN (relative to the stem base).
+        # The `spawn_stem` event cfg params are updated in place; this works because the event manager reads the
+        # params at call time (each reset), not when the env is built.
         params = env.event_manager.get_term_cfg("spawn_stem").params
         params.update(x_range=(PUSH_STEM_BASE[0],) * 2, y_range=(PUSH_STEM_BASE[1],) * 2)
         plan = [(torch.tensor(offset, device=device), steps) for offset, steps in PUSH_PLAN]
@@ -150,6 +152,8 @@ def record() -> None:
             while k >= plan[leg][1]:
                 k, leg = k - plan[leg][1], leg + 1
             clock["step"] += 1
+            # steering from the policy observations: valid because observation corruption is off
+            # (`enable_corruption = False` in push_position env_cfg) and both terms are in the robot base frame
             goal = obs[:, slices["stem_base"]] + plan[leg][0]
             return rollout.toward(obs[:, slices["tool_tip_pos"]], goal, tool_cfg.max_step, tool_cfg.max_step_change)
 
