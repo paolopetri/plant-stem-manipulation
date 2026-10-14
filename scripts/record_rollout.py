@@ -5,11 +5,12 @@ script records a short rollout of `StemManip-Push-Position-FR3-v0` before the re
 recorded after it:
 - `record <out>`: seeds the env (`--seed`, also the seed of every reset) and runs three rollouts: `--steps` policy
   steps of zero actions, `--steps` of uniform random actions in [-1, 1] (a torch generator seeded with `--seed`),
-  and a scripted push (stem base fixed at `PUSH_STEM_BASE`, the tool tip along `PUSH_PLAN`: behind the stem, down,
-  then through the stem axis at full speed). The push makes the contact force, the contact-force and curvature
-  penalties non-zero and `curvature_limit` fire. It saves every policy observation term (at the reset and after each
-  step), every reward term (weighted, before x dt), every termination term, and the raw robot-stem contact force and
-  the largest stem curvature (after the step) per step and env, with the settings and the commit (`torch.save`).
+  and a scripted push (stem base fixed at `PUSH_STEM_BASE`, the tool tip along `PUSH_PLAN`: twice behind the stem,
+  down, then through the stem axis at full speed). The push makes the contact force, the contact-force and
+  curvature penalties non-zero and `curvature_limit` and `contact_force_limit` fire. It saves every policy
+  observation term (at the reset and after each step), every reward term (weighted, before x dt), every termination
+  term, and the raw robot-stem contact force and the largest stem curvature (after the step) per step and env, with
+  the settings and the commit (`torch.save`).
 - `compare <a> <b>`: prints one row per term with its max absolute difference: PASS if within `--tol`, FAIL
   naming the term otherwise; a term missing in one recording, another shape, or other settings (task, envs, steps,
   seed, device) are FAIL. Exit status 0 if all passed, 1 otherwise. No simulator needed.
@@ -36,10 +37,19 @@ from pathlib import Path
 
 TASK = "StemManip-Push-Position-FR3-v0"
 # push rollout: stem base (world x, y) [m], as in check_push_terms.py; tool-tip waypoints relative to the stem base
-# (robot base frame) [m] and the policy steps spent on each: behind the stem at the start height, down to 0.15 m,
-# then toward 0.15 m beyond the stem axis (`curvature_limit` fires on the way and resets the envs)
+# (robot base frame) [m] and the policy steps spent on each. Two pushes, each from behind the stem at the start
+# height, down, then toward 0.15 m beyond the stem axis at full speed: at 0.15 m height the stem bends until
+# `curvature_limit` fires and resets the envs; at 0.10 m (stiffer, the curvature stays below the soft limit) the
+# contact force passes its limit and `contact_force_limit` fires
 PUSH_STEM_BASE = (0.65, 0.0)
-PUSH_PLAN = (((-0.20, 0.0, 0.50), 70), ((-0.20, 0.0, 0.15), 180), ((0.15, 0.0, 0.15), 110))
+PUSH_PLAN = (
+    ((-0.20, 0.0, 0.50), 70),
+    ((-0.20, 0.0, 0.15), 180),
+    ((0.15, 0.0, 0.15), 110),
+    ((-0.20, 0.0, 0.50), 70),
+    ((-0.20, 0.0, 0.10), 200),
+    ((0.15, 0.0, 0.10), 130),
+)
 
 parser = argparse.ArgumentParser(description="Record a fixed-seed rollout of the push task, or compare two.")
 commands = parser.add_subparsers(dest="command", required=True)
