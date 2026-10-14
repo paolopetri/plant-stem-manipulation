@@ -74,6 +74,7 @@ class ToolTipImpedanceAction(ActionTerm):
         self._target_quat_start = torch.zeros(n, 4, device=device)
         self._command_pos = torch.zeros(n, 3, device=device)  # target the law used at the latest physics step
         self._command_quat = torch.zeros(n, 4, device=device)
+        self._clamp_held = torch.zeros(n, 2, dtype=torch.bool, device=device)  # (position, orientation) this step
         self._tau_prev = torch.zeros(n, len(self._joint_ids), device=device)
         self._decimation = env.cfg.decimation
         self._policy_dt = env.cfg.decimation * env.physics_dt
@@ -117,6 +118,11 @@ class ToolTipImpedanceAction(ActionTerm):
         """Target position (n, 3) and orientation (n, 4) the law used at the latest physics step (base frame)."""
         return self._command_pos, self._command_quat
 
+    def clamp_held(self) -> torch.Tensor:
+        """Whether the clamp held the target in any physics step of the latest policy step (n, 2) bool: position,
+        orientation. Where it held, the applied step may exceed the speed cap (the clamp drags the target along)."""
+        return self._clamp_held
+
     def process_actions(self, actions: torch.Tensor):
         self._raw_actions[:] = actions
         self._target_start[:] = self._target
@@ -130,6 +136,7 @@ class ToolTipImpedanceAction(ActionTerm):
             self._target_quat, actions[:, 3:], cfg.max_rot_step, self._step[:, 3:], cfg.max_rot_step_change
         )
         self._substep = 0
+        self._clamp_held[:] = False
 
     def apply_actions(self):
         self._substep = min(self._substep + 1, self._decimation)
@@ -139,7 +146,7 @@ class ToolTipImpedanceAction(ActionTerm):
         jacobian = self._tool_jacobian()
         dq = data.joint_vel.torch[:, self._joint_ids]
         twist = (jacobian @ dq.unsqueeze(-1)).squeeze(-1)
-        target_pos, target_quat, target_vel, target_ang_vel = substep_command(
+        target_pos, target_quat, target_vel, target_ang_vel, held = substep_command(
             self._target_start,
             self._target_quat_start,
             self._step,
@@ -153,6 +160,7 @@ class ToolTipImpedanceAction(ActionTerm):
             cfg.max_target_rot_offset,
         )
         self._command_pos[:], self._command_quat[:] = target_pos, target_quat
+        self._clamp_held |= held
         if self._substep == self._decimation:
             # end of the policy step: the target stays where the clamp held it; applied step = its actual motion
             self._target[:], self._target_quat[:] = target_pos, target_quat
@@ -197,6 +205,7 @@ class ToolTipImpedanceAction(ActionTerm):
         self._command_pos[env_ids] = pos[env_ids]
         self._command_quat[env_ids] = quat[env_ids]
         self._step[env_ids] = 0.0
+        self._clamp_held[env_ids] = False
         self._raw_actions[env_ids] = 0.0
         self._tau_prev[env_ids] = 0.0
 
