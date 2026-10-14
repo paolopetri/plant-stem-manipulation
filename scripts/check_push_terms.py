@@ -20,8 +20,7 @@ Phases (the stem base fixed at x 0.65 m, y 0, except in `rest`):
   slot. Approach reward rises and in contact is above 1 - tanh((d + 1 mm) / std), d from the slot geometry and the
   push (`stem_reference.slot_approach_distance`; user, 2026-10-14); contact force > 0.05 N, below 2 N, penalty 0.
   Then, as a mechanism check with lowered thresholds (not the decided values): penalty threshold 0 N -> penalty = F^2;
-  limit at half the current force
-  -> `contact_force_limit` fires in every env.
+  limit at half the current force -> `contact_force_limit` fires in every env.
 - impact: the fork at full speed into the stem at 0.25 m height (informational: the largest mean force of a policy
   step; whether the 5 N limit is reached by an impact; fails only if the fork does not reach / touch the stem).
 - curvature: a force on the tip segment, ramped 0 -> 2 N; the penalty becomes > 0 above 4 1/m and
@@ -83,9 +82,8 @@ BEHIND = 0.20  # [m] tool tip this far behind the stem axis before a push (prong
 PUSH_HEIGHT, IMPACT_HEIGHT = 0.30, 0.25  # [m] tool-tip height of the slow push and of the impact
 REACH_TOL = 2e-3  # [m] the scripted drive must end this close to its goal, without a reset on the way
 PUSH_DEPTH = 0.04  # [m] slow push: tool tip this far beyond first contact of the slot bottom
-# Approach in contact (user, 2026-10-14): the pushed stem leans by theta (cantilever slope at the plate's bottom face)
-# and rests on the slot bottom there, so the tool tip (top face) is d = r + h sin(theta) from its centre line
-# (`stem_reference.slot_approach_distance`); threshold = 1 - tanh((d + margin) / std).
+# Approach in contact (user, 2026-10-14): threshold = 1 - tanh((d + margin) / std), d from
+# `stem_reference.slot_approach_distance` (derivation there).
 # fork_v2 plate thickness at the slot bottom, below the tool tip (measured in fork_v2_visual.stl and _collision.stl)
 SLOT_PLATE_THICKNESS = 0.018  # [m]
 APPROACH_MARGIN = 1e-3  # [m] on d
