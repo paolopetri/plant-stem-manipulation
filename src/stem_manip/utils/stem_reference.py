@@ -7,6 +7,8 @@ Tests: `tests/test_stem_reference.py`.
 import math
 from collections.abc import Sequence
 
+import numpy as np
+
 
 def chain_tip_sag(
     length: float,
@@ -165,14 +167,62 @@ def slot_approach_distance(radius: float, plate_thickness: float, push_height: f
     return radius + plate_thickness * math.sin(theta)
 
 
-def beam_first_frequency(length: float, diameter: float, density: float, bend_modulus: float) -> float:
-    """First bending frequency [Hz] of a uniform round beam clamped at one end (Euler-Bernoulli, no shear).
+def chain_first_mode(
+    length: float,
+    num_segments: int,
+    diameter: float,
+    density: float,
+    bend_modulus: float,
+    damping_time: float,
+    armature: float = 0.0,
+    gravity: float = 9.81,
+) -> tuple[float, float]:
+    """First bending mode of the upright stem model, clamped at the base: frequency and damping ratio.
 
-    f = (1.8751^2 / (2 pi)) * sqrt(E I / (rho A L^4)). `length` is the free length beyond the clamp [m].
+    Exact linear model of the chain in one bending plane (small angles). Segment 0 is clamped; joint j
+    (j = 1 .. num_segments - 1) at height j l has the relative angle theta_j, a bend spring k = E I / l, a damper
+    damping_time * k and the joint `armature`. Segment i (mass m = rho A l, a solid cylinder with the moment of
+    inertia m (3 r^2 + l^2) / 12 about its centre, as in the `chain` USD) tilts by phi_i = theta_1 + ... + theta_i;
+    its centre moves sideways by l (phi_1 + ... + phi_(i-1)) + l phi_i / 2. Gravity lowers the stiffness of the
+    upright stem: segment i's weight above its tilted lower neighbours gives the potential
+    -m g l / 4 * (2 (phi_1^2 + ... + phi_(i-1)^2) + phi_i^2). Mode 1 of M theta'' + (K_spring - K_gravity) theta = 0
+    gives the frequency; its damping ratio is damping_time * (phi^T K_spring phi) / (2 omega phi^T M phi) for the
+    mode shape phi (only the springs are damped, so with gravity it is above damping_time * omega / 2).
+
+    Args:
+        length: Stem length [m].
+        num_segments: Number of segments, including the clamped one.
+        diameter: Stem diameter [m].
+        density: Density [kg/m^3].
+        bend_modulus: Bend modulus E [Pa].
+        damping_time: Damping time tau [s] of the joint dampers (damping = tau * stiffness).
+        armature: Extra inertia on every joint coordinate [kg m^2].
+        gravity: Gravitational acceleration [m/s^2]; 0 for the stem without its weight.
+
+    Returns:
+        Frequency [Hz] and damping ratio [-] of the first bending mode.
     """
-    area = math.pi * diameter**2 / 4
-    area_moment = math.pi * diameter**4 / 64
-    return 1.8751**2 / (2.0 * math.pi) * math.sqrt(bend_modulus * area_moment / (density * area * length**4))
+    segment_length = length / num_segments
+    radius = diameter / 2
+    mass = density * math.pi * radius**2 * segment_length
+    centre_inertia = mass * (3 * radius**2 + segment_length**2) / 12
+    joint_stiffness = bend_modulus * math.pi * diameter**4 / 64 / segment_length
+    free = num_segments - 1
+    tilt = np.tril(np.ones((free, free)))  # phi = tilt @ theta
+    centre = np.tril(np.full((free, free), segment_length), -1) + np.eye(free) * segment_length / 2  # x = centre @ phi
+    sideways = centre @ tilt
+    mass_matrix = mass * sideways.T @ sideways + centre_inertia * tilt.T @ tilt + armature * np.eye(free)
+    spring = joint_stiffness * np.eye(free)
+    # phi_k^2 carries the weight of the segments above segment k plus half its own: m g l (free - k + 1/2), k = 1..
+    weight = mass * gravity * segment_length * (free - np.arange(free) - 0.5)
+    stiffness = spring - tilt.T @ np.diag(weight) @ tilt
+    # symmetric generalized eigenproblem K phi = omega^2 M phi via M = C C^T (eigh: ascending eigenvalues)
+    cholesky_inv = np.linalg.inv(np.linalg.cholesky(mass_matrix))
+    eigenvalues, shapes = np.linalg.eigh(cholesky_inv @ stiffness @ cholesky_inv.T)
+    omega = math.sqrt(eigenvalues[0])
+    shape = cholesky_inv.T @ shapes[:, 0]
+    damping_ratio = damping_time * (shape @ spring @ shape) / (2.0 * omega * (shape @ mass_matrix @ shape))
+    return omega / (2.0 * math.pi), float(damping_ratio)
 
 
 def analyze_oscillation(signal: Sequence[float], dt: float) -> tuple[float, float, float]:

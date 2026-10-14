@@ -18,7 +18,8 @@ stretch). This is a full clamp; the lowest segment no longer deforms, so the fle
 `length * (1 - 1 / num_segments)`. Call it after the simulation is built (the flag lives in the Newton model,
 not in the cfg).
 
-Verify: `scripts/check_stem.py`.
+`scripts/check_stem.py` checks only `chain`, the training model; `scripts/sweep_stem_solver.py` reports this
+model's solver accuracy.
 """
 
 import math

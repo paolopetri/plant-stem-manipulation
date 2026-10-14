@@ -102,11 +102,53 @@ def test_chain_weight_strain():
     assert all(a < b < 0.0 for a, b in zip(strain, strain[1:], strict=False))  # compression decreases upwards
 
 
-def test_beam_first_frequency():
-    beam = {key: STEM[key] for key in ("length", "diameter", "density", "bend_modulus")}
-    frequency = stem_reference.beam_first_frequency(**beam)
-    assert frequency == pytest.approx(4.946, abs=0.002)  # hand value for the 0.4 m placeholder stem
-    assert stem_reference.beam_first_frequency(**beam | dict(length=0.2)) == pytest.approx(4 * frequency)
+MODE = {key: STEM[key] for key in ("length", "num_segments", "diameter", "density", "bend_modulus")} | dict(
+    damping_time=0.0032
+)
+
+
+@pytest.mark.parametrize(
+    "gravity, armature, frequency, digits",
+    [(9.81, 0.0, 5.109, 3), (9.81, 1.0e-4, 5.055, 3), (0.0, 0.0, 5.21, 2), (0.0, 1.0e-4, 5.15, 2)],
+)
+def test_chain_first_mode_of_the_placeholder_stem(gravity, armature, frequency, digits):
+    """Mode 1 of the exact linear chain, computed independently on 2026-10-05 (docs/notes/2026-10-05.md, given
+    there to `digits` decimals)."""
+    mode_frequency, _ = stem_reference.chain_first_mode(**MODE, armature=armature, gravity=gravity)
+    assert mode_frequency == pytest.approx(frequency, abs=0.5 * 10**-digits)
+
+
+def test_chain_first_mode_of_one_free_segment_is_an_inverted_pendulum_on_a_spring():
+    """Two segments: one joint, one free segment of mass m and length l rotating about its lower end."""
+    length, diameter, density, armature, gravity, damping_time = 0.04, 0.008, 1000.0, 1.0e-6, 9.81, 0.0032
+    segment_length, radius = length / 2, diameter / 2
+    mass = density * math.pi * radius**2 * segment_length
+    inertia = mass * (3 * radius**2 + segment_length**2) / 12 + mass * (segment_length / 2) ** 2 + armature
+    spring = 5.0e8 * math.pi * diameter**4 / 64 / segment_length
+    omega = math.sqrt((spring - mass * gravity * segment_length / 2) / inertia)
+    frequency, damping_ratio = stem_reference.chain_first_mode(
+        length, 2, diameter, density, 5.0e8, damping_time, armature=armature, gravity=gravity
+    )
+    assert frequency == pytest.approx(omega / (2 * math.pi), rel=1e-9)
+    assert damping_ratio == pytest.approx(damping_time * spring / (2 * omega * inertia), rel=1e-9)
+
+
+def test_chain_first_mode_approaches_the_beam_formula():
+    """Many segments, no weight -> clamped Euler-Bernoulli beam, f = 1.8751^2 / (2 pi) sqrt(E I / (rho A L^4))."""
+    area = math.pi * STEM["diameter"] ** 2 / 4
+    area_moment = math.pi * STEM["diameter"] ** 4 / 64
+    beam = 1.8751**2 / (2 * math.pi) * math.sqrt(STEM["bend_modulus"] * area_moment / (1000.0 * area * 0.4**4))
+    frequency, _ = stem_reference.chain_first_mode(**MODE | dict(num_segments=1000), gravity=0.0)
+    assert frequency == pytest.approx(beam, rel=2e-3)
+
+
+def test_chain_first_mode_damping_without_weight_and_with_weight():
+    """Without weight, stiffness-proportional damping gives zeta = tau omega / 2 exactly; the weight lowers omega
+    but not the damped spring energy, so zeta rises above tau omega / 2."""
+    frequency, damping_ratio = stem_reference.chain_first_mode(**MODE, gravity=0.0)
+    assert damping_ratio == pytest.approx(MODE["damping_time"] * math.pi * frequency, rel=1e-9)
+    frequency, damping_ratio = stem_reference.chain_first_mode(**MODE, gravity=9.81)
+    assert damping_ratio > MODE["damping_time"] * math.pi * frequency
 
 
 def _damped_swing(frequency: float, damping_ratio: float, amplitude: float, dt: float, duration: float) -> list[float]:

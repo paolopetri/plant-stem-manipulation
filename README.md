@@ -34,7 +34,7 @@ and their pass criteria); `--help` lists its options.
 uv run isaaclab list_envs                               # lists registered tasks, including this project's
 uv run pytest                                           # unit tests (no simulator)
 uv run --extra isaacsim python scripts/check_fr3.py     # FR3 + end-effector asset: pass/fail
-uv run --extra isaacsim python scripts/check_stem.py --stem_model chain   # stem model alone: pass/fail
+uv run --extra isaacsim python scripts/check_stem.py     # chain stem model alone: pass/fail
 uv run --extra isaacsim python scripts/sweep_stem_solver.py --test kick   # cable stem: accuracy of one solver setting
 uv run --extra isaacsim python scripts/check_contact.py --test slot       # FR3 + fork push the chain stem: pass/fail
 uv run --extra isaacsim python scripts/sweep_impedance.py                 # impedance controller study (fork + stem)
@@ -49,9 +49,9 @@ uv run --extra isaacsim isaaclab zero_agent --task StemManip-Push-Position-FR3-v
 uv run --extra isaacsim isaaclab random_agent --task StemManip-Push-Position-FR3-v0 --num_envs 4 --max_steps 700
 ```
 
-`check_stem.py` defaults to the `cable` model; the training uses `chain`. The zero / random agents must be started
-through the `isaaclab` CLI as above (Isaac Lab's `scripts/environments/zero_agent.py` run directly does not register
-this project's tasks), and they need `--max_steps`: without it they run until the process is killed.
+The zero / random agents must be started through the `isaaclab` CLI as above (Isaac Lab's
+`scripts/environments/zero_agent.py` run directly does not register this project's tasks), and they need
+`--max_steps`: without it they run until the process is killed.
 Training: see "Push task: training" below.
 
 Before a refactor of simulator code, record a rollout on `main` and compare it with one recorded after the
@@ -69,8 +69,7 @@ scenes: the `chain` stem and the push task) or `--viz newton_gl` (Newton's viewe
 (window "not responding"); later starts take seconds.
 
 ```bash
-uv run --extra isaacsim python scripts/check_stem.py --stem_model chain --viz kit --slow_motion 5
-uv run --extra isaacsim python scripts/check_stem.py --stem_model cable --viz newton_gl --slow_motion 5
+uv run --extra isaacsim python scripts/check_stem.py --viz kit --slow_motion 5
 uv run --extra isaacsim python scripts/sweep_stem_solver.py --test kick --viz newton_gl --slow_motion 5 --steps 200
 uv run --extra isaacsim python scripts/check_contact.py --test slot_far --viz kit --slow_motion 3
 uv run --extra isaacsim python scripts/check_push_env.py --num_envs 1 --viz kit --slow_motion 3
