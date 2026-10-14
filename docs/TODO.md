@@ -4,11 +4,13 @@ High-level items and discussion: current milestone, roadmap, research directions
 
 ## Current milestone: M5 First training run
 Stem model `chain` in PhysX (decision 2026-10-06). Exit criterion: tag `v0.1-position-control` once a policy reaches the targets.
+- Current work: #77, #78, #79, #80, #81, #82, #84, #85, #86, #88, #94, #95.
+- Later (label `later`): #75, #76, #83, #87, #89, #90, #91, #92, #93, #100, #101, #103, #104.
 
 ## Roadmap
 1. Domain randomization of the stem parameters (stiffness, length, diameter, damping): ranges #89, per-env parameters #90, re-checks over the range #101.
-2. Stage 2: full pose control (`tasks/push_pose`).
-3. Model-based baseline (nominal vs. oracle parameters) in `src/stem_manip/baselines/`.
+2. Stage 2: full pose control (`tasks/push_pose`, #103).
+3. Model-based baseline (nominal vs. oracle parameters, #104).
 4. Real-robot validation on an artificial plant (identification #92, controller port #83).
 5. Distillation into a vision-based policy.
 
@@ -28,7 +30,7 @@ Realistic values: literature, or measurements on the artificial plant?
 
 ## Questions for Alessio Caporali (stem model and perception)
 Collected for one email.
-- **Stem-state observation:** how many points along the stem can the vision model deliver, how accurately (mm), at what rate, and with what latency? Can it identify the tip (the stem point the policy controls)? The policy observes the stem base and 5 points at 0.08 ... 0.40 m, at the current and the previous policy step (32 ms earlier): can it see the base (where the stem leaves the pot), and deliver two consecutive frames at about 31 Hz? (#88)
+- **Stem-state observation:** the policy observes a subsample of points along the stem (decision 2026-10-06). How many points along the stem can the vision model deliver, how accurately (mm), at what rate, and with what latency? Can it identify the tip (the stem point the policy controls)? The policy observes the stem base and 5 points at 0.08 ... 0.40 m, at the current and the previous policy step (32 ms earlier): can it see the base (where the stem leaves the pot), and deliver two consecutive frames at about 31 Hz? (#88)
 - **Specialization to the test plant:** which of options A/B/C (Research directions) does he mean? Likely A, possibly with B.
 - **Stem damping:** with `damping_time` 3.2 ms (damping ratio about 0.06) the stem swings several times after a kick, more like a bamboo stick than a living stem, which is likely much more damped. Can we measure the decay on the artificial plant? (#89)
 - **Chain joint armature** (2026-10-05): PhysX solves the joint springs iteratively, and without armature the 1 g segments on E I / l springs come out 16 x too soft (8 iterations; 128 iterations still 4 x). Armature 1e-4 kg m² per joint coordinate fixes the static shape and the first mode (-1 %) but makes modes 2 and 3 26 % and 64 % too slow. Is that acceptable for slow pushing, or is a solver without this problem preferable (e.g. MuJoCo-Warp, which solves joint-space dynamics with a direct solver; untested)?
