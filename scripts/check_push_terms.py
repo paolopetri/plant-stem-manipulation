@@ -17,10 +17,10 @@ Phases (the stem base fixed at x 0.65 m, y 0, except in `rest`):
 - action_rate: alternating actions; the term equals sum((a_t - a_t-1)^2) of the actions sent.
 - push: drive the fork behind the stem at 0.30 m height (forward first, then down; the drive must reach its goal
   within 2 mm without a reset), at full speed until 1 cm before contact, then push it slowly (5 cm/s) 4 cm into the
-  slot. Approach
-  reward rises and is > 0.9 in contact; contact force > 0.05 N, below 2 N, penalty 0. Then, as a mechanism check with
-  lowered thresholds (not the decided values): penalty threshold 0 N -> penalty = F^2; limit at half the current force
-  -> `contact_force_limit` fires in every env.
+  slot. Approach reward rises and in contact is above 1 - tanh((d + 1 mm) / std), d from the slot geometry and the
+  push (`stem_reference.slot_approach_distance`; user, 2026-10-14); contact force > 0.05 N, below 2 N, penalty 0.
+  Then, as a mechanism check with lowered thresholds (not the decided values): penalty threshold 0 N -> penalty = F^2;
+  limit at half the current force -> `contact_force_limit` fires in every env.
 - impact: the fork at full speed into the stem at 0.25 m height (informational: the largest mean force of a policy
   step; whether the 5 N limit is reached by an impact; fails only if the fork does not reach / touch the stem).
 - curvature: a force on the tip segment, ramped 0 -> 2 N; the penalty becomes > 0 above 4 1/m and
@@ -62,7 +62,7 @@ from isaaclab.utils.math import subtract_frame_transforms
 import stem_manip.tasks  # noqa: F401  (registers the task)
 from stem_manip.assets.stem import stem_model, stem_params
 from stem_manip.tasks.push_position.env_cfg import STEM_MODEL, StemPushPositionEnvCfg
-from stem_manip.utils import check_report, rollout
+from stem_manip.utils import check_report, rollout, stem_reference
 from stem_manip.utils.stem_geometry import joint_curvature, point_pose, stem_points
 
 TASK = "StemManip-Push-Position-FR3-v0"
@@ -82,6 +82,11 @@ BEHIND = 0.20  # [m] tool tip this far behind the stem axis before a push (prong
 PUSH_HEIGHT, IMPACT_HEIGHT = 0.30, 0.25  # [m] tool-tip height of the slow push and of the impact
 REACH_TOL = 2e-3  # [m] the scripted drive must end this close to its goal, without a reset on the way
 PUSH_DEPTH = 0.04  # [m] slow push: tool tip this far beyond first contact of the slot bottom
+# Approach in contact (user, 2026-10-14): threshold = 1 - tanh((d + margin) / std), d from
+# `stem_reference.slot_approach_distance` (derivation there).
+# fork_v2 plate thickness at the slot bottom, below the tool tip (measured in fork_v2_visual.stl and _collision.stl)
+SLOT_PLATE_THICKNESS = 0.018  # [m]
+APPROACH_MARGIN = 1e-3  # [m] on d
 RAMP_FORCE, RAMP_STEPS = 2.0, 150  # [N], policy steps: tip force ramp of the curvature phase
 REWARD_TOL = 1e-4
 APPROACH_TOL = 5e-4  # [m]
@@ -333,11 +338,18 @@ def main() -> None:
                     if (snap["tool"][:, 0] >= goal[:, 0] - 1e-3).all():
                         break
                 approach_contact = float(recorded["approach"].min())
+                approach_d = stem_reference.slot_approach_distance(
+                    radius, SLOT_PLATE_THICKNESS, PUSH_HEIGHT, PUSH_DEPTH
+                )
+                approach_min = 1.0 - math.tanh((approach_d + APPROACH_MARGIN) / STD["approach"])
                 min_force_end = float(snap["force"].min())
                 results["push: approach"] = (
-                    reached and bool((approach_behind > approach_start + 0.01).all()) and approach_contact > 0.9,
+                    reached
+                    and bool((approach_behind > approach_start + 0.01).all())
+                    and approach_contact > approach_min,
                     f"{reach_info}; approach at the start {float(approach_start.mean()):.3f}, behind the stem "
-                    f"{float(approach_behind.mean()):.3f}, in contact (min) {approach_contact:.3f}",
+                    f"{float(approach_behind.mean()):.3f}, in contact (min) {approach_contact:.3f} "
+                    f"(expected > {approach_min:.3f}: d {approach_d * 1e3:.2f} mm + {APPROACH_MARGIN * 1e3:.0f} mm)",
                 )
                 results["push: contact"] = (
                     force_before == 0.0 and min_force_end > 0.05 and max_force < FREE_FORCE and max_penalty == 0.0,

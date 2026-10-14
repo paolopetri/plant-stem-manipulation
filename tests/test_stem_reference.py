@@ -131,3 +131,22 @@ def test_analyze_oscillation_recovers_frequency_and_damping(frequency, damping_r
 def test_analyze_oscillation_without_a_swing_returns_nan():
     first_peak, frequency, damping_ratio = stem_reference.analyze_oscillation([0.0] * 50, dt=0.01)
     assert math.isnan(first_peak) and math.isnan(frequency) and math.isnan(damping_ratio)
+
+
+SLOT_PUSH = dict(radius=0.004, plate_thickness=0.018, push_height=0.30, push_depth=0.04)
+
+
+def test_slot_approach_distance_of_the_push_check():
+    # hand value: theta = atan(1.5 * 40.09 mm / 282 mm) = 0.2101 rad, d = 4 mm + 18 mm * sin(theta)
+    assert stem_reference.slot_approach_distance(**SLOT_PUSH) == pytest.approx(7.754e-3, abs=0.005e-3)
+
+
+@pytest.mark.parametrize("change", [dict(push_depth=0.0), dict(plate_thickness=0.0)])
+def test_slot_approach_distance_of_an_upright_stem_or_a_thin_plate_is_the_radius(change):
+    # no push: the stem stays upright; no plate: the tool tip is on the touching face
+    assert stem_reference.slot_approach_distance(**SLOT_PUSH | change) == pytest.approx(0.004, abs=1e-9)
+
+
+def test_slot_approach_distance_grows_with_the_push_depth():
+    shallow = stem_reference.slot_approach_distance(**SLOT_PUSH | dict(push_depth=0.02))
+    assert 0.004 < shallow < stem_reference.slot_approach_distance(**SLOT_PUSH)
