@@ -43,6 +43,7 @@ def reset_arm_start_pose(
 ) -> None:
     """Reset event: each env in `env_ids` gets one of `poses` at random (joint angles [rad] of `asset_cfg`'s joints, in
     their order), plus uniform noise in [-`joint_noise`, `joint_noise`] [rad] on every joint, at rest."""
+    env_ids = _env_id_tensor(env, env_ids)
     robot = env.scene[asset_cfg.name]
     table = torch.tensor(poses, dtype=torch.float32, device=env.device)
     picked = table[torch.randint(len(table), (len(env_ids),), device=env.device)]
@@ -69,6 +70,7 @@ def reset_stem_base_uniform(
     centre line (the slot base's x axis from `fork_extent[0]` to `fork_extent[1]` [m], at the robot's pose after the
     reset events before this one) is drawn again. Assumes robot base frame = env frame (the spawn area's convention).
     """
+    env_ids = _env_id_tensor(env, env_ids)
     stem = env.scene[asset_cfg.name]
     pose = stem.data.default_root_pose.torch[env_ids].clone()
     ranges = torch.tensor((x_range, y_range), device=env.device)
@@ -99,3 +101,10 @@ def _fork_centre_line(env: ManagerBasedEnv, env_ids: torch.Tensor, extent: tuple
     s = torch.linspace(*extent, num_points, device=env.device)
     x_axis = quat_apply(quat, torch.tensor((1.0, 0.0, 0.0), device=env.device).expand(len(env_ids), 3))
     return pos[:, None] + s[None, :, None] * x_axis[:, None]
+
+
+def _env_id_tensor(env: ManagerBasedEnv, env_ids: torch.Tensor | slice) -> torch.Tensor:
+    """The env ids as a tensor (the event manager passes a slice for all envs)."""
+    if isinstance(env_ids, slice):
+        return torch.arange(env.scene.num_envs, device=env.device)[env_ids]
+    return env_ids
