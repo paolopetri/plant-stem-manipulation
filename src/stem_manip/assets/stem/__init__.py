@@ -7,6 +7,7 @@ Each model module provides the same functions (table in `docs/architecture.md`, 
 - `physics_cfg()`: the physics cfg of the scene (the engine follows from the model);
 - `fix_stem_base(stem)`: clamp the base after the simulation is built;
 - `segment_poses(stem)`: (num_envs, num_segments, 7) segment poses, world frame;
+- `segment_length(stem)`: rest length of one segment, read from the asset;
 - `segment_masses(stem)`, `joint_gains(stem)`: read back masses and joint gains;
 - `write_kick(stem, angular_velocity)`, `segment_force_setter(stem)`: kick and push for the checks.
 

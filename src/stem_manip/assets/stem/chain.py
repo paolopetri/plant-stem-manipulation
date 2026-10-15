@@ -199,9 +199,14 @@ def segment_poses(stem: Articulation) -> torch.Tensor:
     segment_ids = _segment_ids(stem)
     poses = stem.data.body_link_pose_w.torch[:, segment_ids].clone()
     up = torch.zeros_like(poses[..., :3])
-    up[..., 2] = 0.5 * float(stem.cfg.spawn.length) / stem.cfg.spawn.num_segments
+    up[..., 2] = 0.5 * segment_length(stem)
     poses[..., :3] += quat_apply(poses[..., 3:], up)
     return poses
+
+
+def segment_length(stem: Articulation) -> float:
+    """Rest length of one segment [m] (all segments equally long), from the geometry the stem's USD was built from."""
+    return float(stem.cfg.spawn.length) / stem.cfg.spawn.num_segments
 
 
 def segment_masses(stem: Articulation) -> torch.Tensor:

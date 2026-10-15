@@ -12,20 +12,24 @@ recorded after it:
   observation term (at the reset and after each step), every reward term (weighted, before x dt), every termination
   term, and the raw robot-stem contact force and the largest stem curvature (after the step) per step and env, with
   the settings and the commit (`torch.save`).
-- `compare <a> <b>`: prints one row per term with its max absolute difference: PASS if within `--tol`, FAIL
+- `compare <a> <b>`: prints one row per term with its max absolute difference: PASS if within the tolerance, FAIL
   naming the term otherwise; a term missing in one recording, another shape, or other settings (task, envs, steps,
   seed, device, push rollout length) are FAIL. Exit status 0 if all passed, 1 otherwise. No simulator needed.
   `--rename old=new` (repeatable) compares a term renamed by the refactor: the baseline's `old` term is compared
   with the other recording's `new` term; how names match and what is an error (exit status 1):
   `rollout_compare.compare`.
 
-Tolerance (user, 2026-10-14): bit-exact (`--tol 0`, the default) on the same device; GPU and CPU recordings differ.
-A refactor that legitimately changes the floating-point order may pass `--tol` (e.g. 1e-6) and states the reason in
-its PR.
+Tolerance (user, 2026-10-14): bit-exact on the same device; GPU and CPU recordings differ. Without `--tol`, the
+contact-sensor force terms (the raw robot-stem contact force and the contact-force reward, in every rollout) pass
+within a float32 noise floor (user, 2026-10-15) and their rows say "float32 noise" when non-zero: the floor, its
+reason and the terms are in `rollout_compare.CONTACT_FORCE_NOISE`. An explicit `--tol` applies to all terms, the
+contact force included: a refactor that legitimately changes the floating-point order may pass `--tol` (e.g. 1e-6)
+and states the reason in its PR.
 
-Refactor workflow: recordings go under `logs/` (not committed); the baseline is recorded on `main` right before the
-refactor, so no golden file goes stale.
-    git switch main
+Refactor workflow: recordings go under `logs/` (not committed); the baseline is recorded right before the refactor,
+in the branch's worktree (check out the base commit there first, here `main`), not in the main checkout, so no
+golden file goes stale.
+    git switch --detach main
     uv run --extra isaacsim python scripts/record_rollout.py record logs/rollout/main.pt
     git switch <refactor branch>
     uv run --extra isaacsim python scripts/record_rollout.py record logs/rollout/refactor.pt
@@ -85,7 +89,12 @@ record_parser.add_argument("--seed", type=int, default=42, help="Seed of the env
 compare_parser = commands.add_parser("compare", help="Compare two recordings.")
 compare_parser.add_argument("a", type=Path, help="Baseline recording.")
 compare_parser.add_argument("b", type=Path, help="Recording to compare with the baseline.")
-compare_parser.add_argument("--tol", type=float, default=0.0, help="Largest absolute difference that passes.")
+compare_parser.add_argument(
+    "--tol",
+    type=float,
+    default=None,
+    help="Largest absolute difference that passes, for every term (default: the rule in the docstring).",
+)
 compare_parser.add_argument(
     "--rename",
     type=rename,
@@ -114,6 +123,7 @@ def record() -> None:
     import stem_manip.tasks  # noqa: F401  (registers the task)
     from stem_manip.tasks.push_position import mdp
     from stem_manip.tasks.push_position.env_cfg import StemPushPositionEnvCfg
+    from stem_manip.tasks.push_position.mdp.stem_state import stem_state
 
     env_cfg = StemPushPositionEnvCfg()
     env_cfg.scene.num_envs = args_cli.num_envs
@@ -130,9 +140,8 @@ def record() -> None:
         )
         reward_names = env.reward_manager.active_terms
         term_names = env.termination_manager.active_terms
-        # the contact sensor and the stem model of the damage terms, from their cfg
+        # the contact sensor of the damage terms, from their cfg
         sensor_cfg = env.reward_manager.get_term_cfg("contact_force").params["sensor_cfg"]
-        stem_model = env.reward_manager.get_term_cfg("curvature").params["model"]
         terms: dict[str, torch.Tensor] = {}
 
         def run(agent: str, steps: int, policy) -> None:
@@ -148,7 +157,7 @@ def record() -> None:
                     terminations[name].append(env.termination_manager.get_term(name).clone())
                 # raw damage quantities after the step (after the reset in envs that were reset)
                 state["robot_contact_force"].append(mdp.robot_contact_force(env, sensor_cfg))
-                state["max_curvature"].append(mdp.stem_curvature(env, stem_model).amax(dim=-1))
+                state["max_curvature"].append(stem_state(env).curvature().amax(dim=-1))
             obs_all, reward_all = torch.stack(obs).cpu(), torch.stack(rewards).cpu()
             for name, part in slices.items():
                 terms[f"{agent}/obs/{name}"] = obs_all[..., part]
@@ -201,7 +210,8 @@ def record() -> None:
 def compare() -> None:
     """Print the rows of the two recordings and exit with the verdict."""
     a, b = (torch.load(path) for path in (args_cli.a, args_cli.b))
-    print(f"=== record_rollout compare {args_cli.a} {args_cli.b} (tol {args_cli.tol:g}) ===")
+    tol = f"tol {args_cli.tol:g}" if args_cli.tol is not None else "default tol"
+    print(f"=== record_rollout compare {args_cli.a} {args_cli.b} ({tol}) ===")
     try:
         rows = rollout_compare.compare(a, b, args_cli.tol, args_cli.rename)
     except ValueError as error:

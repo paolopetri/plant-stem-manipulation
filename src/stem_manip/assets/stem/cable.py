@@ -125,6 +125,13 @@ def segment_poses(stem: CableObject) -> torch.Tensor:
     return stem.data.segment_pose_w.torch
 
 
+def segment_length(stem: CableObject) -> float:
+    """Rest length of one segment [m] (all segments equally long), from the node positions the cable was spawned
+    with."""
+    positions = stem.cfg.spawn.positions
+    return math.dist(positions[0], positions[-1]) / (len(positions) - 1)
+
+
 def segment_masses(stem: CableObject) -> torch.Tensor:
     """Segment masses (num_envs, num_segments) [kg]."""
     model = NewtonManager.get_model()

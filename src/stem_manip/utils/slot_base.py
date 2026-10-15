@@ -3,7 +3,8 @@
 The slot base is a fixed offset (position, quaternion (x, y, z, w)) in the end-effector body, e.g.
 `stem_manip.assets.fr3.slot_base_offset("fork_v2")`. `slot_base_pose` and `slot_base_jacobian` are pure tensor
 functions (tests: `tests/test_slot_base.py`); the push task's `mdp/slot_base.py` (`SlotBaseKinematics`) reads their
-inputs from the robot articulation for the action term and the scripts, the observations call `slot_base_pose`.
+inputs from the robot articulation, one instance per env (`slot_base(env)`) for the action term, the observations and
+the approach reward, and its own instances in the scripts.
 Batched over the first dimension (num_envs); the Jacobian rows are linear velocity then angular velocity, as in
 `stem_manip.utils.impedance`.
 

@@ -101,6 +101,9 @@ recorded afterwards with `play`.
 ```bash
 uv run --extra isaacsim isaaclab train --task StemManip-Push-Position-FR3-v0 --num_envs 4096 --run_name <name>
 uv run python scripts/summarize_run.py logs/rsl_rl/stem_push_position/<date>_<name>     # compact table of the run
+# evaluate a checkpoint with the mean action, as play runs it: how the episodes end, final errors, fork rotation
+# (one episode per env, about 4 min with the default envs; per-episode values in <run dir>/eval/)
+uv run --extra isaacsim python scripts/evaluate_policy.py logs/rsl_rl/stem_push_position/<date>_<name>/model_<iteration>.pt
 # play the last checkpoint and record 2 episodes of env 0 (writes <run dir>/videos/play/), then put it on wandb
 uv run --extra isaacsim --extra video isaaclab play --task StemManip-Push-Position-FR3-v0 --num_envs 4 \
     --checkpoint logs/rsl_rl/stem_push_position/<date>_<name>/model_<last iteration>.pt --video --video_length 938
