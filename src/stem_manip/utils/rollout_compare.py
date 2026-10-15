@@ -9,9 +9,10 @@ check that the push rollout still exercises the damage limits.
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, fields
 
-# Noise floor of the contact-sensor force terms (issue #150): their float32 contact solve differs by up to ~2.4e-7 N
-# between recordings of unchanged code (another checkout, or a code change that leaves the physics alone), so they
-# pass within it; every other term is bit-exact. Names match term keys as in `compare` (every rollout).
+# Noise floor of the contact-sensor force terms (user, 2026-10-15): their float32 contact solve differs by up to
+# ~2.4e-7 N between recordings of unchanged code (another checkout, or a code change that leaves the physics alone),
+# so they pass within it and are marked "float32 noise"; every other term is bit-exact (#150). A term key matches
+# when it is `<rollout>/` followed by one of these names, in every rollout.
 CONTACT_FORCE_TERMS = ("reward/contact_force", "state/robot_contact_force")
 CONTACT_FORCE_NOISE = 1e-6
 
@@ -41,9 +42,8 @@ def compare(
 
     Args:
         a, b: Recordings `{"meta": {...}, "terms": {name: tensor}}`.
-        tol: Largest absolute difference that passes, for every term. None: bit-exact, except the
-            `CONTACT_FORCE_TERMS`, which pass within `CONTACT_FORCE_NOISE` and are marked "float32 noise" when
-            their difference is non-zero.
+        tol: Largest absolute difference that passes, for every term. None (the default rule): bit-exact, except
+            the `CONTACT_FORCE_TERMS`, which pass within `CONTACT_FORCE_NOISE`.
         renames: `(old, new)` for terms renamed between `a` and `b`: the terms of `a` are compared under their new
             names. A name matches a term key whole or as its tail after a `/` (`slot_base_pos` matches
             `zero/obs/slot_base_pos` in every rollout; `reward/curvature` only the reward term). The renames apply
@@ -72,9 +72,15 @@ def compare(
             rows[name] = (False, f"shape {tuple(x.shape)} vs {tuple(y.shape)}")
         else:
             diff = float((x.double() - y.double()).abs().max()) if x.numel() else 0.0
-            contact = tol is None and any(_matches(name, term) for term in CONTACT_FORCE_TERMS)
-            ok = diff <= (CONTACT_FORCE_NOISE if contact else tol or 0.0)
-            noise = " (float32 noise)" if contact and ok and diff > 0 else ""
+            noise_floor = tol is None and name.partition("/")[2] in CONTACT_FORCE_TERMS
+            if tol is not None:
+                limit = tol
+            elif noise_floor:
+                limit = CONTACT_FORCE_NOISE
+            else:
+                limit = 0.0
+            ok = diff <= limit
+            noise = " (float32 noise)" if noise_floor and ok and diff > 0 else ""
             rows[name] = (ok, f"max |diff| {diff:.3g}{noise}")
     return rows
 

@@ -19,17 +19,16 @@ recorded after it:
   with the other recording's `new` term; how names match and what is an error (exit status 1):
   `rollout_compare.compare`.
 
-Tolerance (user, 2026-10-14): bit-exact on the same device; GPU and CPU recordings differ. By default every term is
-bit-exact except the contact-sensor force terms (the raw robot-stem contact force and the contact-force reward, in
-every rollout): their float32 contact solve differs by up to ~2.4e-7 N between recordings of unchanged code, so they
-pass within a noise floor of 1e-6 and their rows say "float32 noise" when non-zero (issue #150,
-`rollout_compare.CONTACT_FORCE_NOISE`). An explicit `--tol` applies to all terms, the contact force included: a
-refactor that legitimately changes the floating-point order may pass `--tol` (e.g. 1e-6) and states the reason in its
-PR.
+Tolerance (user, 2026-10-14): bit-exact on the same device; GPU and CPU recordings differ. Without `--tol`, the
+contact-sensor force terms (the raw robot-stem contact force and the contact-force reward, in every rollout) pass
+within a float32 noise floor (user, 2026-10-15) and their rows say "float32 noise" when non-zero: the floor, its
+reason and the terms are in `rollout_compare.CONTACT_FORCE_NOISE`. An explicit `--tol` applies to all terms, the
+contact force included: a refactor that legitimately changes the floating-point order may pass `--tol` (e.g. 1e-6)
+and states the reason in its PR.
 
 Refactor workflow: recordings go under `logs/` (not committed); the baseline is recorded right before the refactor,
-in the same worktree as the branch (check out the base commit there first), not in the main checkout, so no golden
-file goes stale.
+in the branch's worktree (check out the base commit there first, here `main`), not in the main checkout, so no
+golden file goes stale.
     git switch --detach main
     uv run --extra isaacsim python scripts/record_rollout.py record logs/rollout/main.pt
     git switch <refactor branch>
@@ -94,8 +93,7 @@ compare_parser.add_argument(
     "--tol",
     type=float,
     default=None,
-    help="Largest absolute difference that passes, for every term (default: bit-exact, the contact force within its "
-    "float32 noise floor).",
+    help="Largest absolute difference that passes, for every term (default: the rule in the docstring).",
 )
 compare_parser.add_argument(
     "--rename",

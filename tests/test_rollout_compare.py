@@ -13,9 +13,9 @@ Requirements (issue #52):
   name not in the baseline, a new name not in the other recording, an old name given twice, a term matched by two
   old names, or a renamed term that collides with another baseline term is an error, so no term drops out of the
   comparison unnoticed.
-- The contact-sensor force terms (`reward/contact_force`, `state/robot_contact_force`, in every rollout) pass within
-  a noise floor of 1e-6 and are marked "float32 noise" when their difference is non-zero; every other term stays
-  bit-exact (issue #150). An explicit `tol` applies to all terms.
+- The contact-sensor force terms (`<rollout>/reward/contact_force`, `<rollout>/state/robot_contact_force`, matched
+  exactly below the rollout) pass within a noise floor of 1e-6 and are marked "float32 noise" when their difference
+  is non-zero; every other term stays bit-exact (issue #150). An explicit `tol` applies to all terms.
 """
 
 from dataclasses import asdict, replace
@@ -166,14 +166,14 @@ def test_never_nonzero_names_silent_and_missing_terms():
     assert rollout_compare.never_nonzero(terms, required[:2]) == []
 
 
-def contact(diff: float) -> dict:
+def contact_recording(diff: float) -> dict:
     """`recording()` plus the push contact-force terms, offset by `diff` [N]."""
     force = torch.tensor([[0.0, 1.5], [2.0, 0.0], [3.0, 4.0]], dtype=torch.float64) + diff
     return recording(**{"push/state/robot_contact_force": force, "push/reward/contact_force": -force})
 
 
 def test_contact_force_noise_passes_as_float32_noise():
-    rows = rollout_compare.compare(contact(0.0), contact(2.4e-7))
+    rows = rollout_compare.compare(contact_recording(0.0), contact_recording(2.4e-7))
     assert check_report.report(rows) is True
     for name in ("push/state/robot_contact_force", "push/reward/contact_force"):
         ok, info = rows[name]
@@ -181,12 +181,12 @@ def test_contact_force_noise_passes_as_float32_noise():
 
 
 def test_equal_contact_force_is_not_marked_as_noise():
-    rows = rollout_compare.compare(contact(0.0), contact(0.0))
+    rows = rollout_compare.compare(contact_recording(0.0), contact_recording(0.0))
     assert "float32 noise" not in rows["push/state/robot_contact_force"][1]
 
 
 def test_contact_force_beyond_noise_floor_fails():
-    rows = rollout_compare.compare(contact(0.0), contact(2e-6))
+    rows = rollout_compare.compare(contact_recording(0.0), contact_recording(2e-6))
     assert not rows["push/state/robot_contact_force"][0]
     assert not rows["push/reward/contact_force"][0]
 
@@ -198,8 +198,15 @@ def test_other_terms_stay_bit_exact():
 
 
 def test_explicit_tol_applies_to_contact_force_too():
-    rows = rollout_compare.compare(contact(0.0), contact(2.4e-7), tol=0.0)
+    rows = rollout_compare.compare(contact_recording(0.0), contact_recording(2.4e-7), tol=0.0)
     assert not rows["push/state/robot_contact_force"][0]
-    rows = rollout_compare.compare(contact(0.0), contact(2e-6), tol=1e-5)
+    rows = rollout_compare.compare(contact_recording(0.0), contact_recording(2e-6), tol=1e-5)
     ok, info = rows["push/state/robot_contact_force"]
     assert ok and "float32 noise" not in info
+
+
+def test_noise_floor_matches_contact_terms_only_below_the_rollout():
+    force = torch.zeros(3, 2)
+    a = recording(**{"push/obs/state/robot_contact_force": force})
+    b = recording(**{"push/obs/state/robot_contact_force": force + 2.4e-7})
+    assert not rollout_compare.compare(a, b)["push/obs/state/robot_contact_force"][0]
