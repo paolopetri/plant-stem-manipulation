@@ -72,15 +72,8 @@ class StemState:
     def distance_b(self, points_b: torch.Tensor) -> torch.Tensor:
         """Distance of points (num_envs, k, 3), robot base frame [m], to the stem's centre line, shape (num_envs, k)
         [m]."""
-        num_points = points_b.shape[1]
-        points_w, _ = combine_frame_transforms(
-            self._robot.data.root_pos_w.torch.repeat_interleave(num_points, dim=0),
-            self._robot.data.root_quat_w.torch.repeat_interleave(num_points, dim=0),
-            points_b.reshape(-1, 3),
-        )
-        return stem_geometry.distance_to_centre_line(
-            self._segment_poses(), points_w.reshape(-1, num_points, 3), self._segment_length
-        )
+        points_w = _base_to_world(self._robot, points_b)
+        return stem_geometry.distance_to_centre_line(self._segment_poses(), points_w, self._segment_length)
 
     def _segment_poses(self) -> torch.Tensor:
         """Segment poses (num_envs, num_segments, 7), world frame; read anew at every call (a reset can write the stem
@@ -95,6 +88,15 @@ def _world_to_base(robot: Articulation, points_w: torch.Tensor) -> torch.Tensor:
     root_quat = robot.data.root_quat_w.torch.repeat_interleave(num_points, dim=0)
     points_b, _ = subtract_frame_transforms(root_pos, root_quat, points_w.reshape(-1, 3))
     return points_b.reshape(-1, num_points, 3)
+
+
+def _base_to_world(robot: Articulation, points_b: torch.Tensor) -> torch.Tensor:
+    """Points (num_envs, num_points, 3) [m] in `robot`'s base frame in the world frame, same shape."""
+    num_points = points_b.shape[1]
+    root_pos = robot.data.root_pos_w.torch.repeat_interleave(num_points, dim=0)
+    root_quat = robot.data.root_quat_w.torch.repeat_interleave(num_points, dim=0)
+    points_w, _ = combine_frame_transforms(root_pos, root_quat, points_b.reshape(-1, 3))
+    return points_w.reshape(-1, num_points, 3)
 
 
 @per_env
