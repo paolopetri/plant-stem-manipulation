@@ -32,7 +32,8 @@ Checks (`slot`, `side`; `slot_far` checks only the first three and the last):
 Reported: the stem point in the slot base frame (slot depth).
 
 `--video` renders offscreen from a fixed camera (the viewer's start view) and writes
-`videos/check_contact_<test>.mp4` at about 30 fps, `--slow_motion` times slower than real time.
+`videos/check_contact_<test>_<NNNN>.mp4` (Isaac Lab's `VideoRecorder`, a new number per run) at about 30 fps,
+`--slow_motion` times slower than real time.
 
 Usage (from the repo root; headless unless a visualizer is requested, e.g. `--viz kit --slow_motion 3`):
     uv run --extra isaacsim python scripts/check_contact.py --test slot
@@ -61,8 +62,8 @@ if args_cli.video:
     args_cli.enable_cameras = True
 
 import math
-import os
 import time
+from types import SimpleNamespace
 
 import torch
 
@@ -219,11 +220,23 @@ def main() -> None:
         # video: one frame every 1 / (VIDEO_FPS * slow_motion) s of simulated time
         video_every = max(1, round(1.0 / (VIDEO_FPS * args_cli.slow_motion * sim_dt)))
         video_fps = 1.0 / (video_every * sim_dt * args_cli.slow_motion)
-        frames = []
         if args_cli.video:
-            camera = scene["video_camera"]
-            camera.set_world_poses_from_view(
+            from isaaclab.envs import VideoRecorderCfg
+            from isaaclab.envs.utils.video_recorder import VideoRecorder
+
+            scene["video_camera"].set_world_poses_from_view(
                 torch.tensor([CAMERA_EYE], device=device), torch.tensor([CAMERA_TARGET], device=device)
+            )
+            # one clip of the whole run (closed at the end); the recorder reads only `scene` from its env argument
+            recorder = VideoRecorder(
+                VideoRecorderCfg(
+                    source="sensor:video_camera",
+                    output_dir="videos",
+                    output_filename_prefix=f"check_contact_{args_cli.test}",
+                    fps=video_fps,
+                    video_length=2**62,
+                ),
+                SimpleNamespace(scene=scene),
             )
         max_arm_contact = torch.zeros(len(robot_links), device=device)  # per link, whole test
         approach_contact = 0.0  # any contact with the robot before the push
@@ -242,7 +255,7 @@ def main() -> None:
             clock["steps"] += 1
             if args_cli.video and clock["steps"] % video_every == 0:
                 sim.render()
-                frames.append(camera.data.output["rgb"].torch[0].cpu().numpy())
+                recorder.step()
             if viewer and clock["steps"] % render_every == 0:
                 sim.render()
                 frame_time = args_cli.slow_motion * render_every * sim_dt
@@ -379,12 +392,9 @@ def main() -> None:
             f"sideways {in_slot_base[1] * 1e3:+.1f} mm, vertical {in_slot_base[2] * 1e3:+.1f} mm"
         )
         if args_cli.video:
-            from moviepy.editor import ImageSequenceClip
-
-            path = os.path.join("videos", f"check_contact_{args_cli.test}.mp4")
-            os.makedirs("videos", exist_ok=True)
-            ImageSequenceClip(frames, fps=video_fps).write_videofile(path, codec="libx264", audio=False, logger=None)
-            print(f"[INFO] video: {len(frames)} frames at {video_fps:.2f} fps, {len(frames) / video_fps:.1f} s, {path}")
+            recorder.close()
+            frames = clock["steps"] // video_every
+            print(f"[INFO] video: {frames} frames at {video_fps:.2f} fps, {frames / video_fps:.1f} s, in videos/")
         check_report.finish(results, checked=checked)
 
 

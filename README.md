@@ -79,8 +79,8 @@ uv run --extra isaacsim python scripts/check_push_agents.py --agents random --nu
 ```
 
 For reproducible clips (presentations), `check_contact.py --video` renders offscreen from a fixed camera and writes
-`videos/check_contact_<test>.mp4`, `--slow_motion` times slower than real time. Rendering makes the run slower
-(several minutes):
+`videos/check_contact_<test>_<NNNN>.mp4` (Isaac Lab's `VideoRecorder`), `--slow_motion` times slower than real
+time. Rendering makes the run slower (several minutes):
 
 ```bash
 uv run --extra isaacsim --extra video python scripts/check_contact.py --test slot_far --video --slow_motion 3
