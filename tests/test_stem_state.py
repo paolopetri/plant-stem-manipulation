@@ -7,7 +7,8 @@ world:
 - zero curvature for a straight stem, the known curvature 2 asin(l / 2R) / l for an arc of chords;
 - the distance of points (robot base frame) to the stem's centre line;
 - the axial compression of every stem joint from fake joint wrenches of known axial load (+ = compression, - =
-  tension), the base clamp left out.
+  tension), the base clamp left out;
+- the arc length of every segment's centre from the stem base.
 
 Stems: segment poses as the stem models return them (segment centre + quaternion (x, y, z, w), local +z = tangent),
 float64 so that the tolerances test the math. Two envs: env 0 with a robot base at BASE_POS rotated 90 deg about z,
@@ -141,3 +142,11 @@ def test_axial_compression_of_every_joint():
     result = _stem_state(_straight_stem(), wrenches).axial_compression()
     expected = torch.stack([compression, torch.full((NUM_SEGMENTS - 1,), -0.9, dtype=DTYPE)])
     torch.testing.assert_close(result, expected, rtol=0.0, atol=1e-12)
+
+
+def test_segment_arc_lengths_are_the_segment_centres_from_the_base():
+    """#139's convention: arc length 0 at the stem base, the stem length at the tip; segment i spans [i l, (i + 1) l],
+    so its centre is at (i + 1/2) l: 0.01 m for the base segment, 0.39 m for the tip segment (l = 0.02 m)."""
+    arc = _stem_state(_arc_stem()).segment_arc_lengths()
+    expected = torch.tensor([0.01 + 0.02 * i for i in range(NUM_SEGMENTS)], dtype=DTYPE)
+    torch.testing.assert_close(arc, expected, rtol=0.0, atol=1e-12)

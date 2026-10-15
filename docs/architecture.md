@@ -142,6 +142,7 @@ stem_state(env).points_b(arc_lengths)  -> (num_envs, k, 3)                # poin
 stem_state(env).curvature()            -> (num_envs, num_stem_joints)     # bending curvature of every joint [1/m]
 stem_state(env).distance_b(points_b)   -> (num_envs, k)                   # distance of points to the centre line [m]
 stem_state(env).axial_compression()    -> (num_envs, num_stem_joints)     # axial joint force [N], + = compression
+stem_state(env).segment_arc_lengths()  -> (num_segments,)                 # segment centres from the base [m]
 ```
 
 - `StemState` takes the stem model module, the stem asset and the robot asset in its constructor (unit-tested with
