@@ -65,7 +65,8 @@ class SlotBaseImpedanceActionCfg(ActionTermCfg):
     """Rotational stiffness K_o [N m/rad] (option B1): fork tilt <= 1 deg at the B1 acceleration limit (write-up
     Table "tab:al-diag")."""
     stiffness_nullspace: float = 0.5
-    """Null-space posture stiffness [N m/rad] (franka_ros default 0.5); rest posture = the robot's default joints."""
+    """Null-space posture stiffness [N m/rad] (franka_ros default 0.5); rest posture = the arm's joints at each reset
+    (the start pose; user, 2026-10-15, #163)."""
     damping: str = "apparent_mass"
     """Task-space damping: "franka" (2 sqrt(K), Franka's examples; critical only for a 1 kg tool) or "apparent_mass"
     (2 sqrt(K) Lambda^(1/2) with the inertia Lambda the tool feels, critical in every pose and direction; uses the

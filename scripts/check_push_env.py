@@ -15,6 +15,9 @@ Checks:
 - start pose: at the first reset the arm joints of every env within 0.02 rad (the reset noise, proposal 2026-10-15) of
   a pose of the start-pose table (`env_cfg.START_POSES`, checked in `tests/test_fr3_reference.py`); the slot base
   within 1 deg of its orientation at reset after the hold;
+- null-space rest posture: at every reset, the action term's null-space rest posture equals the arm joints measured
+  right after the reset (the start pose picked, with its noise; user, 2026-10-15, #163, as Franka's example
+  controller), to 1e-6 rad;
 - holds still: the slot base moves less than 1 mm during the last half of the hold;
 - follows the actions: following error (largest distance to the setpoint over the move and the hold; at the end of
   a policy step the interpolated setpoint equals the step's end setpoint) <= 2 mm; the tool passes the setpoint's final
@@ -91,6 +94,7 @@ TASK = "StemManip-Push-Position-FR3-v0"
 STEM_AWAY = (-0.8, 0.8, 0.0)  # [m] stem base, out of the fork's reach behind the robot (as in sweep_action_poses.py)
 JOINT_NOISE = 0.02  # [rad] uniform reset noise per arm joint (proposal, 2026-10-15, #163)
 NOISE_TOL = 1e-5  # [rad] float32 rounding of the joint angles
+POSTURE_TOL = 1e-6  # [rad] null-space rest posture vs the measured joints at reset (a copy: rounding only)
 ORIENTATION_TOL = math.radians(1.0)
 HOLD_TOL = 1e-3  # [m]
 FOLLOW_TOL = 2e-3  # [m] following error while moving
@@ -171,6 +175,14 @@ def main() -> None:
         table = torch.tensor(START_POSES, device=device)
         start_error = float((q_reset[:, None] - table[None]).abs().amax(dim=-1).min(dim=-1).values.max())
         quat_ref = term.slot_base_pose()[1].clone()  # start orientation, held while the rotation action is zero
+        term_joint_ids = robot.find_joints(term.cfg.joint_names)[0]
+        posture_errors: list[float] = []  # null-space rest posture vs the measured arm joints, at every reset [rad]
+
+        def record_posture() -> None:
+            q = robot.data.joint_pos.torch[:, term_joint_ids]
+            posture_errors.append(float((term.nullspace_posture() - q).abs().max()))
+
+        record_posture()
 
         def angle_between(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
             """Angle between orientations a and b (n, 4) [rad] (axis-angle of a b^-1; exact also near 0)."""
@@ -340,6 +352,7 @@ def main() -> None:
         def restart() -> None:
             """Reset to the start pose and hold (zero action) until the tool settles."""
             env.reset()
+            record_posture()
             expected_step.zero_()  # the reset starts the action term from rest
             for _ in range(args_cli.steps):
                 step(zero, track_tilt=False)
@@ -440,6 +453,11 @@ def main() -> None:
                     for a, m in enumerate(moves)
                 )
                 + f"; max orientation error {math.degrees(max_angle):.2f} deg; joint margin {moves_margin:.2f} rad",
+            ),
+            "null-space rest posture = start pose": (
+                max(posture_errors) <= POSTURE_TOL,
+                f"{len(posture_errors)} resets: largest difference from the arm joints at reset "
+                f"{max(posture_errors):.1e} rad (tol {POSTURE_TOL:.0e})",
             ),
             "step limits": (
                 bool(((first[:, :3].norm(dim=-1) - FIRST_STEP).abs() < 1e-6).all())

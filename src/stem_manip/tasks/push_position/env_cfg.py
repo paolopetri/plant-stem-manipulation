@@ -41,7 +41,7 @@ ARM_JOINT_NAMES = [f"fr3_joint{i}" for i in range(1, 8)]  # order of the joint a
 # Held-out evaluation start poses (user, 2026-10-15, #160), arm joint angles [rad], not used in training:
 # - a_above_tip: fork horizontal, pointing forward, slot base at (0.40, 0, 0.50) m, 10 cm above the stem tip and
 #   behind the stem area; solved with differential IK, smallest distance to a joint limit 0.58 rad (joint 4). Also the
-#   robot's default joint position (the null-space rest posture of the action term).
+#   robot's default joint position (the null-space rest posture of the action term is the start pose of each episode).
 # - b_side_90, c_low: beside the stem like the table, at azimuth 90 deg and at a slot-base height of 0.08 m; the other
 #   coordinate (b: height 0.30 m, c: azimuth 60 deg) is a proposal (2026-10-15, #163). Solved by
 #   `scripts/start_poses.py solve`.

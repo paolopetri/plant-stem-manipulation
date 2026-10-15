@@ -127,7 +127,8 @@ when pushed sideways (the "bowl") or below it, down to the deepest stem shape wi
 (`mdp/commands.py`); shape model (planar elastica) and its rod table: `stem_manip.utils.stem_target`. At every reset
 the arm starts at a pose picked at random from the start-pose table (`START_POSES` in the env cfg: slot base beside
 the stem along its height, solved by `scripts/start_poses.py`), with small joint noise; the held-out evaluation poses
-are `EVAL_START_POSES`. Then the stem base is moved to a random place in the spawn area (`STEM_SPAWN_X` /
+are `EVAL_START_POSES`. The action term's null-space rest posture is the arm's joint position after this reset (as in
+Franka's example controller). Then the stem base is moved to a random place in the spawn area (`STEM_SPAWN_X` /
 `STEM_SPAWN_Y`), clear of the fork; the target is sampled around the new base.
 
 ## Stem interface (keeps the stem model swappable)
