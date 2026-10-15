@@ -14,7 +14,11 @@ from the cfg:
   held-out pose a_above_tip), not all exactly on it (the noise is applied), and at least 2 different poses picked over
   the agent's resets; the fork clear of the stem: its centre line (slot-base x axis from -0.09 to 0.17 m, from the
   measured joints via the FR3 Denavit-Hartenberg parameters, `stem_manip.utils.fr3_reference`) at least 5 cm from the
-  axis of the upright stem at the observed stem base (user, 2026-10-15, #163);
+  axis of the upright stem at the observed stem base (user, 2026-10-15, #163); the arm clear of the stem: every arm
+  body (fr3_link0-7, all robot bodies but the fork) at least 5 cm from the stem's surface (user, 2026-10-15, #163),
+  measured exactly here (trimesh's closest point on each FR3 collision mesh, at the link poses the simulator reports,
+  to points every 2 mm along the axis of the upright stem at the observed stem base, minus the 4 mm stem radius),
+  with a 1 mm tolerance for the event's surface sampling;
 - setpoint_offset: position part and rotation part each of norm <= 1 (setpoint clamp 4 mm / 3 deg, 2026-10-08); each
   may exceed 1 by one physics step of tool motion at its speed cap (position +0.05, `OFFSET_TOL`; rotation +0.03,
   `ROT_OFFSET_TOL`): the clamp acts on the pose before the last physics step, the observation is taken after it (the
@@ -36,6 +40,10 @@ action-rate penalties 0. Random agent: the terminations that fire are reported (
 Clamp agent: the clamp holds the position setpoint in at least one env-step, so that the exemption and the
 setpoint_offset bound are exercised (the random agent rarely engages the clamp). The clamp agent starts from the
 held-out start pose a_above_tip (fork above the stems; its path goes sideways at that height).
+Reset draws, before the agents: `--reset_draws` resets of all envs from the start-pose table and from each held-out
+pose, each checked for the fork and the arm clear of the stem as above. More spawn draws than the agents' resets: a
+stem position clear of the fork but near an arm link exists only at b_side_90 (about 10 % of the spawn area, measured
+2026-10-15; at the table poses the arm stays at least 68 mm away wherever the fork is clear).
 
 Every loop has a fixed number of steps and a progress line is printed every 100 steps. The check fails when it takes
 longer than `--max_minutes`; the limit is checked between policy steps, so a hang inside `env.step` (or at startup)
@@ -57,6 +65,7 @@ parser = argparse.ArgumentParser(description="Zero / random / clamp agent check 
 parser.add_argument("--agents", nargs="+", default=list(AGENTS), choices=AGENTS, help="Agents to run, in order.")
 parser.add_argument("--num_envs", type=int, default=4, help="Number of envs.")
 parser.add_argument("--episodes", type=int, default=2, help="Episodes (of 469 steps) per agent.")
+parser.add_argument("--reset_draws", type=int, default=25, help="Resets of all envs per start-pose set.")
 parser.add_argument("--max_minutes", type=float, default=15.0, help="Wall-clock limit of the whole check [min].")
 parser.add_argument("--seed", type=int, default=42, help="Seed of the random actions.")
 parser.add_argument(
@@ -69,9 +78,14 @@ import math
 import time
 
 import gymnasium as gym
+import numpy as np
 import torch
+import trimesh
+
+from isaaclab.utils.math import matrix_from_quat
 
 import stem_manip.tasks  # noqa: F401  (registers the task)
+from stem_manip.assets.fr3 import BUILD_DIR
 from stem_manip.tasks.push_position.env_cfg import EVAL_START_POSES, StemPushPositionEnvCfg
 from stem_manip.utils import check_report, rollout
 from stem_manip.utils.check_rewards import PENALTIES, POSITIVE_REWARDS, ZERO_PENALTIES
@@ -96,7 +110,13 @@ NOISE_TOL = 1e-5  # [rad] float32 rounding of the joint angles
 # fork vs stem at reset (user, 2026-10-15, #163): fork centre line along the slot base's x axis, at least this far from
 # the stem axis
 FORK_EXTENT, FORK_STEM_MIN_DISTANCE = (-0.09, 0.17), 0.05  # [m]
-STEM_LENGTH = 0.40  # [m] assets/stem/stem.yaml
+STEM_LENGTH, STEM_RADIUS = 0.40, 0.004  # [m] assets/stem/stem.yaml
+# arm vs stem at reset (user, 2026-10-15, #163): every robot body but the fork at least this far from the stem surface
+ARM_CLEARANCE = 0.05  # [m]
+ARM_CLEARANCE_TOL = 1e-3  # [m] the spawn event measures on sampled surface points
+ARM_LINKS = [f"fr3_link{i}" for i in range(8)]  # collision meshes link0-7 (fr3_link8 has none)
+MESH_DIR = BUILD_DIR / "meshes" / "franka" / "meshes" / "robots" / "fr3" / "collision"
+AXIS_POINTS = np.stack([np.zeros(201), np.zeros(201), np.linspace(0.0, STEM_LENGTH, 201)], axis=-1)  # every 2 mm
 HOLD_TOL = 2e-3  # [m] zero agent: slot base vs its reset position (lag criterion of the action sweep)
 SPAWN_X, SPAWN_Y = (0.50, 0.65), (-0.15, 0.15)  # [m] stem spawn area (user, 2026-10-09)
 AREA_TOL, GROUND_TOL = 1e-6, 1e-3  # [m] as in check_push_obs.py
@@ -154,6 +174,24 @@ def main() -> None:
         robot = env.scene["robot"]
         arm_ids = robot.find_joints([f"fr3_joint{i}" for i in range(1, 8)], preserve_order=True)[0]
         fork_s = torch.linspace(*FORK_EXTENT, 261, dtype=torch.float64, device=device)  # 1 mm along the fork
+        meshes = [trimesh.load(MESH_DIR / f"link{i}.stl") for i in range(8)]
+        link_ids = [robot.body_names.index(name) for name in ARM_LINKS]
+
+        def arm_stem_clearance(ids: torch.Tensor, stem_base: torch.Tensor) -> torch.Tensor:
+            """Smallest distance (k,) [m] of the arm bodies' collision meshes of the envs `ids` to the surface of the
+            upright stem standing at `stem_base` (k, 3), at the link poses the simulator reports."""
+            pos = (robot.data.body_pos_w.torch[ids][:, link_ids] - env.scene.env_origins[ids, None]).cpu().double()
+            rot = matrix_from_quat(robot.data.body_quat_w.torch[ids][:, link_ids]).cpu().double()
+            base = stem_base.cpu().double()
+            clearance = []
+            for k in range(len(ids)):
+                axis = torch.from_numpy(AXIS_POINTS) + base[k]
+                distances = []
+                for b, mesh in enumerate(meshes):
+                    local = (axis - pos[k, b]) @ rot[k, b]  # into the link frame: R^T (p - t)
+                    distances.append(trimesh.proximity.closest_point(mesh, local.numpy())[1].min())
+                clearance.append(min(distances) - STEM_RADIUS)
+            return torch.tensor(clearance)
 
         def fork_stem_distance(q: torch.Tensor, stem_base: torch.Tensor) -> torch.Tensor:
             """Distance (k,) [m] of the fork's centre line at the arm joints q (k, 7) from the axis of the upright stem
@@ -177,6 +215,29 @@ def main() -> None:
 
         start_pose_cfg = env.event_manager.get_term_cfg("start_pose")
         table = start_pose_cfg.params["poses"]
+        # -- reset draws: more spawn draws than the agents' resets, from the table and from each held-out pose, each
+        # checked for the fork and the arm clear of the stem
+        all_ids = torch.arange(n, device=device)
+        for name, poses in ({"table": table} | {k: (v,) for k, v in EVAL_START_POSES.items()}).items():
+            start_pose_cfg.params["poses"] = poses
+            env.event_manager.set_term_cfg("start_pose", start_pose_cfg)
+            draw_fork = draw_arm = math.inf
+            for _ in range(args_cli.reset_draws):
+                o = env.reset()[0]["policy"]
+                base = o[:, slices["stem_base"]]
+                q = robot.data.joint_pos.torch[:, arm_ids]
+                draw_fork = min(draw_fork, float(fork_stem_distance(q.double(), base).min()))
+                draw_arm = min(draw_arm, float(arm_stem_clearance(all_ids, base).min()))
+            draws = f"{n * args_cli.reset_draws} draws"
+            results[f"reset draws ({name}): fork clear of the stem"] = (
+                draw_fork >= FORK_STEM_MIN_DISTANCE,
+                f"{draws}, closest {draw_fork * 1e3:.1f} mm (min {FORK_STEM_MIN_DISTANCE * 1e3:.0f} mm)",
+            )
+            results[f"reset draws ({name}): arm clear of the stem"] = (
+                draw_arm >= ARM_CLEARANCE - ARM_CLEARANCE_TOL,
+                f"{draws}, closest {draw_arm * 1e3:.1f} mm (min {ARM_CLEARANCE * 1e3:.0f} mm, tol "
+                f"{ARM_CLEARANCE_TOL * 1e3:.0f} mm)",
+            )
         for agent in args_cli.agents:
             # the clamp agent's path starts above the stems: from the held-out pose a_above_tip
             start_pose_cfg.params["poses"] = (EVAL_START_POSES["a_above_tip"],) if agent == "clamp" else table
@@ -185,7 +246,7 @@ def main() -> None:
             obs = env.reset()[0]["policy"]
             fails: dict[str, list[str]] = {}
             stats = {"step_out": 0.0, "offset": 0.0, "unit": 0.0, "arc": -1.0, "hold": 0.0, "noise": 0.0}
-            stats["fork"] = math.inf
+            stats["fork"] = stats["arm"] = math.inf
             picked: set[int] = set()  # start poses picked at the resets
             clamp_count = [0, 0]  # env-steps where the clamp held the position / orientation setpoint
             fired = {name: 0 for name in term_names}
@@ -219,6 +280,10 @@ def main() -> None:
                 stats["fork"] = min(stats["fork"], float(fork.min()))
                 if (fork < FORK_STEM_MIN_DISTANCE).any():
                     fail("fork clear of the stem at reset", f"step {step}: {float(fork.min()) * 1e3:.1f} mm")
+                arm = arm_stem_clearance(ids, o[:, slices["stem_base"]])
+                stats["arm"] = min(stats["arm"], float(arm.min()))
+                if (arm < ARM_CLEARANCE - ARM_CLEARANCE_TOL).any():
+                    fail("arm clear of the stem at reset", f"step {step}: {float(arm.min()) * 1e3:.1f} mm")
                 base = o[:, slices["stem_base"]]
                 x, y, z = base.unbind(-1)
                 inside = (
@@ -352,6 +417,7 @@ def main() -> None:
                 "shapes",
                 "start pose after reset",
                 "fork clear of the stem at reset",
+                "arm clear of the stem at reset",
                 "stem base in the spawn area",
                 "setpoint_offset within one physics step of 1",
                 "applied_step <= 1 (clamp free)",
@@ -378,6 +444,7 @@ def main() -> None:
                 "start pose after reset": f"largest joint deviation {stats['noise']:.4f} rad, {len(picked)} of "
                 f"{len(start_poses)} poses picked",
                 "fork clear of the stem at reset": f"closest {stats['fork'] * 1e3:.1f} mm",
+                "arm clear of the stem at reset": f"closest {stats['arm'] * 1e3:.1f} mm",
                 "setpoint_offset within one physics step of 1": f"max {stats['offset']:.4f} (bound position "
                 f"{1 + OFFSET_TOL:.4f}, rotation {1 + ROT_OFFSET_TOL:.4f})",
                 "applied_step <= 1 (clamp free)": f"max {stats['step_out']:.4f}, clamp held in "

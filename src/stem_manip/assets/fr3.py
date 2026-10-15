@@ -15,9 +15,12 @@ torques with Franka's Cartesian impedance law, as on the real robot).
 Written against the Isaac Lab 3.0 API (backend-specific schemas, joint_effort_limit).
 """
 
+import functools
 import math
 import xml.etree.ElementTree as ET
 
+import torch
+import trimesh
 import yaml
 
 import isaaclab.sim as sim_utils
@@ -30,6 +33,8 @@ from stem_manip.assets import REPO_ASSETS_DIR
 BUILD_DIR = REPO_ASSETS_DIR / "fr3" / "build"
 EE_DIR = REPO_ASSETS_DIR / "fr3" / "end_effectors"
 SLOT_BASE = "slot_base"  # frame name the build gives the slot base (SLOT_BASE in assets/fr3/build_asset.py)
+ARM_LINKS = [f"fr3_link{i}" for i in range(8)]  # robot bodies but the end-effector (fr3_link8: no collision mesh)
+COLLISION_MESH_DIR = BUILD_DIR / "meshes" / "franka" / "meshes" / "robots" / "fr3" / "collision"
 
 # Bodies for tasks: the end-effector body has the end-effector's name (e.g. "fork_v2").
 # slot_base and fr3_link8 are plain frames in the USD, not bodies (the converter turns massless links
@@ -142,3 +147,16 @@ def fr3_cfg(ee: str, control: str = "position") -> ArticulationCfg:
         },
         soft_joint_pos_limit_factor=1.0,
     )
+
+
+@functools.cache
+def arm_surface_points(num_points: int) -> tuple[torch.Tensor, ...]:
+    """Surface points of the collision mesh of each body in `ARM_LINKS`, in that body's frame [m] (CPU): about
+    `num_points` per body, spread evenly over the surface (trimesh, seed 0, so always the same points). For the arm's
+    clearance to the stem (start-pose table, stem spawn)."""
+    points = []
+    for i in range(len(ARM_LINKS)):
+        mesh = trimesh.load(COLLISION_MESH_DIR / f"link{i}.stl")
+        sampled, _ = trimesh.sample.sample_surface_even(mesh, num_points, seed=0)
+        points.append(torch.tensor(sampled, dtype=torch.float32))
+    return tuple(points)

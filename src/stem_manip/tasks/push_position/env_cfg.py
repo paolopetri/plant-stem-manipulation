@@ -110,6 +110,10 @@ START_JOINT_NOISE = 0.02
 # fork's half cross-section (31.5 x 22 mm -> 38 mm) + stem radius 4 mm + 8 mm clearance.
 FORK_AXIS_EXTENT = (-0.09, 0.17)  # [m] along the slot base's x axis
 FORK_STEM_MIN_DISTANCE = 0.05  # [m]
+# Arm vs a spawned stem (user, 2026-10-15, #163): the spawn event also redraws stem positions whose surface comes closer
+# than this to an arm body (any robot body but the fork), the start-pose table's clearance. Wherever the fork is clear,
+# the table poses and a_above_tip / c_low keep the arm at least 68 mm away; only b_side_90 needs it (2026-10-15).
+STEM_MIN_ARM_CLEARANCE = START_POSE_ARM_CLEARANCE  # [m]
 
 # Stem spawn area (user, 2026-10-09): the stem base is reset uniformly within this rectangle on the lab's plate in front
 # of the robot (58 x 58 cm at the mounting-surface height, x 0.075-0.655 m, y +-0.29 m), robot base frame [m]. Near
@@ -237,7 +241,7 @@ class ObservationsCfg:
 class EventCfg:
     """Base clamping at startup; robot and stem back to their default states on reset, the arm to a start pose picked
     from the table (`poses`, overridable, e.g. through Hydra at play time), then the stem base moved to a random place
-    in the spawn area, clear of the fork (upright, at rest; before the target command is resampled)."""
+    in the spawn area, clear of the fork and the arm (upright, at rest; before the target command is resampled)."""
 
     fix_stem_base = EventTerm(func=mdp.fix_stem_base, mode="startup")
     reset_scene = EventTerm(func=mdp.reset_scene_to_default, mode="reset", params={"reset_joint_targets": True})
@@ -258,6 +262,7 @@ class EventCfg:
             "y_range": STEM_SPAWN_Y,
             "fork_extent": FORK_AXIS_EXTENT,
             "min_fork_distance": FORK_STEM_MIN_DISTANCE,
+            "min_arm_clearance": STEM_MIN_ARM_CLEARANCE,
             "asset_cfg": SceneEntityCfg("stem"),
         },
     )

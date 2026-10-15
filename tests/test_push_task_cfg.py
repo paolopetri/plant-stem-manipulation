@@ -133,6 +133,11 @@ def test_spawn_redraws_stem_positions_at_the_fork(cfg: StemPushPositionEnvCfg):
     assert spawn.params["min_fork_distance"] == pytest.approx(0.05, abs=1e-12)
 
 
+def test_spawn_redraws_stem_positions_at_the_arm(cfg: StemPushPositionEnvCfg):
+    """Stem surface at least 5 cm from every arm body, as the start-pose table (user, 2026-10-15, #163)."""
+    assert cfg.events.spawn_stem.params["min_arm_clearance"] == pytest.approx(0.05, abs=1e-12)
+
+
 def test_start_pose_is_picked_from_the_table(cfg: StemPushPositionEnvCfg):
     """The arm starts at a random table pose with uniform noise of 0.02 rad (proposal, 2026-10-15, #163), before the
     stem is placed (the spawn event keeps the stem clear of the fork at its start pose)."""

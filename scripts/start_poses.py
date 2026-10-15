@@ -37,12 +37,11 @@ import math
 import time
 
 import torch
-import trimesh
 
 import isaaclab.sim as sim_utils
 from isaaclab.utils.math import quat_apply, quat_from_matrix
 
-from stem_manip.assets.fr3 import BUILD_DIR, fr3_cfg, slot_base_offset
+from stem_manip.assets.fr3 import ARM_LINKS, arm_surface_points, fr3_cfg, slot_base_offset
 from stem_manip.assets.stem import stem_model, stem_params
 from stem_manip.tasks.push_position import env_cfg as task
 from stem_manip.tasks.push_position.mdp.slot_base import SlotBaseKinematics
@@ -59,8 +58,6 @@ MAX_JOINT_STEP = 0.02  # [rad] per IK iteration
 DAMPING = 0.01  # damped least squares
 NULLSPACE_GAIN = 0.1  # per iteration, towards the seed
 MESH_POINTS = 4000  # surface points per FR3 collision mesh for the arm clearance
-ARM_LINKS = [f"fr3_link{i}" for i in range(8)]  # the robot bodies but the fork (fr3_link8 has no collision mesh)
-MESH_DIR = BUILD_DIR / "meshes" / "franka" / "meshes" / "robots" / "fr3" / "collision"
 
 
 def goal_pose(height: float, azimuth: float) -> tuple[tuple[float, float, float], torch.Tensor]:
@@ -127,11 +124,8 @@ def main() -> None:
         kinematics = SlotBaseKinematics(robot, task.END_EFFECTOR, slot_base_offset(task.END_EFFECTOR), arm)
         limits = robot.data.joint_pos_limits.torch[:, arm]
         link_ids = [robot.body_names.index(name) for name in ARM_LINKS]
-        link_points = []  # surface points of each link's collision mesh, in the link frame
-        for i in range(8):
-            mesh = trimesh.load(MESH_DIR / f"link{i}.stl")
-            points, _ = trimesh.sample.sample_surface_even(mesh, MESH_POINTS, seed=0)
-            link_points.append(torch.tensor(points, dtype=torch.float32, device=device))
+        # surface points of each link's collision mesh, in the link frame
+        link_points = [p.to(device) for p in arm_surface_points(MESH_POINTS)]
         origins = scene.env_origins
 
         def write(q: torch.Tensor) -> None:

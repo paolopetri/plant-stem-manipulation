@@ -129,7 +129,7 @@ the arm starts at a pose picked at random from the start-pose table (`START_POSE
 the stem along its height, solved by `scripts/start_poses.py`), with small joint noise; the held-out evaluation poses
 are `EVAL_START_POSES`. The action term's null-space rest posture is the arm's joint position after this reset (as in
 Franka's example controller). Then the stem base is moved to a random place in the spawn area (`STEM_SPAWN_X` /
-`STEM_SPAWN_Y`), clear of the fork; the target is sampled around the new base.
+`STEM_SPAWN_Y`), clear of the fork and the arm; the target is sampled around the new base.
 
 ## Stem interface (keeps the stem model swappable)
 
