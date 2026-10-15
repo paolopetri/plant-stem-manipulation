@@ -8,7 +8,7 @@ Open sub-issues of the parent whose blockers are all closed (`Blocked by` line o
 
 ## Worktrees
 
-Each agent gets its own git worktree; setup, the GPU limit and merging: `worktrees.md`. `gh` workarounds: `issue-tracker.md`.
+Agents running in parallel each get their own git worktree; a chain of agents (blocking edges) reuses one, with a new branch per ticket (`worktrees.md`, Create). Setup, the GPU limit and merging: `worktrees.md`. `gh` workarounds: `issue-tracker.md`.
 
 ## Agent prompt
 
