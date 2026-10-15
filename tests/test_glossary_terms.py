@@ -1,7 +1,8 @@
-"""No tracked file uses an unambiguous _Avoid_ term from GLOSSARY.md.
+"""No tracked file uses one of the _Avoid_ terms from GLOSSARY.md listed in ``AVOIDED_TERMS``.
 
-The term list is an independent copy of the glossary (CODING_STANDARDS.md, "Single source of truth"). Ambiguous words
-(tip, tool, target, goal) stay a review judgement and are not listed.
+The list holds only the terms the glossary renames replaced, not every _Avoid_ term. It is an independent copy of the
+glossary (CODING_STANDARDS.md, "Single source of truth"). Ambiguous words (tip, tool, target, goal) stay a review
+judgement and are not listed.
 """
 
 import re
