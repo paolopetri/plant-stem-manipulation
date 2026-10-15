@@ -6,19 +6,21 @@ reset), its value is recorded together with values computed here independently o
 - slot base from the action term's pose -> distance to the stem, sampled at 1 mm along the arc length;
 - curvature per joint from the segment poses; contact force from the sensor's history (largest single
   segment-body contact per physics step, mean over the policy step), of all robot bodies, of the fork and of the
-  other robot bodies (arm contact), the fork's column found by its name in the sensor's filter; joint margin from
-  the joint positions and limits.
+  other robot bodies (arm contact), the fork's column found by its name in the sensor's filter; the fork's contact
+  point per policy step (segment centres at (i + 1/2) l from the stem base, weighted by the fork's force on each
+  segment over the policy step); joint margin from the joint positions and limits.
 Decided values (user, 2026-10-09; the height std and the fine distance's z-scale 2026-10-10), fixed here, not read
 from the cfg: std 0.05 / 0.01 m (distance), 0.003 m (height), 0.1 m (approach); curvature penalty above 0.8 x 5 1/m,
 limit 5 1/m; contact penalty above 2 N, limit 5 N; joint margin 0.25 rad; episode 15 s; termination penalty -4.8
 per termination in effect (weight -150 x policy dt 0.032 s, about -5; user, 2026-10-15); arm contact above 0.05 N
-(user, 2026-10-15, #160).
+(user, 2026-10-15, #160); a policy step with fork contact above 0.05 N (as arm contact; #166).
 
 Phases (the stem base fixed at x 0.65 m, y 0, and the robot at the held-out start pose a_above_tip
 without joint noise, except in `rest`):
 - rest: zero action for a whole episode (spawn area and start-pose table as in training). Time out fires exactly at
   the last step and nothing else fires before; curvature and contact penalties 0, contact force 0, action rate 0,
-  termination penalty 0 (also at the time out).
+  termination penalty 0 (also at the time out). No fork contact: the time out logs `fork_contact` 0 and leaves
+  `contact_point` out.
 - action_rate: alternating actions; the term equals sum((a_t - a_t-1)^2) of the actions sent.
 - push: drive the fork behind the stem at 0.30 m height (forward first, then down; the drive must reach its goal
   within 2 mm without a reset), at full speed until 1 cm before contact, then push it slowly (5 cm/s) 4 cm into the
@@ -26,6 +28,8 @@ without joint noise, except in `rest`):
   contact is above 1 - tanh((d + 1 mm) / std), d from the slot geometry and the push
   (`stem_reference.slot_approach_distance`; user, 2026-10-14); contact force > 0.05 N, below 2 N, penalty 0. No arm
   contact: the force of the other robot bodies stays 0, `arm_contact` never fires, the metric `arm_contact` stays 0.
+  Contact point: at the end of the push the metric `contact_point` is within one segment length (20 mm) of the arc
+  length of the stem point nearest to the slot base, and `fork_contact` is 1 in every env.
   Then, as a mechanism check with lowered thresholds (not the decided values): penalty threshold 0 N -> penalty = F^2;
   limit at half the current force -> `contact_force_limit` fires in every env.
 - impact: the fork at full speed into the stem at 0.25 m height (informational: the largest mean force of a policy
@@ -46,7 +50,9 @@ termination fires exactly when its independent value crosses the limit, `termina
 termination penalty in effect (the reward manager's weighted term x policy dt) = -4.8 where an early termination
 fires and 0 elsewhere, metric `height_error` = dz, metric `position_error` = d, metric `time_to_reach` = the
 number of policy steps since the reset at which d first drops below 1 cm x policy dt, and the episode length where d
-has not yet dropped below it. The push phase must reach (d < 1 cm) in every env; in the rest phase, which never
+has not yet dropped below it; metric `contact_point` = the mean of the fork's contact point over the policy steps
+since the reset with fork contact (0 before any), `fork_contact` = 1 after the first such step.
+The push phase must reach (d < 1 cm) in every env; in the rest phase, which never
 reaches, the time-out logs `time_to_reach` = 15 s.
 
 Usage (from the repo root; headless unless a visualizer is requested):
@@ -90,6 +96,7 @@ MAX_CURVATURE = 5.0  # [1/m]
 CURVATURE_AT_BUDGET = 0.8 * MAX_CURVATURE  # [1/m]
 FREE_FORCE, MAX_FORCE = 2.0, 5.0  # [N]
 ARM_CONTACT_FORCE = 0.05  # [N] (user, 2026-10-15, #160)
+FORK_CONTACT_FORCE = 0.05  # [N] a policy step with fork contact: the fork's force above this (as arm contact; #166)
 MIN_MARGIN = 0.25  # [rad]
 EPISODE_S = 15.0  # [s]
 TIP_SEGMENT = 19
@@ -137,6 +144,9 @@ def main() -> None:
         radius = 0.5 * geometry["diameter"]
         lengths = torch.full((geometry["num_segments"],), segment_length, device=device)
         dense = [i * 1e-3 for i in range(round(geometry["length"] * 1e3) + 1)]  # arc lengths every 1 mm
+        dense_t = torch.tensor(dense, device=device)
+        # arc length of every segment's centre from the stem base [m] (#139: 0 at the base, segment i at (i + 1/2) l)
+        centres = (torch.arange(geometry["num_segments"], device=device) + 0.5) * segment_length
         arm = robot.find_joints("fr3_joint[1-7]")[0]
         filter_names = sensor.contact_view.filter_names[0]  # robot bodies of the sensor's force matrix, in its order
         fork_column = filter_names.index(FORK_BODY_NAME)
@@ -169,9 +179,15 @@ def main() -> None:
                 d_fine=(error * error.new_tensor([1.0, 1.0, FINE_Z_SCALE])).norm(dim=-1),
                 dz=error[:, 2],
                 approach_d=(stem_b - slot_base[:, None]).norm(dim=-1).min(dim=-1).values,
+                # arc length of the stem point nearest to the slot base [m]
+                slot_arc=dense_t[(stem_b - slot_base[:, None]).norm(dim=-1).argmin(dim=-1)],
                 curvature=joint_curvature(poses, lengths),
                 force=pairs.flatten(start_dim=2).max(dim=-1).values.mean(dim=1),  # largest single contact
                 fork_force=pairs[..., fork_column].flatten(start_dim=2).max(dim=-1).values.mean(dim=1),
+                # the fork's contact point of the policy step: segment centres weighted by the fork's force on each
+                # segment, over all physics steps of the policy step [m]
+                fork_point=(pairs[..., fork_column] * centres).sum(dim=(1, 2))
+                / pairs[..., fork_column].sum(dim=(1, 2)).clamp(min=1e-12),
                 arm_force=pairs[..., arm_columns].flatten(start_dim=2).max(dim=-1).values.mean(dim=1),
                 # body of the largest single contact over the policy step
                 top_body=pairs.amax(dim=(1, 2)).argmax(dim=-1),
@@ -206,7 +222,15 @@ def main() -> None:
         # -- checks of every step against the formulas
         errors = {
             key: 0.0
-            for key in ("rewards", "approach", "terminations", "height_error", "position_error", "time_to_reach")
+            for key in (
+                "rewards",
+                "approach",
+                "terminations",
+                "height_error",
+                "position_error",
+                "time_to_reach",
+                "contact_point",
+            )
         }
         # time to reach, counted here: policy steps since the reset, the step of the first d < 1 cm (-1: not yet)
         reach = {
@@ -215,10 +239,18 @@ def main() -> None:
             "never": 0.0,  # [s] value where not reached yet: the episode length at the reset
         }
 
+        # contact point, counted here: sum of the policy steps' fork contact points and their number since the reset
+        contact = {
+            "sum": torch.zeros(n, device=device),
+            "count": torch.zeros(n, device=device),
+        }
+
         def reset_env() -> None:
             env.reset()
             reach["steps"].zero_()
             reach["first"].fill_(-1)
+            contact["sum"].zero_()
+            contact["count"].zero_()
             reach["never"] = env.cfg.episode_length_s
 
         fired_wrongly: list[str] = []
@@ -287,6 +319,17 @@ def main() -> None:
                 )
                 err = (command.metrics["time_to_reach"] - expected)[kept].abs().max()
                 errors["time_to_reach"] = max(errors["time_to_reach"], float(err))
+            touching = s["fork_force"] > FORK_CONTACT_FORCE
+            contact["sum"] += torch.where(touching, s["fork_point"], 0.0)
+            contact["count"] += touching.float()
+            if kept.any():
+                touched = contact["count"] > 0
+                mean = torch.where(touched, contact["sum"] / contact["count"].clamp(min=1.0), 0.0)
+                err = (stem_metrics.metrics["contact_point"] - mean)[kept].abs().max()
+                err_any = (stem_metrics.metrics["fork_contact"] - touched.float())[kept].abs().max()
+                errors["contact_point"] = max(errors["contact_point"], float(err), float(err_any))
+            contact["sum"][done] = 0.0
+            contact["count"][done] = 0.0
             reach["steps"][done] = 0  # the env was reset after this step
             reach["first"][done] = -1
 
@@ -365,6 +408,7 @@ def main() -> None:
                 phase=phase, expect_reset=phase in ("rest", "impact", "arm_contact", "curvature", "joint_margin")
             )
             if phase == "rest":
+                logged_contact: dict[str, float | None] = {}
                 env.cfg.episode_length_s = EPISODE_S
                 place_stem(fixed=False)
                 steps = math.ceil(EPISODE_S / env.step_dt - 1e-9)
@@ -380,16 +424,22 @@ def main() -> None:
                     if fired_at is None and bool(recorded["time_out"].any()):
                         fired_at = (k, bool(recorded["time_out"].all()))
                         logged_time_out.append(env.extras["log"]["Metrics/stem_target/time_to_reach"])
+                        logged_contact = {
+                            key: env.extras["log"].get(f"Metrics/stem_metrics/{key}")
+                            for key in ("contact_point", "fork_contact")
+                        }
                         break
                 env.cfg.episode_length_s = 1e4
                 ok = fired_at == (steps, True) and not others and penalties == 0.0 and force == 0.0 and rate == 0.0
                 ok = ok and logged_time_out == [EPISODE_S]
+                ok = ok and logged_contact == {"contact_point": None, "fork_contact": 0.0}
                 results["rest / time out"] = (
                     ok,
                     f"time out at step {fired_at} (expected {steps}, all envs); other terminations: {others}; "
                     f"largest curvature / contact penalty {penalties:.2e}, contact force {force:.2e} N, "
                     f"action rate {rate:.2e}; time_to_reach logged at the time out {logged_time_out} s (never "
-                    f"reached: {EPISODE_S} s)",
+                    f"reached: {EPISODE_S} s); without fork contact logged {logged_contact} (expected contact_point "
+                    f"left out, fork_contact 0)",
                 )
 
             elif phase == "action_rate":
@@ -442,6 +492,18 @@ def main() -> None:
                 approach_min = 1.0 - math.tanh((approach_d + APPROACH_MARGIN) / STD["approach"])
                 min_force_end = float(snap["force"].min())
                 first_reach = reach["first"].clone()
+                contact_point = stem_metrics.metrics["contact_point"].clone()
+                push_arc = snap["slot_arc"].clone()
+                results["push: contact point"] = (
+                    bool((stem_metrics.metrics["fork_contact"] == 1.0).all())
+                    and bool(((contact_point - push_arc).abs() < segment_length).all()),
+                    f"metric contact_point {[round(v * 1e3, 1) for v in contact_point.tolist()]} mm; arc length of the "
+                    f"stem point nearest to the slot base at the end of the push "
+                    f"{[round(v * 1e3, 1) for v in push_arc.tolist()]} mm (expected within one segment, "
+                    f"{segment_length * 1e3:.0f} mm: the fork's force is resolved per segment, the plate reaches "
+                    f"{SLOT_PLATE_THICKNESS * 1e3:.0f} mm below the slot base); metric fork_contact "
+                    f"{stem_metrics.metrics['fork_contact'].tolist()}",
+                )
                 arm_metric = float(stem_metrics.metrics["arm_contact"].max())
                 results["push: no arm contact"] = (
                     max_arm == 0.0 and arm_metric == 0.0,
@@ -612,10 +674,12 @@ def main() -> None:
             and errors["height_error"] < 1e-5
             and errors["position_error"] < 1e-5
             and errors["time_to_reach"] < 1e-6
+            and errors["contact_point"] < 1e-5
             and not fired_wrongly,
             f"rewards {errors['rewards']:.1e}, approach distance {errors['approach'] * 1e3:.3f} mm, terminated "
             f"{errors['terminations']:.0f}, height_error {errors['height_error'] * 1e3:.4f} mm, position_error "
-            f"{errors['position_error'] * 1e3:.4f} mm, time_to_reach {errors['time_to_reach']:.1e} s; terminations not "
+            f"{errors['position_error'] * 1e3:.4f} mm, time_to_reach {errors['time_to_reach']:.1e} s, contact_point / "
+            f"fork_contact {errors['contact_point']:.1e}; terminations not "
             f"matching their limit: {fired_wrongly[:5] or 'none'}",
         )
         print(f"\n=== check_push_terms ({n} envs, phases {' '.join(args_cli.phases)}) ===")
