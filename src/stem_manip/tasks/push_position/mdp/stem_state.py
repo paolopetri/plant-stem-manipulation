@@ -32,6 +32,7 @@ from stem_manip.utils import stem_geometry
 from stem_manip.utils.per_env import per_env
 
 if TYPE_CHECKING:
+    from isaaclab.assets import Articulation, CableObject
     from isaaclab.envs import ManagerBasedEnv
 
 STEM = "stem"
@@ -46,11 +47,11 @@ class StemState:
     Args:
         model: stem model module (`stem_manip.assets.stem.stem_model(name)`): `segment_poses(stem)`,
             `segment_length(stem)`.
-        stem: the stem asset.
+        stem: the stem asset (an `Articulation` for `chain`, a `CableObject` for `cable`).
         robot: the robot asset whose base frame the results are in.
     """
 
-    def __init__(self, model: ModuleType, stem, robot):
+    def __init__(self, model: ModuleType, stem: Articulation | CableObject, robot: Articulation):
         self._model = model
         self._stem = stem
         self._robot = robot
@@ -87,7 +88,7 @@ class StemState:
         return self._model.segment_poses(self._stem)
 
 
-def _world_to_base(robot, points_w: torch.Tensor) -> torch.Tensor:
+def _world_to_base(robot: Articulation, points_w: torch.Tensor) -> torch.Tensor:
     """World-frame points (num_envs, num_points, 3) [m] in `robot`'s base frame, same shape."""
     num_points = points_w.shape[1]
     root_pos = robot.data.root_pos_w.torch.repeat_interleave(num_points, dim=0)
