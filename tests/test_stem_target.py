@@ -17,13 +17,11 @@ import math
 import pytest
 import torch
 
-from stem_manip.assets.stem import stem_params
 from stem_manip.utils import stem_target
 
 ARC_LENGTH = 0.40  # [m] the tip (user, 2026-10-08)
 DISTANCE_RANGE = (0.03, 0.10)  # [m] (user, 2026-10-08)
-CURVATURE_BUDGET = 0.8  # fraction of damage.max_curvature for the deepest target shape (user, 2026-10-09)
-MAX_CURVATURE = CURVATURE_BUDGET * stem_params("chain")["damage"]["max_curvature"]  # [1/m] 4 at 5 1/m
+CURVATURE_AT_BUDGET = 4.0  # [1/m] the budget 0.8 (user, 2026-10-09) x damage.max_curvature 5 1/m
 FULL_CIRCLE = (-math.pi, math.pi)
 NUM_ENVS = 4096
 
@@ -45,7 +43,7 @@ def _sample(angle_range: tuple[float, float] = FULL_CIRCLE, seed: int = 0) -> tu
         ARC_LENGTH,
         DISTANCE_RANGE,
         angle_range,
-        MAX_CURVATURE,
+        CURVATURE_AT_BUDGET,
         generator=torch.Generator().manual_seed(seed),
     )
     return rest, targets
@@ -89,7 +87,7 @@ def test_targets_lie_in_the_region():
     distance, c = _drop_factor(rest, targets)
     assert float(distance.min()) >= DISTANCE_RANGE[0] - 1e-9
     assert float(distance.max()) <= DISTANCE_RANGE[1] + 1e-9
-    deepest = stem_target.deepest_drop_factor(distance, ARC_LENGTH, MAX_CURVATURE)
+    deepest = stem_target.deepest_drop_factor(distance, ARC_LENGTH, CURVATURE_AT_BUDGET)
     assert float(c.min()) >= 0.6 - 1e-9  # on or below the bowl
     assert bool((c <= deepest + 1e-9).all())
     # the whole band is used: targets near the bowl and near the deepest shape
@@ -103,7 +101,7 @@ def test_targets_stay_within_the_curvature_budget():
     distance, c = _drop_factor(rest, targets)
     slope = stem_target.gentlest_tip_slope(c)
     curvature = stem_target.curvature_factor(slope) * distance / ARC_LENGTH**2
-    assert float(curvature.max()) <= MAX_CURVATURE + 1e-6
+    assert float(curvature.max()) <= CURVATURE_AT_BUDGET + 1e-6
     assert float(stem_target.drop_factor(slope).sub(c).abs().max()) < 1e-9
 
 

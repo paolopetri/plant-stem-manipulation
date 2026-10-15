@@ -182,9 +182,9 @@ def main() -> None:
             DifferentialIKControllerCfg(command_type="pose", use_relative_mode=False, ik_method="dls"), 1, device
         )
 
-        def command(target_pos: torch.Tensor, target_quat: torch.Tensor) -> None:
+        def command(goal_pos: torch.Tensor, goal_quat: torch.Tensor) -> None:
             pos, quat = slot_base_pose()
-            ik.set_command(torch.cat([target_pos.view(1, 3), target_quat.view(1, 4)], dim=-1))
+            ik.set_command(torch.cat([goal_pos.view(1, 3), goal_quat.view(1, 4)], dim=-1))
             joint_pos = ik.compute(pos, quat, slot_base.jacobian(), robot.data.joint_pos.torch[:, arm_joints])
             robot.set_joint_position_target_index(target=joint_pos, joint_ids=arm_joints)
 
@@ -193,9 +193,9 @@ def main() -> None:
         max_arm_contact = torch.zeros(len(robot_links), device=device)  # per link, whole test
         approach_contact = 0.0  # any contact with the robot before the push
 
-        def step(target_pos: torch.Tensor, target_quat: torch.Tensor = slot_base_quat, approach: bool = False) -> None:
+        def step(goal_pos: torch.Tensor, goal_quat: torch.Tensor = slot_base_quat, approach: bool = False) -> None:
             nonlocal max_arm_contact, approach_contact
-            command(target_pos, target_quat)
+            command(goal_pos, goal_quat)
             scene.write_data_to_sim()
             sim.step(render=False)
             scene.update(sim_dt)

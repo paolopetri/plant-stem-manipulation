@@ -68,7 +68,9 @@ DISTANCE_STD = (0.05, 0.01)  # [m] stem tip to target: coarse (targets 3-10 cm a
 # height errors occur only before the push, where the 3-D coarse term already gives the gradient.
 HEIGHT_STD = 0.003
 APPROACH_STD = 0.1  # [m] slot base to the nearest stem point (start: the fork is 0.2-0.4 m from the stem)
-CURVATURE_SOFT_FRACTION = 0.8  # curvature penalty above 0.8 x the limit (= the targets' curvature budget)
+# curvature budget (user, 2026-10-09): 0.8 x the limit, i.e. 4 1/m, for clear C / S bends that need the fork's slot;
+# the targets stay inside it and the curvature penalty starts at it
+CURVATURE_BUDGET = 0.8
 # [N] contact penalty above it, on the largest single contact (normal pushes 0.8-1.4 N measured; clamp bound 4 N)
 CONTACT_FREE_FORCE = 2.0
 MIN_JOINT_MARGIN = 0.25  # [rad] terminate closer to any FR3 joint limit (the sweeps' rule, 2026-10-08)
@@ -123,12 +125,14 @@ class CommandsCfg:
     """Target position of the stem tip, sampled once per episode (decided values: cfg defaults, user 2026-10-08)."""
 
     # resampling time far above the episode length: the target is sampled only at reset
-    stem_target = mdp.StemTipTargetCommandCfg(stem_model=STEM_MODEL, resampling_time_range=(1e9, 1e9), debug_vis=True)
+    stem_target = mdp.StemTipTargetCommandCfg(
+        stem_model=STEM_MODEL, curvature_budget=CURVATURE_BUDGET, resampling_time_range=(1e9, 1e9), debug_vis=True
+    )
 
 
 @configclass
 class ObservationsCfg:
-    """Policy observations, 57 values in this order: slot base (position 3, orientation 6, applied step 6, target
+    """Policy observations, 57 values in this order: slot base (position 3, orientation 6, applied step 6, setpoint
     offset 6), stem base 3, 5 stem points of the previous and the current policy step 30 (oldest first), target 3.
     All positions in the robot base frame [m]. The stem-state terms (`mdp/stem_state.py`) are to be changed to what
     the perception delivers; no contact forces (decision 2026-10-06)."""
@@ -142,7 +146,7 @@ class ObservationsCfg:
             func=mdp.slot_base_rot6d, params={"body_name": END_EFFECTOR, "offset": slot_base_offset(END_EFFECTOR)}
         )
         applied_step = ObsTerm(func=mdp.applied_step)
-        target_offset = ObsTerm(func=mdp.target_offset)
+        setpoint_offset = ObsTerm(func=mdp.setpoint_offset)
         stem_base = ObsTerm(func=mdp.stem_points, params={"arc_lengths": (0.0,), "model": STEM_MODEL})
         # 5 points up to the tip, plus the same points one policy step earlier (the stem's motion; user, 2026-10-08)
         stem_points = ObsTerm(
@@ -205,7 +209,7 @@ class RewardsCfg:
         params={
             "model": STEM_MODEL,
             "max_curvature": DAMAGE["max_curvature"],
-            "soft_fraction": CURVATURE_SOFT_FRACTION,
+            "curvature_budget": CURVATURE_BUDGET,
         },
     )
     contact_force = RewTerm(

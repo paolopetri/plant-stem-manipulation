@@ -25,7 +25,7 @@ project on Monday, and possibly during the weekend.
 - Analysis helpers in `scripts/` (read-only on the simulation) if you need them.
 
 ## Never (write ideas about these into the journal's "Proposals for the user" instead)
-New reward terms or exploration noise types; damage limits (curvature 5 1/m, soft fraction 0.8, contact 5 N);
+New reward terms or exploration noise types; damage limits (curvature 5 1/m, curvature budget 0.8, contact 5 N);
 controller and action limits or gains (speed caps, acceleration limits, clamp, K_p / K_o: sim-to-real); policy
 observations (perception constraint; no contact forces); spawn area and target sampling; joint-margin value, episode
 length, start pose; stem parameters; check or test criteria; anything on another branch.

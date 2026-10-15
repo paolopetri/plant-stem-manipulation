@@ -26,7 +26,7 @@ POLICY_TERMS = [  # order of the concatenated policy observation (57 values)
     "slot_base_pos",  # 3
     "slot_base_rot",  # 6
     "applied_step",  # 6
-    "target_offset",  # 6
+    "setpoint_offset",  # 6
     "stem_base",  # 3
     "stem_points",  # 2 x 15 (previous policy step, then the current one)
     "target_pos",  # 3
@@ -39,7 +39,7 @@ REWARDS = {
     # run 13 config (docs/experiments/2026-10-10-m5-weekend.md)
     "height": (mdp.stem_point_height_tanh, 0.3, {"std": 0.003}),
     "approach": (mdp.approach_tanh, 0.5, {"std": 0.1}),  # slot base to the nearest stem point [m]
-    "curvature": (mdp.curvature_penalty, -1.0, {"soft_fraction": 0.8}),  # quadratic above 0.8 x the limit
+    "curvature": (mdp.curvature_penalty, -1.0, {"curvature_budget": 0.8}),  # quadratic above 0.8 x the limit
     "contact_force": (mdp.contact_force_penalty, -1.0, {"threshold": 2.0}),  # quadratic above 2 N
     "action_rate": (mdp.action_rate_l2, -0.01, {}),
     "terminated": (mdp.is_terminated, -10.0, {}),  # early terminations only (not the time out)

@@ -14,11 +14,11 @@ is small). Joint armature: the motors' reflected inertia from the FR3 URDF (`--a
 none, and without it the simulated joints are far lighter than the real ones). Robot gravity is off in simulation
 (the real robot compensates it). v_d = 0 except for `plai_ff`.
 
-Variants (how one policy action, a slot-base displacement per policy step at 31.25 Hz, becomes the target):
-- `rel_current`: target = measured slot base + action, held over the policy step (Isaac Lab's relative OSC
+Variants (how one policy action, a slot-base displacement per policy step at 31.25 Hz, becomes the setpoint):
+- `rel_current`: setpoint = measured slot base + action, held over the policy step (Isaac Lab's relative OSC
   action, FrankaTwin);
-- `plai`: target = previous target + action, held (IndustReal's policy-level action integrator);
-- `plai_ff`: as `plai`, but the target moves linearly through the policy step and its velocity is fed forward
+- `plai`: setpoint = previous setpoint + action, held (IndustReal's policy-level action integrator);
+- `plai_ff`: as `plai`, but the setpoint moves linearly through the policy step and its velocity is fed forward
   (v_d = action / policy step).
 Each env runs one (variant, stiffness K_p, speed) combination; all envs run in one simulation.
 
@@ -50,7 +50,7 @@ from isaaclab.app import add_launcher_args, launch_simulation
 VARIANTS = ("rel_current", "plai", "plai_ff")
 
 parser = argparse.ArgumentParser(description="Impedance-controller sweep: following step-wise commands.")
-parser.add_argument("--variants", nargs="+", choices=VARIANTS, default=list(VARIANTS), help="Target variants.")
+parser.add_argument("--variants", nargs="+", choices=VARIANTS, default=list(VARIANTS), help="Setpoint variants.")
 parser.add_argument("--gains", nargs="+", type=float, default=[150.0, 400.0, 1000.0], help="K_p [N/m].")
 parser.add_argument("--speeds", nargs="+", type=float, default=[0.05, 0.10, 0.20], help="Commanded speed [m/s].")
 parser.add_argument("--rot_stiffness", type=float, default=10.0, help="K_o [N m/rad] (Franka default 10).")
@@ -214,9 +214,9 @@ def main() -> None:
                 clock["frame_start"] = time.perf_counter()
 
         # -- approach with the joint PD and differential IK (as check_contact), then settle
-        def ik_step(target_pos: torch.Tensor, target_quat: torch.Tensor) -> None:
+        def ik_step(goal_pos: torch.Tensor, goal_quat: torch.Tensor) -> None:
             pos, quat = slot_base_pose()
-            ik.set_command(torch.cat([target_pos, target_quat], dim=-1))
+            ik.set_command(torch.cat([goal_pos, goal_quat], dim=-1))
             joint_pos = ik.compute(pos, quat, slot_base_jacobian(), robot.data.joint_pos.torch[:, arm])
             robot.set_joint_position_target_index(target=joint_pos, joint_ids=arm)
             advance()
@@ -300,7 +300,7 @@ def main() -> None:
         policy_dt = DECIMATION * sim_dt
         total_steps = math.ceil(float(t_ends[-1].max()) / sim_dt)
         x_d = start_t.clone()
-        target_prev = start_t.clone()  # target at the start of the current policy step (plai, plai_ff)
+        setpoint_prev = start_t.clone()  # setpoint at the start of the current policy step (plai, plai_ff)
         action = torch.zeros(n, 3, device=device)
         lag = torch.zeros(n, device=device)
         lag_sum, lag_count = torch.zeros(n, device=device), torch.zeros(n, device=device)
@@ -315,10 +315,10 @@ def main() -> None:
             if step_i % DECIMATION == 0:  # policy step: the displacement it wants over the next policy step
                 pos_now = slot_base_pose()[0]
                 action = commanded(t + policy_dt)[0] - commanded(t)[0]
-                target_prev = torch.where(is_rel.unsqueeze(-1), pos_now, x_d)
-                x_d = target_prev + action
+                setpoint_prev = torch.where(is_rel.unsqueeze(-1), pos_now, x_d)
+                x_d = setpoint_prev + action
             frac = (step_i % DECIMATION + 1) / DECIMATION
-            x_d_now = torch.where(is_ff.unsqueeze(-1), target_prev + frac * action, x_d)
+            x_d_now = torch.where(is_ff.unsqueeze(-1), setpoint_prev + frac * action, x_d)
             v_d = torch.where(is_ff.unsqueeze(-1), action / policy_dt, torch.zeros_like(action))
             impedance_step(x_d_now, v_d)
 

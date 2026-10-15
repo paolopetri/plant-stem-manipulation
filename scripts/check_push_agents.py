@@ -2,21 +2,21 @@
 
 Runs the task as Isaac Lab's `isaaclab zero_agent` / `random_agent` do (zero actions; uniform random actions in
 [-1, 1], seeded), and a scripted clamp agent that moves the slot base sideways, away from the stem, and then drives it
-down into the ground (as the clamp test of `check_push_env.py`), so that the target clamp holds; each for
+down into the ground (as the clamp test of `check_push_env.py`), so that the setpoint clamp holds; each for
 `--episodes` episodes, checking every policy step. The expected values are the decided ones, fixed here, not read
 from the cfg:
 - shapes: observation (num_envs, 57), action (num_envs, 6); terms slot_base_pos 3, slot_base_rot 6, applied_step 6,
-  target_offset 6, stem_base 3, stem_points 30 (5 points, previous and current policy step), target_pos 3;
+  setpoint_offset 6, stem_base 3, stem_points 30 (5 points, previous and current policy step), target_pos 3;
 - finite: observations, rewards, terminated / truncated flags;
 - slot_base_rot: both columns unit length and orthogonal (1e-4);
 - after every reset: slot base within 5 mm of the start pose (0.40, 0, 0.50) m and within 1 deg (rotation angle) of
   the orientation at the first reset (tolerances of `check_push_env.py`);
-- target_offset: position part and rotation part each of norm <= 1 (target clamp 4 mm / 3 deg, 2026-10-08); each
+- setpoint_offset: position part and rotation part each of norm <= 1 (setpoint clamp 4 mm / 3 deg, 2026-10-08); each
   may exceed 1 by one physics step of tool motion at its speed cap (position +0.05, `OFFSET_TOL`; rotation +0.03,
   `ROT_OFFSET_TOL`): the clamp acts on the pose before the last physics step, the observation is taken after it (the
   exact 4 mm bound on the command pose is checked in `check_push_env.py`);
 - applied_step: translation and rotation part each of norm <= 1 (speed caps), except at steps where the clamp held
-  that part's target in any physics step (the action term's `clamp_held`: there the clamp drags the target along,
+  that part's setpoint in any physics step (the action term's `clamp_held`: there the clamp drags the setpoint along,
   see `mdp.applied_step`); the number of such env-steps is printed;
 - stem_base: in the spawn area x 0.50-0.65 m, y +-0.15 m (1e-6 m), z 0 (1 mm), as in `check_push_obs.py`;
   stem base constant within an episode (1e-6 m, user 2026-10-09: the stem stays bit-identical in the world, but the
@@ -29,8 +29,8 @@ from the cfg:
 Zero agent in addition: only the time out fires, exactly at step 469 (15 s / 32 ms) of every episode in every env;
 the slot base stays within 2 mm of its reset position (lag criterion of the action sweep); curvature, contact and
 action-rate penalties 0. Random agent: the terminations that fire are reported (counts per term), not checked.
-Clamp agent: the clamp holds the position target in at least one env-step, so that the exemption and the
-target_offset bound are exercised (the random agent rarely engages the clamp).
+Clamp agent: the clamp holds the position setpoint in at least one env-step, so that the exemption and the
+setpoint_offset bound are exercised (the random agent rarely engages the clamp).
 
 Every loop has a fixed number of steps and a progress line is printed every 100 steps. The check fails when it takes
 longer than `--max_minutes`; the limit is checked between policy steps, so a hang inside `env.step` (or at startup)
@@ -78,7 +78,7 @@ TERM_DIMS = {
     "slot_base_pos": 3,
     "slot_base_rot": 6,
     "applied_step": 6,
-    "target_offset": 6,
+    "setpoint_offset": 6,
     "stem_base": 3,
     "stem_points": 30,
     "target_pos": 3,
@@ -93,14 +93,14 @@ AREA_TOL, GROUND_TOL = 1e-6, 1e-3  # [m] as in check_push_obs.py
 ARC_TOL = 1e-3  # [m]
 UNIT_TOL = 1e-4
 # decided action limits (option B1, user 2026-10-08; docs/overleaf_folder/open_questions/action_limits_problem.tex):
-# the clamp agent's speed and braking, and the target clamp
+# the clamp agent's speed and braking, and the setpoint clamp
 CAP_STEP, STEP_CHANGE = 0.0032, 8e-5  # [m] speed cap 10 cm/s, step-change limit 0.08 mm per policy step
-CLAMP_OFFSET = 4e-3  # [m] target clamp (4 N at K_p 1000)
+CLAMP_OFFSET = 4e-3  # [m] setpoint clamp (4 N at K_p 1000)
 SPEED_CAP = 0.10  # [m/s] translation speed cap (user, 2026-10-08)
-CLAMP_ROT_OFFSET = 3.0  # [deg] target rotation clamp
+CLAMP_ROT_OFFSET = 3.0  # [deg] setpoint rotation clamp
 ROT_SPEED_CAP = 45.0  # [deg/s] rotation speed cap (user, 2026-10-07)
 PHYSICS_DT = 2e-3  # [s] physics step: `solver.sim_dt` of assets/stem/chain/chain.yaml
-# observed target_offset (user, 2026-10-14): each part may exceed 1 by one physics step of tool motion at its speed
+# observed setpoint_offset (user, 2026-10-14): each part may exceed 1 by one physics step of tool motion at its speed
 # cap (the clamp acts before the last physics step, the observation after it): position 10 cm/s x 2 ms / 4 mm = 0.05,
 # rotation 45 deg/s x 2 ms / 3 deg = 0.03
 OFFSET_TOL = SPEED_CAP * PHYSICS_DT / CLAMP_OFFSET
@@ -157,7 +157,7 @@ def main() -> None:
             rot_ref = obs[:, slices["slot_base_rot"]].clone()  # orientation at the first reset
             fails: dict[str, list[str]] = {}
             stats = {"step_out": 0.0, "offset": 0.0, "unit": 0.0, "arc": -1.0, "hold": 0.0, "start": 0.0, "angle": 0.0}
-            clamp_count = [0, 0]  # env-steps where the clamp held the position / orientation target
+            clamp_count = [0, 0]  # env-steps where the clamp held the position / orientation setpoint
             fired = {name: 0 for name in term_names}
             returns = torch.zeros(n, device=device)
             episode_returns: list[float] = []
@@ -244,15 +244,15 @@ def main() -> None:
                     dim=-1,
                 )
                 stats["unit"] = max(stats["unit"], float(unit.abs().max()))
-                offset = part_norms(obs[:, slices["target_offset"]])
+                offset = part_norms(obs[:, slices["setpoint_offset"]])
                 applied = part_norms(obs[:, slices["applied_step"]])
                 stats["offset"] = max(stats["offset"], float(offset.max()))
-                held = action_term.clamp_held()  # (n, 2): the clamp held that part's target in this policy step
+                held = action_term.clamp_held()  # (n, 2): the clamp held that part's setpoint in this policy step
                 clamp_count = [c + int(h) for c, h in zip(clamp_count, held.sum(dim=0).tolist(), strict=True)]
                 free = ~held
                 stats["step_out"] = max(stats["step_out"], float(applied[free].max()) if free.any() else 0.0)
                 if (offset > offset_bound).any():
-                    fail("target_offset within one physics step of 1", f"step {step}: {offset.max():.4f}")
+                    fail("setpoint_offset within one physics step of 1", f"step {step}: {offset.max():.4f}")
                 if (applied[free] > 1 + UNIT_TOL).any():
                     fail("applied_step <= 1 (clamp free)", f"step {step}: {applied[free].max():.4f}")
                 base = obs[:, slices["stem_base"]]
@@ -322,7 +322,7 @@ def main() -> None:
                 "shapes",
                 "start pose after reset",
                 "stem base in the spawn area",
-                "target_offset within one physics step of 1",
+                "setpoint_offset within one physics step of 1",
                 "applied_step <= 1 (clamp free)",
                 "stem points within their arc length",
                 "stem_base constant within an episode",
@@ -341,7 +341,7 @@ def main() -> None:
                 checks.append("wall-clock limit")
             values = {
                 "start pose after reset": f"{stats['start'] * 1e3:.2f} mm, {stats['angle']:.3f} deg",
-                "target_offset within one physics step of 1": f"max {stats['offset']:.4f} (bound position "
+                "setpoint_offset within one physics step of 1": f"max {stats['offset']:.4f} (bound position "
                 f"{1 + OFFSET_TOL:.4f}, rotation {1 + ROT_OFFSET_TOL:.4f})",
                 "applied_step <= 1 (clamp free)": f"max {stats['step_out']:.4f}, clamp held in "
                 f"{clamp_count[0]} / {clamp_count[1]} env-steps (position / orientation)",

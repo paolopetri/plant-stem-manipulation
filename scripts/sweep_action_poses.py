@@ -1,13 +1,13 @@
 """Sweep: does the push task's action follow its steps everywhere in the workspace (free space, no stem)?
 
 Uses the env of `StemManip-Push-Position-FR3-v0` itself (its action term: Franka's Cartesian impedance law with an
-integrated target, speed cap, step-change limit and target-offset clamp), with the stem moved out of reach behind the
-robot. Each env first drives the slot base to its own start point (the 8 corners of the box below, the 8 corners of the
-far box at the stem-tip height, plus the env's start pose; step-change limit and clamp switched off for this) and
-holds. Two modes:
+integrated setpoint, speed cap, step-change limit and setpoint-offset clamp), with the stem moved out of reach
+behind the robot. Each env first drives the slot base to its own start point (the 8 corners of the box below, the 8
+corners of the far box at the stem-tip height, plus the env's start pose; step-change limit and clamp switched off
+for this) and holds. Two modes:
 - default: translation moves (`--steps` full steps along +x, -x, +y, -y, +z, -z, and reversals +x then -x etc., whose
-  second segment is twice as long so that the target brakes *and* reverses) and rotation moves (`--rot_steps`, about
-  the same base axes), each followed by a hold, one after the other. With the step-change limit the target ramps up
+  second segment is twice as long so that the setpoint brakes *and* reverses) and rotation moves (`--rot_steps`, about
+  the same base axes), each followed by a hold, one after the other. With the step-change limit the setpoint ramps up
   at the start of a move and brakes during the hold; at the default 20 steps and the cfg's 0.08 mm step change it
   reaches 1.6 mm per step (5 cm/s), so this mode tests the acceleration limit in many directions, not the speed caps.
 - `--full_speed`: one straight move per axis (translation, then rotation) that ramps up to the cap, stays there for
@@ -17,12 +17,12 @@ holds. Two modes:
   uses the same centre, so its points move -x (towards the robot) and y towards 0.
 Measured per start point and move, against the criteria of docs/overleaf_folder/open_questions/
 action_limits_problem.tex (decisions 2026-10-07):
-- following error: largest distance to the target over the whole move and the hold (<= 2 mm);
-- overshoot past the target's final position, along the last direction (<= 5 mm); end error after the hold (<= 1 mm);
+- following error: largest distance to the setpoint over the whole move and the hold (<= 2 mm);
+- overshoot past the setpoint's final position, along the last direction (<= 5 mm); end error after the hold (<= 1 mm);
 - the fork's tilt from its orientation at the start of the move (<= 1 deg).
-Rotation moves: following error (angle to the target orientation, <= 2 deg), overshoot past the target's final
-orientation about the last axis (<= 2 deg), slot-base drift while turning (the position target does not move, <= 2 mm);
-the end error is reported.
+Rotation moves: following error (angle to the setpoint orientation, <= 2 deg), overshoot past the setpoint's final
+orientation about the last axis (<= 2 deg), slot-base drift while turning (the position setpoint does not move,
+<= 2 mm); the end error is reported.
 Joint limits (user, 2026-10-08): there the arm, not the controller, limits the motion, so these moves are reported but
 not counted in pass/fail: default mode, start points within 0.25 rad of a joint limit after settling ("near joint
 limit, not counted"); `--full_speed`, moves that come within 0.25 rad of a joint limit anywhere (the count of counted
@@ -52,7 +52,7 @@ parser.add_argument("--max_step", type=float, default=None, help="Override the a
 parser.add_argument("--max_rot_step", type=float, default=None, help="Override the action's max_rot_step [rad].")
 parser.add_argument("--max_step_change", type=float, default=None, help="Override max_step_change [m].")
 parser.add_argument("--max_rot_step_change", type=float, default=None, help="Override max_rot_step_change [rad].")
-parser.add_argument("--max_target_offset", type=float, default=None, help="Override max_target_offset [m].")
+parser.add_argument("--max_setpoint_offset", type=float, default=None, help="Override max_setpoint_offset [m].")
 parser.add_argument("--damping", choices=["franka", "apparent_mass"], default=None, help="Override the damping.")
 parser.add_argument("--pos_stiffness", type=float, default=None, help="Override K_p [N/m].")
 parser.add_argument("--rot_stiffness", type=float, default=None, help="Override K_o [N m/rad].")
@@ -115,7 +115,7 @@ def main() -> None:
         ("damping", args_cli.damping),
         ("max_step_change", args_cli.max_step_change),
         ("max_rot_step_change", args_cli.max_rot_step_change),
-        ("max_target_offset", args_cli.max_target_offset),
+        ("max_setpoint_offset", args_cli.max_setpoint_offset),
         ("stiffness_pos", args_cli.pos_stiffness),
         ("stiffness_rot", args_cli.rot_stiffness),
         ("stiffness_nullspace", args_cli.nullspace_stiffness),
@@ -130,7 +130,7 @@ def main() -> None:
         term = env.action_manager.get_term("slot_base")
         cfg = term.cfg
         start_t = torch.tensor(starts, device=device)
-        start_quat = term.target_quat().clone()  # the start pose's orientation, kept at every start point
+        start_quat = term.setpoint_quat().clone()  # the start pose's orientation, kept at every start point
         robot = env.scene["robot"]
         limits = robot.data.joint_pos_limits.torch[:, :7]
 
@@ -144,14 +144,14 @@ def main() -> None:
             return torch.minimum(q - limits[..., 0], limits[..., 1] - q).min(dim=-1)
 
         def go_to_starts() -> None:
-            """Drive every env's target to its start pose (limiter and clamp off), then hold until at rest."""
-            keys = ("max_step_change", "max_rot_step_change", "max_target_offset", "max_target_rot_offset")
+            """Drive every env's setpoint to its start pose (limiter and clamp off), then hold until at rest."""
+            keys = ("max_step_change", "max_rot_step_change", "max_setpoint_offset", "max_setpoint_rot_offset")
             saved = {k: getattr(cfg, k) for k in keys}
             for k in keys:
                 setattr(cfg, k, 1e3)
             for _ in range(MAX_DRIVE_STEPS):
-                remaining = start_t - term.target()
-                remaining_rot = rotvec_between(start_quat, term.target_quat())
+                remaining = start_t - term.setpoint()
+                remaining_rot = rotvec_between(start_quat, term.setpoint_quat())
                 if float(remaining.norm(dim=-1).max()) < 1e-6 and float(remaining_rot.norm(dim=-1).max()) < 1e-6:
                     break
                 env.step(
@@ -171,10 +171,10 @@ def main() -> None:
         def run_move(segments: list[tuple[torch.Tensor, int]], hold: int, rotation: bool) -> dict[str, torch.Tensor]:
             """Full action along per-env directions (n, 3) for a number of policy steps each, then a zero hold.
 
-            Returns per env (n,): largest following error, overshoot past the final target along the last direction,
+            Returns per env (n,): largest following error, overshoot past the final setpoint along the last direction,
             end error, the tilt (translation) or slot-base drift (rotation), and the smallest joint margin.
             """
-            pos0, quat0 = term.slot_base_pose()[0].clone(), term.target_quat().clone()
+            pos0, quat0 = term.slot_base_pose()[0].clone(), term.setpoint_quat().clone()
             follow, side = torch.zeros(n, device=device), torch.zeros(n, device=device)
             margin = torch.full((n,), math.inf, device=device)
             held = []  # slot base positions (orientations) during the hold
@@ -186,21 +186,21 @@ def main() -> None:
                 env.step(action)
                 pos, quat = term.slot_base_pose()
                 if rotation:
-                    follow = torch.maximum(follow, angle_between(quat, term.target_quat()))
+                    follow = torch.maximum(follow, angle_between(quat, term.setpoint_quat()))
                     side = torch.maximum(side, (pos - pos0).norm(dim=-1))
                 else:
-                    follow = torch.maximum(follow, (pos - term.target()).norm(dim=-1))
+                    follow = torch.maximum(follow, (pos - term.setpoint()).norm(dim=-1))
                     side = torch.maximum(side, angle_between(quat, quat0))
                 margin = torch.minimum(margin, joint_margin()[0])
                 if d is None:
                     held.append((quat if rotation else pos).clone())
             last = segments[-1][0]
             if rotation:
-                end = term.target_quat().clone()
+                end = term.setpoint_quat().clone()
                 overshoot = torch.stack([(rotvec_between(q, end) * last).sum(-1) for q in held]).max(dim=0).values
                 end_error = angle_between(term.slot_base_pose()[1], end)
             else:
-                end = term.target().clone()
+                end = term.setpoint().clone()
                 overshoot = torch.stack([((p - end) * last).sum(-1) for p in held]).max(dim=0).values
                 end_error = (term.slot_base_pose()[0] - end).norm(dim=-1)
             return {
@@ -273,8 +273,8 @@ def main() -> None:
             f"K_o {cfg.stiffness_rot}, max_step {cfg.max_step * 1e3:.2f} mm = {cfg.max_step / env.step_dt * 100:.2f} "
             f"cm/s, max_rot_step {math.degrees(cfg.max_rot_step):.2f} deg = "
             f"{math.degrees(cfg.max_rot_step) / env.step_dt:.0f} deg/s, step change "
-            f"{cfg.max_step_change * 1e3:.2f} mm / {math.degrees(cfg.max_rot_step_change):.2f} deg, target offset "
-            f"{cfg.max_target_offset * 1e3:.1f} mm) ==="
+            f"{cfg.max_step_change * 1e3:.2f} mm / {math.degrees(cfg.max_rot_step_change):.2f} deg, setpoint offset "
+            f"{cfg.max_setpoint_offset * 1e3:.1f} mm) ==="
         )
         print(f"{'start point [m]':<22} {'settle':>7} {'follow':>14} {'overshoot':>14} {'end':>7} {'tilt':>12}")
         print(f"{'':<22} {'mm':>7} {'mm (worst dir)':>14} {'mm (worst dir)':>14} {'mm':>7} {'deg (dir)':>12}")

@@ -5,7 +5,7 @@
   side only reaches the bowl above deep targets). Same point as the command's `position_error`.
 - Approach: `1 - tanh(d / std)` of the slot base's distance to the nearest point on the stem (exploration: the task
   terms are flat until the fork touches the stem; saturates in contact, does not say where to push).
-- Damage below the hard limits: curvature, quadratic above `soft_fraction` x `damage.max_curvature`; contact force
+- Damage below the hard limits: curvature, quadratic above `curvature_budget` x `damage.max_curvature`; contact force
   of the robot on the stem (largest single contact), quadratic above a free threshold. Twist and tension once their
   limits are set (#81, #82).
 - Smooth motion: Isaac Lab's `action_rate_l2`; early terminations: Isaac Lab's `is_terminated`.
@@ -70,12 +70,12 @@ def curvature_penalty(
     env: ManagerBasedRLEnv,
     model: str,
     max_curvature: float,
-    soft_fraction: float,
+    curvature_budget: float,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("stem"),
 ) -> torch.Tensor:
-    """Sum over the joints of `max(0, kappa - soft_fraction * max_curvature)^2` [1/m^2]; zero for every target shape
+    """Sum over the joints of `max(0, kappa - curvature_budget * max_curvature)^2` [1/m^2]; zero for every target shape
     (they stay within 0.8 x the limit)."""
-    excess = (stem_curvature(env, model, asset_cfg) - soft_fraction * max_curvature).clamp(min=0.0)
+    excess = (stem_curvature(env, model, asset_cfg) - curvature_budget * max_curvature).clamp(min=0.0)
     return excess.square().sum(dim=-1)
 
 

@@ -70,7 +70,7 @@ TASK = "StemManip-Push-Position-FR3-v0"
 STD = {"distance_coarse": 0.05, "distance_fine": 0.01, "height": 0.003, "approach": 0.1}  # [m]
 FINE_Z_SCALE = 0.01 / 0.003  # distance_fine: height error scaled (ellipsoid, std 3 mm in height; user, 2026-10-10)
 MAX_CURVATURE = 5.0  # [1/m]
-SOFT_CURVATURE = 0.8 * MAX_CURVATURE  # [1/m]
+CURVATURE_AT_BUDGET = 0.8 * MAX_CURVATURE  # [1/m]
 FREE_FORCE, MAX_FORCE = 2.0, 5.0  # [N]
 MIN_MARGIN = 0.25  # [rad]
 EPISODE_S = 15.0  # [s]
@@ -179,7 +179,7 @@ def main() -> None:
             expected = {
                 "distance_coarse": tanh_reward(s["d"], STD["distance_coarse"]),
                 "distance_fine": tanh_reward(s["d_fine"], STD["distance_fine"]),
-                "curvature": (s["curvature"] - SOFT_CURVATURE).clamp(min=0.0).square().sum(dim=-1),
+                "curvature": (s["curvature"] - CURVATURE_AT_BUDGET).clamp(min=0.0).square().sum(dim=-1),
                 "contact_force": (s["force"] - contact_params["threshold"]).clamp(min=0.0).square(),
             }
             for name, value in expected.items():
@@ -414,7 +414,7 @@ def main() -> None:
                 set_force(TIP_SEGMENT, None)
                 ok = (
                     first_penalty is not None
-                    and SOFT_CURVATURE < first_penalty[1] <= MAX_CURVATURE
+                    and CURVATURE_AT_BUDGET < first_penalty[1] <= MAX_CURVATURE
                     and fired is not None
                     and fired[1] > MAX_CURVATURE
                     and fired[2]

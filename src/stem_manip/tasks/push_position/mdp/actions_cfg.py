@@ -16,10 +16,10 @@ class SlotBaseImpedanceActionCfg(ActionTermCfg):
 
     Action = (position step, rotation step), both in the robot base frame (user, 2026-10-07). Per policy step:
     desired position step = clip(a[:3], -1, 1) * max_step (length limited to max_step: speed cap); its change from
-    the previous step is limited to max_step_change (acceleration limit); target position += step; the target is then
-    kept within max_target_offset of the measured slot base. The same for the rotation (rotation vector, angles). Per
-    physics step: joint torques from `stem_manip.utils.impedance.cartesian_impedance_torque`. The orientation is
-    free; at reset the targets start at the slot base's pose (the start pose holds the fork horizontal).
+    the previous step is limited to max_step_change (acceleration limit); setpoint position += step; the setpoint is
+    then kept within max_setpoint_offset of the measured slot base. The same for the rotation (rotation vector, angles).
+    Per physics step: joint torques from `stem_manip.utils.impedance.cartesian_impedance_torque`. The orientation is
+    free; at reset the setpoints start at the slot base's pose (the start pose holds the fork horizontal).
     Design (user, 2026-10-07, option iii of docs/notes/2026-10-07.md): speed caps that let the policy approach and
     turn within an episode; small tracking error through a limit on speed *changes* (with velocity feedforward the
     lag comes from changes of speed, not from speed; action spaces that keep the tracking error small transfer
@@ -52,11 +52,11 @@ class SlotBaseImpedanceActionCfg(ActionTermCfg):
     max_rot_step_change: float = 0.000349
     """Largest change of the rotation step per policy step [rad] (0.02 deg = 20 deg/s^2, user 2026-10-07): angle
     following and overshoot <= 2 deg, slot-base drift <= 2 mm (write-up Table "tab:al-b1")."""
-    max_target_offset: float = 0.004
-    """Largest distance of the target from the measured slot base [m]; bounds the spring force to K_p * 4 mm = 4 N
+    max_setpoint_offset: float = 0.004
+    """Largest distance of the setpoint from the measured slot base [m]; bounds the spring force to K_p * 4 mm = 4 N
     when the tool is blocked (user, 2026-10-08: 2 x the lag criterion, ~3 x the measured push forces 0.8-1.4 N)."""
-    max_target_rot_offset: float = 0.05236
-    """Largest angle between target and slot base orientation [rad] (3 deg, user 2026-10-08): bounds the moment to
+    max_setpoint_rot_offset: float = 0.05236
+    """Largest angle between setpoint and slot base orientation [rad] (3 deg, user 2026-10-08): bounds the moment to
     K_o * 0.052 = 5.2 N m, 43 % of the FR3 wrist torque limit 12 N m (10 deg would give 17 N m, above it)."""
     stiffness_pos: float = 1000.0
     """Translational stiffness K_p [N/m] (option B1, user 2026-10-07; Franka's examples use <= 400, its internal
