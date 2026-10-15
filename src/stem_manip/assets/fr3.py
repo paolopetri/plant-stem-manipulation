@@ -55,6 +55,24 @@ def slot_base_offset(ee: str) -> tuple[tuple[float, float, float], tuple[float, 
     return tuple(float(v) for v in slot_base["xyz"]), rot
 
 
+def stale_build(ee: str) -> str | None:
+    """Why build/fr3_<ee>.urdf no longer matches end_effectors/<ee>/<ee>.yaml, or None if it matches.
+
+    Compares the slot_base pose in the built URDF with the yaml's `slot_base`, to 1e-8 (the build writes 9
+    significant digits). The USD is converted from that URDF, so rerun the build and the conversion when stale.
+    """
+    expected = yaml.safe_load((EE_DIR / ee / f"{ee}.yaml").read_text())["slot_base"]
+    root = ET.parse(BUILD_DIR / f"fr3_{ee}.urdf").getroot()
+    joint = next((j for j in root.iter("joint") if j.find("child").get("link") == "slot_base"), None)
+    if joint is None:
+        return "no slot_base frame in the built URDF"
+    for key in ("xyz", "rpy"):
+        built = [float(v) for v in joint.find("origin").get(key).split()]
+        if not all(math.isclose(b, float(e), abs_tol=1e-8) for b, e in zip(built, expected[key], strict=True)):
+            return f"slot_base {key} {built} in the built URDF, {expected[key]} in the yaml"
+    return None
+
+
 def motor_armature(ee: str) -> dict[str, float]:
     """Reflected motor inertia per arm joint [kg m^2] = gear_ratio^2 x motor_inertia, from the URDF's `<dynamics>`."""
     root = ET.parse(BUILD_DIR / f"fr3_{ee}.urdf").getroot()

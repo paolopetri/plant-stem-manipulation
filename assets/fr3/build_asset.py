@@ -14,7 +14,8 @@ Output:
   build/meshes/...        every mesh it references
 
 Usage:
-  uv run build_asset.py --ee fork_v2 --franka-description ~/franka_description
+  uv run build_asset.py --ee fork_v2
+  (franka_description: --franka-description, else FRANKA_DESCRIPTION, else ../franka_description next to the repo)
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ import yaml
 ROOT = Path(__file__).resolve().parent
 EE_DIR = ROOT / "end_effectors"
 SLOT_BASE = "slot_base"  # fixed frame name, so tasks use the same body for every end-effector
+SIBLING_FRANKA_DESCRIPTION = ROOT.parents[2] / "franka_description"  # next to the repo, like ../IsaacLab
 
 
 def fail(msg: str) -> None:
@@ -45,6 +47,13 @@ def add_origin(parent: ET.Element, xyz=(0, 0, 0), rpy=(0, 0, 0)) -> None:
     ET.SubElement(parent, "origin", xyz=fmt(xyz), rpy=fmt(rpy))
 
 
+def default_franka_description() -> Path | None:
+    """FRANKA_DESCRIPTION if set, else ../franka_description next to the repo if it exists, else None."""
+    if os.environ.get("FRANKA_DESCRIPTION"):
+        return Path(os.environ["FRANKA_DESCRIPTION"])
+    return SIBLING_FRANKA_DESCRIPTION if SIBLING_FRANKA_DESCRIPTION.is_dir() else None
+
+
 # --------------------------------------------------------------------------- base URDF meshes
 
 
@@ -55,7 +64,10 @@ def resolve_base_mesh(filename: str, base_dir: Path, franka_root: Path | None) -
         if pkg != "franka_description":
             fail(f"unexpected ROS package in mesh path: {filename}")
         if franka_root is None:
-            fail("base URDF uses package:// paths -> pass --franka-description <path to franka_description repo>")
+            fail(
+                "base URDF uses package:// paths -> pass --franka-description <path to franka_description repo>, "
+                f"set FRANKA_DESCRIPTION, or clone it to {SIBLING_FRANKA_DESCRIPTION}"
+            )
         return franka_root / rel, Path("franka") / rel
 
     if filename.startswith("file://"):
@@ -193,8 +205,9 @@ def main() -> None:
     ap.add_argument(
         "--franka-description",
         type=Path,
-        default=os.environ.get("FRANKA_DESCRIPTION"),
-        help="franka_description repo (needed if the base URDF uses package:// paths); or set FRANKA_DESCRIPTION",
+        default=default_franka_description(),
+        help="franka_description repo (needed if the base URDF uses package:// paths); "
+        "default: FRANKA_DESCRIPTION, else ../franka_description next to the repo",
     )
     ap.add_argument("--out", type=Path, default=ROOT / "build", help="output directory")
     args = ap.parse_args()

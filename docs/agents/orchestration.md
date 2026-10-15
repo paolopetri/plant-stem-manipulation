@@ -11,6 +11,7 @@ Open sub-issues of the parent whose blockers are all closed (`Blocked by` line o
 Each agent gets its own git worktree under `.claude/worktrees/`. Before any `uv run` in it:
 
 1. `../IsaacLab` must resolve: the symlink `.claude/worktrees/IsaacLab -> /mnt/data/users/paolo/IsaacLab` exists.
+   For an asset build, `../franka_description` resolves the same way: `.claude/worktrees/franka_description -> /mnt/data/users/paolo/franka_description`.
 2. Generated assets are git-ignored. Link them from the main checkout:
    `ln -s /mnt/data/users/paolo/plant-stem-manipulation/assets/fr3/build assets/fr3/build`, same for `assets/stem/chain/build`.
    **Copy** instead of linking (`cp -a`) when the ticket rebuilds the assets, or when the user may rebuild the main checkout's assets while the agent runs.
