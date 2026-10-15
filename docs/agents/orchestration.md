@@ -6,17 +6,9 @@ How an orchestrator session runs one background agent per ticket (learned in #47
 
 Open sub-issues of the parent whose blockers are all closed (`Blocked by` line or native dependencies). Start `ready-for-agent` tickets as agents with the model named in the ticket; work on `ready-for-human` tickets with the user.
 
-## Worktree setup
+## Worktrees
 
-Each agent gets its own git worktree under `.claude/worktrees/`. Before any `uv run` in it:
-
-1. `../IsaacLab` must resolve: the symlink `.claude/worktrees/IsaacLab -> /mnt/data/users/paolo/IsaacLab` exists.
-   For an asset build, `../franka_description` resolves the same way: `.claude/worktrees/franka_description -> /mnt/data/users/paolo/franka_description`.
-2. Generated assets are git-ignored. Link them from the main checkout:
-   `ln -s /mnt/data/users/paolo/plant-stem-manipulation/assets/fr3/build assets/fr3/build`, same for `assets/stem/chain/build`.
-   **Copy** instead of linking (`cp -a`) when the ticket rebuilds the assets, or when the user may rebuild the main checkout's assets while the agent runs.
-3. Own `.venv`: `uv sync --extra isaacsim --extra rsl-rl --extra wandb --extra video`. A `.venv` is never shared between worktrees (the editable install points at one tree).
-4. Simulation runs need `OMNI_KIT_ACCEPT_EULA=YES`.
+Each agent gets its own git worktree: `worktrees.md`.
 
 ## GPU
 
@@ -39,7 +31,7 @@ At most two agents run Isaac Sim at the same time (checks, not training runs); s
 ## gh and git
 
 - Issue and PR views: `gh issue view N --json title,body,comments`; plain `gh issue view` and `gh pr edit` fail (Projects classic). Set PR bodies with `gh api -X PATCH repos/paolopetri/plant-stem-manipulation/pulls/N -F body=@<file>`.
-- Merge: remove the worktree first (`git worktree remove -f -f <path>`), then `gh pr merge N --squash`, delete the remote and local branch, `git pull --ff-only` on `main`.
+- Merge: remove the worktree first (`worktrees.md`), then `gh pr merge N --squash`, delete the remote and local branch, `git pull --ff-only` on `main`.
 - Check the main checkout's branch with `git branch --show-current` before branch operations; the session-start git snapshot can be stale.
 
 ## End
