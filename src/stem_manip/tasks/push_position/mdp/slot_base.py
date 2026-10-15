@@ -1,7 +1,9 @@
 """Slot-base kinematics of the robot articulation: pose and geometric Jacobian in the robot base frame.
 
-Reads the inputs of `stem_manip.utils.slot_base` (the formulas) from the robot's current data. Used by the action
-term (`actions.py`) and by `scripts/check_contact.py` and `scripts/sweep_impedance.py`.
+Reads the inputs of `stem_manip.utils.slot_base` (the formulas) from the robot's current data. `slot_base(env)` is
+the env's one instance, built from the slot-base action's cfg and shared by the action term (`actions.py`), the
+slot-base observations and the approach reward. `scripts/check_contact.py` and `scripts/sweep_impedance.py` build
+`SlotBaseKinematics` directly.
 """
 
 from __future__ import annotations
@@ -11,10 +13,12 @@ from typing import TYPE_CHECKING
 
 import torch
 
+from stem_manip.utils.per_env import per_env
 from stem_manip.utils.slot_base import slot_base_jacobian, slot_base_pose
 
 if TYPE_CHECKING:
     from isaaclab.assets import Articulation
+    from isaaclab.envs import ManagerBasedEnv
 
 
 class SlotBaseKinematics:
@@ -68,3 +72,13 @@ class SlotBaseKinematics:
             data.body_quat_w.torch[:, self._body_idx],
             self._offset_pos,
         )
+
+
+@per_env
+def slot_base(env: ManagerBasedEnv) -> SlotBaseKinematics:
+    """The env's slot-base kinematics, built on first use from the slot-base action's cfg (`env.cfg.actions.slot_base`:
+    robot asset, end-effector body, slot-base offset, arm joints)."""
+    cfg = env.cfg.actions.slot_base
+    robot = env.scene[cfg.asset_name]
+    joint_ids, _ = robot.find_joints(cfg.joint_names)
+    return SlotBaseKinematics(robot, cfg.body_name, cfg.slot_base_offset, joint_ids)

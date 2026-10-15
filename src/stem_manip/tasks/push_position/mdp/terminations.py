@@ -19,17 +19,15 @@ import torch
 from isaaclab.managers import SceneEntityCfg
 
 from .contact import robot_contact_force
-from .stem_state import stem_curvature
+from .stem_state import stem_state
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
 
-def curvature_limit(
-    env: ManagerBasedRLEnv, model: str, max_curvature: float, asset_cfg: SceneEntityCfg = SceneEntityCfg("stem")
-) -> torch.Tensor:
+def curvature_limit(env: ManagerBasedRLEnv, max_curvature: float) -> torch.Tensor:
     """True where any joint of the stem bends more than `max_curvature` [1/m]."""
-    return (stem_curvature(env, model, asset_cfg) > max_curvature).any(dim=-1)
+    return (stem_state(env).curvature() > max_curvature).any(dim=-1)
 
 
 def contact_force_limit(env: ManagerBasedRLEnv, max_force: float, sensor_cfg: SceneEntityCfg) -> torch.Tensor:

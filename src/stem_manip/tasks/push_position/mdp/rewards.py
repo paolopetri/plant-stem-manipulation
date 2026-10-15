@@ -23,8 +23,8 @@ import torch
 from isaaclab.managers import SceneEntityCfg
 
 from .contact import robot_contact_force
-from .observations import slot_base_pos
-from .stem_state import stem_curvature, stem_distance_b
+from .slot_base import slot_base
+from .stem_state import stem_state
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -52,30 +52,16 @@ def stem_point_height_tanh(env: ManagerBasedRLEnv, std: float, command_name: str
     return 1.0 - torch.tanh(stem_point_error(env, command_name)[:, 2].abs() / std)
 
 
-def approach_tanh(
-    env: ManagerBasedRLEnv,
-    std: float,
-    model: str,
-    body_name: str,
-    offset: tuple[tuple[float, ...], tuple[float, ...]],
-    asset_cfg: SceneEntityCfg = SceneEntityCfg("stem"),
-    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
-) -> torch.Tensor:
+def approach_tanh(env: ManagerBasedRLEnv, std: float) -> torch.Tensor:
     """`1 - tanh(d / std)` of the slot base's distance d to the stem's centre line [m], in (0, 1]."""
-    slot_base_b = slot_base_pos(env, body_name, offset, robot_cfg)
-    return 1.0 - torch.tanh(stem_distance_b(env, slot_base_b.unsqueeze(1), model, asset_cfg, robot_cfg)[:, 0] / std)
+    slot_base_b = slot_base(env).pose()[0]
+    return 1.0 - torch.tanh(stem_state(env).distance_b(slot_base_b.unsqueeze(1))[:, 0] / std)
 
 
-def curvature_penalty(
-    env: ManagerBasedRLEnv,
-    model: str,
-    max_curvature: float,
-    curvature_budget: float,
-    asset_cfg: SceneEntityCfg = SceneEntityCfg("stem"),
-) -> torch.Tensor:
+def curvature_penalty(env: ManagerBasedRLEnv, max_curvature: float, curvature_budget: float) -> torch.Tensor:
     """Sum over the joints of `max(0, kappa - curvature_budget * max_curvature)^2` [1/m^2]; zero for every target shape
     (they stay within 0.8 x the limit)."""
-    excess = (stem_curvature(env, model, asset_cfg) - curvature_budget * max_curvature).clamp(min=0.0)
+    excess = (stem_state(env).curvature() - curvature_budget * max_curvature).clamp(min=0.0)
     return excess.square().sum(dim=-1)
 
 

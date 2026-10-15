@@ -114,6 +114,7 @@ def record() -> None:
     import stem_manip.tasks  # noqa: F401  (registers the task)
     from stem_manip.tasks.push_position import mdp
     from stem_manip.tasks.push_position.env_cfg import StemPushPositionEnvCfg
+    from stem_manip.tasks.push_position.mdp.stem_state import stem_state
 
     env_cfg = StemPushPositionEnvCfg()
     env_cfg.scene.num_envs = args_cli.num_envs
@@ -130,9 +131,8 @@ def record() -> None:
         )
         reward_names = env.reward_manager.active_terms
         term_names = env.termination_manager.active_terms
-        # the contact sensor and the stem model of the damage terms, from their cfg
+        # the contact sensor of the damage terms, from their cfg
         sensor_cfg = env.reward_manager.get_term_cfg("contact_force").params["sensor_cfg"]
-        stem_model = env.reward_manager.get_term_cfg("curvature").params["model"]
         terms: dict[str, torch.Tensor] = {}
 
         def run(agent: str, steps: int, policy) -> None:
@@ -148,7 +148,7 @@ def record() -> None:
                     terminations[name].append(env.termination_manager.get_term(name).clone())
                 # raw damage quantities after the step (after the reset in envs that were reset)
                 state["robot_contact_force"].append(mdp.robot_contact_force(env, sensor_cfg))
-                state["max_curvature"].append(mdp.stem_curvature(env, stem_model).amax(dim=-1))
+                state["max_curvature"].append(stem_state(env).curvature().amax(dim=-1))
             obs_all, reward_all = torch.stack(obs).cpu(), torch.stack(rewards).cpu()
             for name, part in slices.items():
                 terms[f"{agent}/obs/{name}"] = obs_all[..., part]

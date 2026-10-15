@@ -33,7 +33,7 @@ from stem_manip.utils.impedance import (
 )
 
 from .actions_cfg import SlotBaseImpedanceActionCfg
-from .slot_base import SlotBaseKinematics
+from .slot_base import slot_base
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
@@ -48,7 +48,7 @@ class SlotBaseImpedanceAction(ActionTerm):
     def __init__(self, cfg: SlotBaseImpedanceActionCfg, env: ManagerBasedEnv):
         super().__init__(cfg, env)
         self._joint_ids, _ = self._asset.find_joints(cfg.joint_names)
-        self._slot_base = SlotBaseKinematics(self._asset, cfg.body_name, cfg.slot_base_offset, self._joint_ids)
+        self._slot_base = slot_base(env)
 
         n, device = self.num_envs, self.device
         self._q_ns = self._asset.data.default_joint_pos.torch[:, self._joint_ids].clone()

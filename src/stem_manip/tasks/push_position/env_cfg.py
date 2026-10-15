@@ -6,8 +6,8 @@
 - Actions: relative slot-base pose (position and rotation step, robot base frame), executed by Franka's Cartesian
   impedance law (`mdp.SlotBaseImpedanceAction`, the same controller as on the real FR3); robot in torque mode.
 - Managers from `mdp/` (commands, observations, rewards, terminations, events); weights and ranges as cfg fields.
-- The stem point (segment index + offset, the tip) is a task-cfg field (`CommandsCfg`); the curvature limit comes from
-  `assets/stem/stem.yaml`.
+- The stem point (its arc length, the stem length = the tip) is a task-cfg field (`CommandsCfg`); the curvature limit
+  comes from `assets/stem/stem.yaml`.
 - Contact sensor on the stem: forces for rewards and terminations only, not observed.
 
 Verify: `scripts/check_push_env.py`, `scripts/check_push_terms.py`; zero/random agent runs headless with few envs.
@@ -59,6 +59,8 @@ START_JOINT_POS = {
 STEM_SPAWN_X = (0.50, 0.65)
 STEM_SPAWN_Y = (-0.15, 0.15)
 # The spawn event ignores the stem's `init_state.pos`: to place the stem elsewhere, also set `events.spawn_stem = None`.
+# [m] arc length of the target command's stem point from the stem base: the stem length, i.e. the tip (user, 2026-10-08)
+STEM_POINT_ARC_LENGTH = 0.40
 
 # Rewards and terminations (user, 2026-10-09; docs/notes/2026-10-09.md). Damage limits come from `stem.yaml`.
 DAMAGE = stem_params(STEM_MODEL)["damage"]
@@ -126,7 +128,10 @@ class CommandsCfg:
 
     # resampling time far above the episode length: the target is sampled only at reset
     stem_target = mdp.StemTipTargetCommandCfg(
-        stem_model=STEM_MODEL, curvature_budget=CURVATURE_BUDGET, resampling_time_range=(1e9, 1e9), debug_vis=True
+        arc_length=STEM_POINT_ARC_LENGTH,
+        curvature_budget=CURVATURE_BUDGET,
+        resampling_time_range=(1e9, 1e9),
+        debug_vis=True,
     )
 
 
@@ -139,19 +144,15 @@ class ObservationsCfg:
 
     @configclass
     class PolicyCfg(ObsGroup):
-        slot_base_pos = ObsTerm(
-            func=mdp.slot_base_pos, params={"body_name": END_EFFECTOR, "offset": slot_base_offset(END_EFFECTOR)}
-        )
-        slot_base_rot = ObsTerm(
-            func=mdp.slot_base_rot6d, params={"body_name": END_EFFECTOR, "offset": slot_base_offset(END_EFFECTOR)}
-        )
+        slot_base_pos = ObsTerm(func=mdp.slot_base_pos)
+        slot_base_rot = ObsTerm(func=mdp.slot_base_rot6d)
         applied_step = ObsTerm(func=mdp.applied_step)
         setpoint_offset = ObsTerm(func=mdp.setpoint_offset)
-        stem_base = ObsTerm(func=mdp.stem_points, params={"arc_lengths": (0.0,), "model": STEM_MODEL})
+        stem_base = ObsTerm(func=mdp.stem_points, params={"arc_lengths": (0.0,)})
         # 5 points up to the tip, plus the same points one policy step earlier (the stem's motion; user, 2026-10-08)
         stem_points = ObsTerm(
             func=mdp.stem_points,
-            params={"arc_lengths": (0.08, 0.16, 0.24, 0.32, 0.40), "model": STEM_MODEL},
+            params={"arc_lengths": (0.08, 0.16, 0.24, 0.32, 0.40)},
             history_length=2,
         )
         target_pos = ObsTerm(func=mdp.generated_commands, params={"command_name": "stem_target"})
@@ -168,7 +169,7 @@ class EventCfg:
     """Base clamping at startup; robot and stem back to their default states on reset, then the stem base moved to a
     random place in the spawn area (upright, at rest; before the target command is resampled)."""
 
-    fix_stem_base = EventTerm(func=mdp.fix_stem_base, mode="startup", params={"model": STEM_MODEL})
+    fix_stem_base = EventTerm(func=mdp.fix_stem_base, mode="startup")
     reset_scene = EventTerm(func=mdp.reset_scene_to_default, mode="reset", params={"reset_joint_targets": True})
     spawn_stem = EventTerm(
         func=mdp.reset_stem_base_uniform,
@@ -193,24 +194,11 @@ class RewardsCfg:
     # on against the side-push stall on the bowl (`height_error` stayed at +3 mm with weight 0); 0.3: weight 1.0 traded
     # sideways accuracy for height (M5 weekend runs 04-05, docs/experiments/2026-10-10-m5-weekend.md)
     height = RewTerm(func=mdp.stem_point_height_tanh, weight=0.3, params={"std": HEIGHT_STD})
-    approach = RewTerm(
-        func=mdp.approach_tanh,
-        weight=0.5,
-        params={
-            "std": APPROACH_STD,
-            "model": STEM_MODEL,
-            "body_name": END_EFFECTOR,
-            "offset": slot_base_offset(END_EFFECTOR),
-        },
-    )
+    approach = RewTerm(func=mdp.approach_tanh, weight=0.5, params={"std": APPROACH_STD})
     curvature = RewTerm(
         func=mdp.curvature_penalty,
         weight=-1.0,
-        params={
-            "model": STEM_MODEL,
-            "max_curvature": DAMAGE["max_curvature"],
-            "curvature_budget": CURVATURE_BUDGET,
-        },
+        params={"max_curvature": DAMAGE["max_curvature"], "curvature_budget": CURVATURE_BUDGET},
     )
     contact_force = RewTerm(
         func=mdp.contact_force_penalty,
@@ -226,9 +214,7 @@ class TerminationsCfg:
     """Time out; damage limits (curvature, contact force); joint margin. No slot-base bound (user, 2026-10-09)."""
 
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
-    curvature_limit = DoneTerm(
-        func=mdp.curvature_limit, params={"model": STEM_MODEL, "max_curvature": DAMAGE["max_curvature"]}
-    )
+    curvature_limit = DoneTerm(func=mdp.curvature_limit, params={"max_curvature": DAMAGE["max_curvature"]})
     contact_force_limit = DoneTerm(
         func=mdp.contact_force_limit,
         params={"max_force": DAMAGE["max_contact_force"], "sensor_cfg": SceneEntityCfg("stem_contact")},
@@ -250,6 +236,9 @@ class StemPushPositionEnvCfg(ManagerBasedRLEnvCfg):
     events: EventCfg = EventCfg()
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
+    stem_model: str = STEM_MODEL
+    """Stem model the MDP reads the stem through (`mdp.stem_state`) and the base-fixing event uses
+    (`stem_manip.assets.stem.STEM_MODELS`)."""
     git_commit: str = git_commit()
 
     def __post_init__(self):

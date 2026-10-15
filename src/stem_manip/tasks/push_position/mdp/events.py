@@ -15,15 +15,16 @@ from isaaclab.utils.math import sample_uniform
 
 from stem_manip.assets.stem import stem_model
 
+from .stem_state import STEM
+
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
 
 
-def fix_stem_base(
-    env: ManagerBasedEnv, env_ids: torch.Tensor | None, model: str, asset_cfg: SceneEntityCfg = SceneEntityCfg("stem")
-) -> None:
-    """Startup event: clamp the stem base with the stem model's `fix_stem_base` (`chain`: nothing to do)."""
-    stem_model(model).fix_stem_base(env.scene[asset_cfg.name])
+def fix_stem_base(env: ManagerBasedEnv, env_ids: torch.Tensor | None) -> None:
+    """Startup event: clamp the stem base with the `fix_stem_base` of the stem model named in `env.cfg.stem_model`
+    (`chain`: nothing to do)."""
+    stem_model(env.cfg.stem_model).fix_stem_base(env.scene[STEM])
 
 
 def reset_stem_base_uniform(
