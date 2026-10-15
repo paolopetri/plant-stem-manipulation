@@ -13,7 +13,7 @@ Each agent gets its own git worktree; setup, the GPU limit and merging: `worktre
 ## Agent prompt
 
 - "Follow CLAUDE.md and `~/.claude/skills/implement/SKILL.md` on the issue's own branch, open a PR, do not merge."
-- A refactor of simulator code records a fixed-seed rollout with `scripts/record_rollout.py` before the change and compares at tol 0 after it.
+- A refactor of simulator code records a fixed-seed rollout with `scripts/record_rollout.py` before the change, in its own worktree with the base commit checked out (not in the main checkout), and compares after it with the default tolerance: bit-exact, the contact force within its float32 noise floor.
 - Each agent writes its PR body to its own scratchpad file (e.g. `pr-<N>.md`).
 - Agents never create issues; new issues come from the user's `/to-spec` or `/to-tickets`.
 

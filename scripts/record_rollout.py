@@ -12,20 +12,25 @@ recorded after it:
   observation term (at the reset and after each step), every reward term (weighted, before x dt), every termination
   term, and the raw robot-stem contact force and the largest stem curvature (after the step) per step and env, with
   the settings and the commit (`torch.save`).
-- `compare <a> <b>`: prints one row per term with its max absolute difference: PASS if within `--tol`, FAIL
+- `compare <a> <b>`: prints one row per term with its max absolute difference: PASS if within the tolerance, FAIL
   naming the term otherwise; a term missing in one recording, another shape, or other settings (task, envs, steps,
   seed, device, push rollout length) are FAIL. Exit status 0 if all passed, 1 otherwise. No simulator needed.
   `--rename old=new` (repeatable) compares a term renamed by the refactor: the baseline's `old` term is compared
   with the other recording's `new` term; how names match and what is an error (exit status 1):
   `rollout_compare.compare`.
 
-Tolerance (user, 2026-10-14): bit-exact (`--tol 0`, the default) on the same device; GPU and CPU recordings differ.
-A refactor that legitimately changes the floating-point order may pass `--tol` (e.g. 1e-6) and states the reason in
-its PR.
+Tolerance (user, 2026-10-14): bit-exact on the same device; GPU and CPU recordings differ. By default every term is
+bit-exact except the contact-sensor force terms (the raw robot-stem contact force and the contact-force reward, in
+every rollout): their float32 contact solve differs by up to ~2.4e-7 N between recordings of unchanged code, so they
+pass within a noise floor of 1e-6 and their rows say "float32 noise" when non-zero (issue #150,
+`rollout_compare.CONTACT_FORCE_NOISE`). An explicit `--tol` applies to all terms, the contact force included: a
+refactor that legitimately changes the floating-point order may pass `--tol` (e.g. 1e-6) and states the reason in its
+PR.
 
-Refactor workflow: recordings go under `logs/` (not committed); the baseline is recorded on `main` right before the
-refactor, so no golden file goes stale.
-    git switch main
+Refactor workflow: recordings go under `logs/` (not committed); the baseline is recorded right before the refactor,
+in the same worktree as the branch (check out the base commit there first), not in the main checkout, so no golden
+file goes stale.
+    git switch --detach main
     uv run --extra isaacsim python scripts/record_rollout.py record logs/rollout/main.pt
     git switch <refactor branch>
     uv run --extra isaacsim python scripts/record_rollout.py record logs/rollout/refactor.pt
@@ -85,7 +90,13 @@ record_parser.add_argument("--seed", type=int, default=42, help="Seed of the env
 compare_parser = commands.add_parser("compare", help="Compare two recordings.")
 compare_parser.add_argument("a", type=Path, help="Baseline recording.")
 compare_parser.add_argument("b", type=Path, help="Recording to compare with the baseline.")
-compare_parser.add_argument("--tol", type=float, default=0.0, help="Largest absolute difference that passes.")
+compare_parser.add_argument(
+    "--tol",
+    type=float,
+    default=None,
+    help="Largest absolute difference that passes, for every term (default: bit-exact, the contact force within its "
+    "float32 noise floor).",
+)
 compare_parser.add_argument(
     "--rename",
     type=rename,
@@ -201,7 +212,8 @@ def record() -> None:
 def compare() -> None:
     """Print the rows of the two recordings and exit with the verdict."""
     a, b = (torch.load(path) for path in (args_cli.a, args_cli.b))
-    print(f"=== record_rollout compare {args_cli.a} {args_cli.b} (tol {args_cli.tol:g}) ===")
+    tol = f"tol {args_cli.tol:g}" if args_cli.tol is not None else "default tol"
+    print(f"=== record_rollout compare {args_cli.a} {args_cli.b} ({tol}) ===")
     try:
         rows = rollout_compare.compare(a, b, args_cli.tol, args_cli.rename)
     except ValueError as error:
