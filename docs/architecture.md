@@ -99,6 +99,9 @@ Task `StemManip-Push-Position-FR3-v0`, cfg in `src/stem_manip/tasks/push_positio
    controlled, as on the real FR3. Reasons for the limits: `docs/overleaf_folder/open_questions/action_limits_problem.tex`.
    Why this controller: `docs/adr/0003-cartesian-impedance-action.md`. Slot-base pose and Jacobian in the base
    frame: `SlotBaseKinematics` (`mdp/slot_base.py`, reads the robot), formulas in `stem_manip.utils.slot_base`.
+   One instance per env, `slot_base(env)`, built from the action's cfg (end-effector body, slot-base offset, arm
+   joints; cached by `stem_manip.utils.per_env`), is shared by the action term, the slot-base observations and the
+   approach reward, so the end-effector is named once, in `ActionsCfg`.
 2. **Simulation:** PhysX steps robot and stem (`chain`) together in one solver.
 3. **Observation** (stem state read from the simulation; on the real robot it will come from cameras): robot base
    frame, raw meters; the slot base's pose, applied step and setpoint offset, the stem base, points along the stem

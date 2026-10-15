@@ -139,12 +139,8 @@ class ObservationsCfg:
 
     @configclass
     class PolicyCfg(ObsGroup):
-        slot_base_pos = ObsTerm(
-            func=mdp.slot_base_pos, params={"body_name": END_EFFECTOR, "offset": slot_base_offset(END_EFFECTOR)}
-        )
-        slot_base_rot = ObsTerm(
-            func=mdp.slot_base_rot6d, params={"body_name": END_EFFECTOR, "offset": slot_base_offset(END_EFFECTOR)}
-        )
+        slot_base_pos = ObsTerm(func=mdp.slot_base_pos)
+        slot_base_rot = ObsTerm(func=mdp.slot_base_rot6d)
         applied_step = ObsTerm(func=mdp.applied_step)
         setpoint_offset = ObsTerm(func=mdp.setpoint_offset)
         stem_base = ObsTerm(func=mdp.stem_points, params={"arc_lengths": (0.0,), "model": STEM_MODEL})
@@ -196,12 +192,7 @@ class RewardsCfg:
     approach = RewTerm(
         func=mdp.approach_tanh,
         weight=0.5,
-        params={
-            "std": APPROACH_STD,
-            "model": STEM_MODEL,
-            "body_name": END_EFFECTOR,
-            "offset": slot_base_offset(END_EFFECTOR),
-        },
+        params={"std": APPROACH_STD, "model": STEM_MODEL},
     )
     curvature = RewTerm(
         func=mdp.curvature_penalty,

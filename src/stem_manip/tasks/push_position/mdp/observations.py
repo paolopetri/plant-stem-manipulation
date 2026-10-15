@@ -11,11 +11,11 @@ from typing import TYPE_CHECKING
 
 import torch
 
-from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils.math import matrix_from_quat
 
 from stem_manip.utils.impedance import rotvec_between
-from stem_manip.utils.slot_base import slot_base_pose
+
+from .slot_base import slot_base
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
@@ -23,45 +23,15 @@ if TYPE_CHECKING:
     from .actions import SlotBaseImpedanceAction
 
 
-def slot_base_pose_b(
-    env: ManagerBasedEnv, body_name: str, offset: tuple[tuple[float, ...], tuple[float, ...]], asset_cfg: SceneEntityCfg
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Slot-base position (num_envs, 3) and orientation (num_envs, 4) in the robot root frame.
-
-    The slot base is `offset` = (pos, quat) in the body `body_name` (see `stem_manip.assets.fr3.slot_base_offset`).
-    """
-    robot = env.scene[asset_cfg.name]
-    body = robot.body_names.index(body_name)
-    offset_pos, offset_quat = (torch.tensor(v, device=env.device).repeat(env.num_envs, 1) for v in offset)
-    return slot_base_pose(
-        robot.data.root_pos_w.torch,
-        robot.data.root_quat_w.torch,
-        robot.data.body_pos_w.torch[:, body],
-        robot.data.body_quat_w.torch[:, body],
-        offset_pos,
-        offset_quat,
-    )
-
-
-def slot_base_pos(
-    env: ManagerBasedEnv,
-    body_name: str,
-    offset: tuple[tuple[float, ...], tuple[float, ...]],
-    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
-) -> torch.Tensor:
+def slot_base_pos(env: ManagerBasedEnv) -> torch.Tensor:
     """Slot-base position in the robot root frame (num_envs, 3) [m]."""
-    return slot_base_pose_b(env, body_name, offset, asset_cfg)[0]
+    return slot_base(env).pose()[0]
 
 
-def slot_base_rot6d(
-    env: ManagerBasedEnv,
-    body_name: str,
-    offset: tuple[tuple[float, ...], tuple[float, ...]],
-    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
-) -> torch.Tensor:
+def slot_base_rot6d(env: ManagerBasedEnv) -> torch.Tensor:
     """Slot-base orientation as the first two columns of its rotation matrix (num_envs, 6): the tool's x and y axes in
     the robot base frame. Continuous, unlike quaternions (q and -q); Zhou et al., CVPR 2019 (decision 2026-10-07)."""
-    rotation = matrix_from_quat(slot_base_pose_b(env, body_name, offset, asset_cfg)[1])
+    rotation = matrix_from_quat(slot_base(env).pose()[1])
     return torch.cat((rotation[..., 0], rotation[..., 1]), dim=-1)
 
 

@@ -23,7 +23,7 @@ import torch
 from isaaclab.managers import SceneEntityCfg
 
 from .contact import robot_contact_force
-from .observations import slot_base_pos
+from .slot_base import slot_base
 from .stem_state import stem_curvature, stem_distance_b
 
 if TYPE_CHECKING:
@@ -56,13 +56,11 @@ def approach_tanh(
     env: ManagerBasedRLEnv,
     std: float,
     model: str,
-    body_name: str,
-    offset: tuple[tuple[float, ...], tuple[float, ...]],
     asset_cfg: SceneEntityCfg = SceneEntityCfg("stem"),
     robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
 ) -> torch.Tensor:
     """`1 - tanh(d / std)` of the slot base's distance d to the stem's centre line [m], in (0, 1]."""
-    slot_base_b = slot_base_pos(env, body_name, offset, robot_cfg)
+    slot_base_b = slot_base(env).pose()[0]
     return 1.0 - torch.tanh(stem_distance_b(env, slot_base_b.unsqueeze(1), model, asset_cfg, robot_cfg)[:, 0] / std)
 
 
