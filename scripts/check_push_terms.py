@@ -19,8 +19,9 @@ Phases (the stem base fixed at x 0.65 m, y 0, except in `rest`):
 - action_rate: alternating actions; the term equals sum((a_t - a_t-1)^2) of the actions sent.
 - push: drive the fork behind the stem at 0.30 m height (forward first, then down; the drive must reach its goal
   within 2 mm without a reset), at full speed until 1 cm before contact, then push it slowly (5 cm/s) 4 cm into the
-  slot. Approach reward rises and in contact is above 1 - tanh((d + 1 mm) / std), d from the slot geometry and the
-  push (`stem_reference.slot_approach_distance`; user, 2026-10-14); contact force > 0.05 N, below 2 N, penalty 0.
+  slot. The target is set 2 cm in +x from the tip's rest position, on the push's path. Approach reward rises and in
+  contact is above 1 - tanh((d + 1 mm) / std), d from the slot geometry and the push
+  (`stem_reference.slot_approach_distance`; user, 2026-10-14); contact force > 0.05 N, below 2 N, penalty 0.
   Then, as a mechanism check with lowered thresholds (not the decided values): penalty threshold 0 N -> penalty = F^2;
   limit at half the current force -> `contact_force_limit` fires in every env.
 - impact: the fork at full speed into the stem at 0.25 m height (informational: the largest mean force of a policy
@@ -33,7 +34,10 @@ reset anywhere except where a phase makes a term fire fails the check. In every 
 equals its formula of the independent values (tolerance 1e-4 for the rewards, 0.5 mm on the approach distance), each
 termination fires exactly when its independent value crosses the limit, `terminated` = any early termination, the
 termination penalty in effect (the reward manager's weighted term x policy dt) = -4.8 where an early termination
-fires and 0 elsewhere, metric `height_error` = dz, metric `position_error` = d.
+fires and 0 elsewhere, metric `height_error` = dz, metric `position_error` = d, metric `time_to_reach` = the
+number of policy steps since the reset at which d first drops below 1 cm x policy dt, and the episode length where d
+has not yet dropped below it. The push phase must reach (d < 1 cm) in every env; in the rest phase, which never
+reaches, the time-out logs `time_to_reach` = 15 s.
 
 Usage (from the repo root; headless unless a visualizer is requested):
     uv run --extra isaacsim python scripts/check_push_terms.py
@@ -91,6 +95,8 @@ PUSH_DEPTH = 0.04  # [m] slow push: slot base this far beyond first contact of t
 SLOT_PLATE_THICKNESS = 0.018  # [m]
 APPROACH_MARGIN = 1e-3  # [m] on d
 RAMP_FORCE, RAMP_STEPS = 2.0, 150  # [N], policy steps: tip force ramp of the curvature phase
+SUCCESS_DISTANCE = 0.01  # [m] time to reach: first d below this
+PUSH_TARGET_DX = 0.02  # [m] push phase: target this far in +x from the tip's rest position
 TERMINATION_PENALTY = -150.0 * 0.032  # in effect per termination: weight x policy dt (user, 2026-10-15)
 REWARD_TOL = 1e-4
 APPROACH_TOL = 5e-4  # [m]
@@ -172,7 +178,23 @@ def main() -> None:
                 wrap(env.reward_manager, name)
 
         # -- checks of every step against the formulas
-        errors = {key: 0.0 for key in ("rewards", "approach", "terminations", "height_error", "position_error")}
+        errors = {
+            key: 0.0
+            for key in ("rewards", "approach", "terminations", "height_error", "position_error", "time_to_reach")
+        }
+        # time to reach, counted here: policy steps since the reset, the step of the first d < 1 cm (-1: not yet)
+        reach = {
+            "steps": torch.zeros(n, dtype=torch.long, device=device),
+            "first": torch.full((n,), -1, dtype=torch.long, device=device),
+            "never": 0.0,  # [s] value where not reached yet: the episode length at the reset
+        }
+
+        def reset_env() -> None:
+            env.reset()
+            reach["steps"].zero_()
+            reach["first"].fill_(-1)
+            reach["never"] = env.cfg.episode_length_s
+
         fired_wrongly: list[str] = []
         penalty = {"error": 0.0, "fired": 0, "fired_values": [], "time_out": None}
         terminated_index = env.reward_manager.active_terms.index("terminated")
@@ -229,6 +251,17 @@ def main() -> None:
                 errors["height_error"] = max(errors["height_error"], float(err))
                 err = (command.metrics["position_error"] - (tip[:, 0] - command.command).norm(dim=-1))[kept].abs().max()
                 errors["position_error"] = max(errors["position_error"], float(err))
+            reach["steps"] += 1
+            reached = (s["d"] < SUCCESS_DISTANCE) & (reach["first"] < 0)
+            reach["first"][reached] = reach["steps"][reached]
+            if kept.any():
+                expected = torch.where(
+                    reach["first"] >= 0, reach["first"] * env.step_dt, torch.full_like(s["d"], reach["never"])
+                )
+                err = (command.metrics["time_to_reach"] - expected)[kept].abs().max()
+                errors["time_to_reach"] = max(errors["time_to_reach"], float(err))
+            reach["steps"][done] = 0  # the env was reset after this step
+            reach["first"][done] = -1
 
         step_time = env.step_dt * args_cli.slow_motion
         clock = {"t": time.perf_counter()}
@@ -261,7 +294,7 @@ def main() -> None:
                 params.update(x_range=(STEM_BASE[0],) * 2, y_range=(STEM_BASE[1],) * 2)
             else:
                 params.update(x_range=SPAWN_X, y_range=SPAWN_Y)
-            env.reset()
+            reset_env()
 
         def drive_to(goal: torch.Tensor, max_steps: int = 400) -> tuple[bool, str]:
             """Forward first, then down (straight down from the start pose reaches the joint margin after ~17 cm).
@@ -289,6 +322,7 @@ def main() -> None:
         # a reset is expected only where a phase makes a term fire; elsewhere it fails the check
         state = {"phase": "", "expect_reset": False}
         unexpected_resets: list[str] = []
+        logged_time_out: list[float] = []  # time_to_reach logged by the time-out of the rest phase [s]
         # only the rest phase runs on the decided episode length; the scripted motions may take longer than one episode
         env.cfg.episode_length_s = 1e4
 
@@ -309,18 +343,21 @@ def main() -> None:
                     rate = max(rate, float(recorded["action_rate"].max()))
                     if fired_at is None and bool(recorded["time_out"].any()):
                         fired_at = (k, bool(recorded["time_out"].all()))
+                        logged_time_out.append(env.extras["log"]["Metrics/stem_target/time_to_reach"])
                         break
                 env.cfg.episode_length_s = 1e4
                 ok = fired_at == (steps, True) and not others and penalties == 0.0 and force == 0.0 and rate == 0.0
+                ok = ok and logged_time_out == [EPISODE_S]
                 results["rest / time out"] = (
                     ok,
                     f"time out at step {fired_at} (expected {steps}, all envs); other terminations: {others}; "
                     f"largest curvature / contact penalty {penalties:.2e}, contact force {force:.2e} N, "
-                    f"action rate {rate:.2e}",
+                    f"action rate {rate:.2e}; time_to_reach logged at the time out {logged_time_out} s (never "
+                    f"reached: {EPISODE_S} s)",
                 )
 
             elif phase == "action_rate":
-                env.reset()
+                reset_env()
                 sequence = [1.0, -1.0, 1.0, -1.0, 1.0, 1.0, 1.0, 0.0]
                 previous, rate_error = 0.0, 0.0
                 for a in sequence:
@@ -336,6 +373,10 @@ def main() -> None:
 
             elif phase == "push":
                 place_stem(fixed=True)
+                tip_rest = to_base(
+                    point_pose(model.segment_poses(stem), TIP_SEGMENT, 0.5 * segment_length)[:, None, :3]
+                )[:, 0]
+                command.target_b[:] = tip_rest + tip_rest.new_tensor([PUSH_TARGET_DX, 0.0, 0.0])
                 step(zeros())
                 approach_start = recorded["approach"].clone()
                 reached, reach_info = drive_to(goal_behind(PUSH_HEIGHT))
@@ -363,6 +404,7 @@ def main() -> None:
                 )
                 approach_min = 1.0 - math.tanh((approach_d + APPROACH_MARGIN) / STD["approach"])
                 min_force_end = float(snap["force"].min())
+                first_reach = reach["first"].clone()
                 results["push: approach"] = (
                     reached
                     and bool((approach_behind > approach_start + 0.01).all())
@@ -376,6 +418,11 @@ def main() -> None:
                     f"force before the push {force_before:.2e} N; during the push up to {max_force:.3f} N, at the end "
                     f"at least {min_force_end:.3f} N; largest penalty {max_penalty:.2e}; largest curvature "
                     f"{max_curv:.2f} 1/m",
+                )
+                results["push: time to reach"] = (
+                    bool((first_reach >= 0).all()),
+                    f"d < {SUCCESS_DISTANCE * 1e3:.0f} mm first at step {first_reach.tolist()} after the reset "
+                    f"(every env must reach; the metric is compared at every step below)",
                 )
                 # mechanism with lowered thresholds (not the decided values), restored afterwards
                 contact_cfg.params["threshold"] = 0.0
@@ -485,10 +532,11 @@ def main() -> None:
             and errors["terminations"] == 0.0
             and errors["height_error"] < 1e-5
             and errors["position_error"] < 1e-5
+            and errors["time_to_reach"] < 1e-6
             and not fired_wrongly,
             f"rewards {errors['rewards']:.1e}, approach distance {errors['approach'] * 1e3:.3f} mm, terminated "
             f"{errors['terminations']:.0f}, height_error {errors['height_error'] * 1e3:.4f} mm, position_error "
-            f"{errors['position_error'] * 1e3:.4f} mm; terminations not "
+            f"{errors['position_error'] * 1e3:.4f} mm, time_to_reach {errors['time_to_reach']:.1e} s; terminations not "
             f"matching their limit: {fired_wrongly[:5] or 'none'}",
         )
         print(f"\n=== check_push_terms ({n} envs, phases {' '.join(args_cli.phases)}) ===")

@@ -13,7 +13,11 @@ command manager). The damage limit comes from the stem model named in the env cf
 
 The command is the target position in the robot base frame (num_envs, 3) [m]; metrics `position_error` [m] (stem
 point to target), `height_error` [m] (its z part, + = above the target) and `target_depth` [mm] (the target below the
-bowl at its own r, from the sampler's rod table; constant in the episode). Metrics are logged, never observed.
+bowl at its own r, from the sampler's rod table; constant in the episode) and `time_to_reach` [s] (episode time at
+which the stem point first comes within `success_distance` of the target; an episode that never reaches it logs the
+episode length `episode_length_s`, so the logged mean is not biased low by episodes that end early without reaching).
+Like `position_error`, a reach at an episode's last step is not counted (Isaac Lab updates the metrics after the
+reset). Metrics are logged, never observed.
 Debug markers: target (red, green
 within `success_distance`) and the stem point (blue).
 Verify: `scripts/check_push_obs.py`.
@@ -64,6 +68,9 @@ class StemTipTargetCommand(CommandTerm):
         # bowl above deep targets (user, 2026-10-09)
         self.metrics["height_error"] = torch.zeros(self.num_envs, device=self.device)
         self.metrics["target_depth"] = torch.zeros(self.num_envs, device=self.device)
+        self.metrics["time_to_reach"] = torch.zeros(self.num_envs, device=self.device)
+        self.reached = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        """Whether the stem point has come within `success_distance` of the target in this episode."""
 
     def __str__(self) -> str:
         return (
@@ -91,6 +98,8 @@ class StemTipTargetCommand(CommandTerm):
         distance = (target[:, :2] - rest[:, :2]).norm(dim=-1)
         below_bowl = rest[:, 2] - self.rod_table.bowl_drop(distance, self.arc_length) - target[:, 2]  # [m]
         self.metrics["target_depth"][env_ids] = below_bowl * 1e3
+        self.reached[env_ids] = False
+        self.metrics["time_to_reach"][env_ids] = self._env.max_episode_length_s  # not reached (yet)
         # world frame for the markers: the first render after a reset comes before the next `_update_metrics`
         self.target_w[env_ids] = self._to_world(self.target_b[env_ids], env_ids)
 
@@ -107,6 +116,9 @@ class StemTipTargetCommand(CommandTerm):
         error = self.stem_point_b() - self.target_b
         self.metrics["position_error"] = error.norm(dim=-1)
         self.metrics["height_error"] = error[:, 2]
+        first = (self.metrics["position_error"] < self.cfg.success_distance) & ~self.reached
+        self.metrics["time_to_reach"][first] = self._env.episode_length_buf[first] * self._env.step_dt
+        self.reached |= first
 
     def _set_debug_vis_impl(self, debug_vis: bool):
         if debug_vis:
@@ -155,7 +167,8 @@ class StemTipTargetCommandCfg(CommandTermCfg):
     """Horizontal direction of the target from the rest position [rad] (from +x towards +y): full circle."""
 
     success_distance: float = 0.01
-    """Debug markers only: the target turns green within this distance of the stem point [m]."""
+    """The target is reached within this distance of the stem point [m]: metric `time_to_reach`, and the debug
+    marker turns green."""
 
     target_visualizer_cfg: VisualizationMarkersCfg = VisualizationMarkersCfg(
         prim_path="/Visuals/Command/stem_target",
