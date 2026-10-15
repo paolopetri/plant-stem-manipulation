@@ -12,7 +12,9 @@ The controller is tested without the stem: the spawn area is switched off and th
 behind the robot (`STEM_AWAY`); the clamp test pushes the fork into the ground instead.
 Checks:
 - shapes: observation (num_envs, 57) and action (num_envs, 6), all observations finite;
-- start pose: slot base within 5 mm of (0.40, 0, 0.50) m and within 1 deg of its orientation at reset after the hold;
+- start pose: at the first reset the arm joints of every env within 0.02 rad (the reset noise, proposal 2026-10-15) of
+  a pose of the start-pose table (`env_cfg.START_POSES`, checked in `tests/test_fr3_reference.py`); the slot base
+  within 1 deg of its orientation at reset after the hold;
 - holds still: the slot base moves less than 1 mm during the last half of the hold;
 - follows the actions: following error (largest distance to the setpoint over the move and the hold; at the end of
   a policy step the interpolated setpoint equals the step's end setpoint) <= 2 mm; the tool passes the setpoint's final
@@ -80,15 +82,15 @@ import torch
 from isaaclab.utils.math import matrix_from_quat
 
 import stem_manip.tasks  # noqa: F401  (registers the task)
-from stem_manip.tasks.push_position.env_cfg import StemPushPositionEnvCfg
+from stem_manip.tasks.push_position.env_cfg import START_POSES, StemPushPositionEnvCfg
 from stem_manip.utils import check_report
 from stem_manip.utils.fr3_reference import rotvec_from_matrix, slot_base_pose
 from stem_manip.utils.impedance import rotvec_between
 
 TASK = "StemManip-Push-Position-FR3-v0"
 STEM_AWAY = (-0.8, 0.8, 0.0)  # [m] stem base, out of the fork's reach behind the robot (as in sweep_action_poses.py)
-START_POS = (0.40, 0.0, 0.50)  # [m] slot base of the start pose (env_cfg.START_JOINT_POS)
-START_TOL = 5e-3  # [m]
+JOINT_NOISE = 0.02  # [rad] uniform reset noise per arm joint (proposal, 2026-10-15, #163)
+NOISE_TOL = 1e-5  # [rad] float32 rounding of the joint angles
 ORIENTATION_TOL = math.radians(1.0)
 HOLD_TOL = 1e-3  # [m]
 FOLLOW_TOL = 2e-3  # [m] following error while moving
@@ -163,6 +165,11 @@ def main() -> None:
         obs, _ = env.reset()
         sim, device, n = env.sim, env.device, env.num_envs
         term = env.action_manager.get_term("slot_base")
+        robot = env.scene[term.cfg.asset_name]
+        fk_joint_ids = robot.find_joints([f"fr3_joint{i}" for i in range(1, 8)], preserve_order=True)[0]
+        q_reset = robot.data.joint_pos.torch[:, fk_joint_ids]
+        table = torch.tensor(START_POSES, device=device)
+        start_error = float((q_reset[:, None] - table[None]).abs().amax(dim=-1).min(dim=-1).values.max())
         quat_ref = term.slot_base_pose()[1].clone()  # start orientation, held while the rotation action is zero
 
         def angle_between(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
@@ -176,12 +183,10 @@ def main() -> None:
         frame_start = time.perf_counter()
         finite = bool(torch.isfinite(obs["policy"]).all())
         max_angle = 0.0
-        robot = env.scene[term.cfg.asset_name]
         joint_ids = robot.find_joints(term.cfg.joint_names)[0]
         limits = robot.data.joint_pos_limits.torch[:, joint_ids]  # (n, joints, 2)
         margin = math.inf  # smallest distance to a joint limit [rad] since the last `window()`
         max_applied = [0.0, 0.0]  # largest applied translation [m] and rotation [rad] step over all phases
-        fk_joint_ids = robot.find_joints([f"fr3_joint{i}" for i in range(1, 8)], preserve_order=True)[0]
         # largest difference of each slot-base observation from its independent value [m or rad]
         obs_errors = dict.fromkeys(SLOT_BASE_ERRORS, 0.0)
         obs_checked, limits_checked = 0, 0  # policy steps compared (limits: steps where the clamp did not act)
@@ -277,7 +282,6 @@ def main() -> None:
                 pos_mid = term.slot_base_pose()[0].clone()
         pos_hold, quat_hold = (v.clone() for v in term.slot_base_pose())
         hold_move = float((pos_hold - pos_mid).norm(dim=-1).max())
-        start_error = float((pos_hold - torch.tensor(START_POS, device=device)).norm(dim=-1).max())
         hold_angle = float(angle_to_fixed(quat_hold).max())
 
         # -- full action along +x, +y, +z, each followed by a hold
@@ -419,8 +423,8 @@ def main() -> None:
                 f"observation {obs_shape}, action {action_shape}, all finite: {finite}",
             ),
             "start pose": (
-                start_error < START_TOL and hold_angle < ORIENTATION_TOL,
-                f"slot base {start_error * 1e3:.1f} mm from {START_POS}, "
+                start_error <= JOINT_NOISE + NOISE_TOL and hold_angle < ORIENTATION_TOL,
+                f"arm joints at reset {start_error:.4f} rad from a table pose, "
                 f"orientation {math.degrees(hold_angle):.2f} deg (at reset: {[round(float(v), 3) for v in pos0[0]]} m)",
             ),
             "holds still": (

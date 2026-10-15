@@ -10,6 +10,7 @@ __all__ = [
     "fix_stem_base",
     "joint_limit_margin",
     "joint_margin",
+    "reset_arm_start_pose",
     "reset_stem_base_uniform",
     "robot_contact_force",
     "stem_point_distance_tanh",
@@ -25,7 +26,7 @@ from isaaclab.envs.mdp import *
 from .actions_cfg import SlotBaseImpedanceActionCfg
 from .commands import StemTipTargetCommandCfg
 from .contact import robot_contact_force
-from .events import fix_stem_base, reset_stem_base_uniform
+from .events import fix_stem_base, reset_arm_start_pose, reset_stem_base_uniform
 from .observations import applied_step, setpoint_offset, slot_base_pos, slot_base_rot6d
 from .rewards import (
     approach_tanh,

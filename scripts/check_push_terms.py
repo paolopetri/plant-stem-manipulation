@@ -11,9 +11,9 @@ Decided values (user, 2026-10-09; the height std and the fine distance's z-scale
 from the cfg: std 0.05 / 0.01 m (distance), 0.003 m (height), 0.1 m (approach); curvature penalty above 0.8 x 5 1/m,
 limit 5 1/m; contact penalty above 2 N, limit 5 N; joint margin 0.25 rad; episode 15 s.
 
-Phases (the stem base fixed at x 0.65 m, y 0, except in `rest`):
-- rest: zero action for a whole episode (spawn area as in training). Time out fires exactly at the last step and
-  nothing else fires before; curvature and contact penalties 0, contact force 0, action rate 0.
+Phases (the stem base fixed at x 0.65 m, y 0, and the robot at the held-out start pose a_above_tip, except in `rest`):
+- rest: zero action for a whole episode (spawn area and start-pose table as in training). Time out fires exactly at
+  the last step and nothing else fires before; curvature and contact penalties 0, contact force 0, action rate 0.
 - action_rate: alternating actions; the term equals sum((a_t - a_t-1)^2) of the actions sent.
 - push: drive the fork behind the stem at 0.30 m height (forward first, then down; the drive must reach its goal
   within 2 mm without a reset), at full speed until 1 cm before contact, then push it slowly (5 cm/s) 4 cm into the
@@ -61,7 +61,7 @@ from isaaclab.utils.math import subtract_frame_transforms
 
 import stem_manip.tasks  # noqa: F401  (registers the task)
 from stem_manip.assets.stem import stem_model, stem_params
-from stem_manip.tasks.push_position.env_cfg import STEM_MODEL, StemPushPositionEnvCfg
+from stem_manip.tasks.push_position.env_cfg import EVAL_START_POSES, STEM_MODEL, StemPushPositionEnvCfg
 from stem_manip.utils import check_report, rollout, stem_reference
 from stem_manip.utils.stem_geometry import joint_curvature, point_pose, stem_points
 
@@ -234,13 +234,20 @@ def main() -> None:
             """Action that moves the slot base toward `goal` (n, 3), robot base frame (`rollout.toward`)."""
             return rollout.toward(action_term.slot_base_pose()[0], goal, max_step, max_step_change, speed)
 
+        table = env.event_manager.get_term_cfg("start_pose").params["poses"]
+
         def place_stem(fixed: bool) -> None:
-            """Stem base at STEM_BASE for the scripted phases, or the spawn area of the training."""
+            """Stem base at STEM_BASE and the robot at the held-out start pose a_above_tip (fork above the stems, the
+            scripted paths start there) for the scripted phases, or the spawn area and start-pose table of the
+            training."""
             params = env.event_manager.get_term_cfg("spawn_stem").params
+            poses = env.event_manager.get_term_cfg("start_pose").params
             if fixed:
                 params.update(x_range=(STEM_BASE[0],) * 2, y_range=(STEM_BASE[1],) * 2)
+                poses.update(poses=(EVAL_START_POSES["a_above_tip"],))
             else:
                 params.update(x_range=SPAWN_X, y_range=SPAWN_Y)
+                poses.update(poses=table)
             env.reset()
 
         def drive_to(goal: torch.Tensor, max_steps: int = 400) -> tuple[bool, str]:

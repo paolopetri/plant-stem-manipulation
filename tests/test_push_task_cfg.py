@@ -13,7 +13,7 @@ from isaaclab.managers import EventTermCfg, ObservationTermCfg, RewardTermCfg, T
 
 from stem_manip.assets.stem import stem_params
 from stem_manip.tasks.push_position import mdp
-from stem_manip.tasks.push_position.env_cfg import STEM_MODEL, StemPushPositionEnvCfg
+from stem_manip.tasks.push_position.env_cfg import START_POSES, STEM_MODEL, StemPushPositionEnvCfg
 
 DECIDED_TARGET = {
     "distance_range": (0.03, 0.10),  # [m] horizontal distance from the tip's rest position
@@ -120,6 +120,29 @@ def test_stem_spawn_area_is_decided(cfg: StemPushPositionEnvCfg):
     assert spawn.params["asset_cfg"].name == "stem"
     assert spawn.params["x_range"] == pytest.approx(SPAWN_AREA["x"], abs=1e-12)
     assert spawn.params["y_range"] == pytest.approx(SPAWN_AREA["y"], abs=1e-12)
+
+
+def test_spawn_redraws_stem_positions_at_the_fork(cfg: StemPushPositionEnvCfg):
+    """Fork centre line from 0.09 m behind the slot base to the prong tips, 5 cm from the stem axis (user,
+    2026-10-15, #163)."""
+    spawn = cfg.events.spawn_stem
+    assert spawn.params["fork_extent"] == pytest.approx((-0.09, 0.17), abs=1e-12)
+    assert spawn.params["min_fork_distance"] == pytest.approx(0.05, abs=1e-12)
+
+
+def test_start_pose_is_picked_from_the_table(cfg: StemPushPositionEnvCfg):
+    """The arm starts at a random table pose with uniform noise of 0.02 rad (proposal, 2026-10-15, #163), before the
+    stem is placed (the spawn event keeps the stem clear of the fork at its start pose)."""
+    events = [name for name, value in vars(cfg.events).items() if isinstance(value, EventTermCfg)]
+    assert events.index("reset_scene") < events.index("start_pose") < events.index("spawn_stem")
+    start_pose = cfg.events.start_pose
+    assert start_pose.func is mdp.reset_arm_start_pose
+    assert start_pose.mode == "reset"
+    assert start_pose.params["poses"] == START_POSES
+    assert start_pose.params["joint_noise"] == pytest.approx(0.02, abs=1e-12)
+    asset_cfg = start_pose.params["asset_cfg"]
+    assert asset_cfg.name == "robot"
+    assert asset_cfg.joint_names == [f"fr3_joint{i}" for i in range(1, 8)] and asset_cfg.preserve_order
 
 
 def test_robot_base_frame_is_env_frame(cfg: StemPushPositionEnvCfg):

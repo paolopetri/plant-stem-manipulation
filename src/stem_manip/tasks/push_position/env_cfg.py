@@ -232,15 +232,31 @@ class ObservationsCfg:
 
 @configclass
 class EventCfg:
-    """Base clamping at startup; robot and stem back to their default states on reset, then the stem base moved to a
-    random place in the spawn area (upright, at rest; before the target command is resampled)."""
+    """Base clamping at startup; robot and stem back to their default states on reset, the arm to a start pose picked
+    from the table (`poses`, overridable, e.g. through Hydra at play time), then the stem base moved to a random place
+    in the spawn area, clear of the fork (upright, at rest; before the target command is resampled)."""
 
     fix_stem_base = EventTerm(func=mdp.fix_stem_base, mode="startup")
     reset_scene = EventTerm(func=mdp.reset_scene_to_default, mode="reset", params={"reset_joint_targets": True})
+    start_pose = EventTerm(
+        func=mdp.reset_arm_start_pose,
+        mode="reset",
+        params={
+            "poses": START_POSES,
+            "joint_noise": START_JOINT_NOISE,
+            "asset_cfg": SceneEntityCfg("robot", joint_names=ARM_JOINT_NAMES, preserve_order=True),
+        },
+    )
     spawn_stem = EventTerm(
         func=mdp.reset_stem_base_uniform,
         mode="reset",
-        params={"x_range": STEM_SPAWN_X, "y_range": STEM_SPAWN_Y, "asset_cfg": SceneEntityCfg("stem")},
+        params={
+            "x_range": STEM_SPAWN_X,
+            "y_range": STEM_SPAWN_Y,
+            "fork_extent": FORK_AXIS_EXTENT,
+            "min_fork_distance": FORK_STEM_MIN_DISTANCE,
+            "asset_cfg": SceneEntityCfg("stem"),
+        },
     )
 
 
