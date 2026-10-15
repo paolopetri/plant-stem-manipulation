@@ -20,7 +20,9 @@ One selectable simulation representation of the stem, such as the rigid-segment 
 _Avoid_: cable (as a generic word for the stem)
 
 **Segment**:
-One rigid piece of the discretized stem.
+One rigid piece of the discretized stem, counted from the base; the k segments next to the tip are the top k
+segments, e.g. "top 4".
+_Avoid_: first k segments (for the ones at the tip)
 
 **Stem joint**:
 The bending and twisting connection between two neighbouring segments.
@@ -89,6 +91,14 @@ _Avoid_: target, target pose, impedance target
 The point at the closed end of the slot, where the prongs meet, with the fork's orientation; actions, observations and
 the setpoint refer to its pose.
 _Avoid_: tool tip, TCP, fork tip, reference point
+
+**Contact point**:
+Where the fork touches the stem, given as the arc length from the stem base.
+_Avoid_: attach point, attachment
+
+**Arm contact**:
+Contact of any robot body other than the fork with the stem; it ends the episode. A contact rule, not a damage limit.
+_Avoid_: robot contact
 
 **Policy step**:
 One action interval of the policy.
