@@ -124,7 +124,8 @@ class ActionsCfg:
 
 @configclass
 class CommandsCfg:
-    """Target position of the stem tip, sampled once per episode (decided values: cfg defaults, user 2026-10-08)."""
+    """Target position of the stem tip, sampled once per episode (decided values: cfg defaults, user 2026-10-08), and
+    the stem metrics (a metrics-only term, `mdp/metrics.py`)."""
 
     # resampling time far above the episode length: the target is sampled only at reset
     stem_target = mdp.StemTipTargetCommandCfg(
@@ -133,6 +134,8 @@ class CommandsCfg:
         resampling_time_range=(1e9, 1e9),
         debug_vis=True,
     )
+    # metrics only, logged and never observed: no command, nothing to resample
+    stem_metrics = mdp.StemMetricsCfg(resampling_time_range=(1e9, 1e9))
 
 
 @configclass
