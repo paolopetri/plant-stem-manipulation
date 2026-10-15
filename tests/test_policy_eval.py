@@ -2,8 +2,6 @@
 Hand-made episodes with known shares, errors and angles.
 """
 
-import math
-
 import pytest
 import torch
 
@@ -78,16 +76,6 @@ def test_final_errors_over_all_and_time_out_episodes(group, expected):
     summary = policy_eval.summarize(episodes(), time_out="time_out", success_distance=0.01)
     for key, value in expected.items():
         assert summary[f"{group}/{key}"] == pytest.approx(value), key
-
-
-def test_rotation_angle_between_orientations():
-    s = math.sqrt(0.5)
-    identity = torch.tensor([[0.0, 0.0, 0.0, 1.0]] * 3)
-    z90 = torch.tensor([0.0, 0.0, s, s])
-    rotated = torch.stack([z90, -z90, torch.tensor([s, 0.0, 0.0, s])])  # -q is the same rotation as q
-    assert policy_eval.rotation_angle(identity, rotated).tolist() == pytest.approx([math.pi / 2] * 3)
-    assert policy_eval.rotation_angle(rotated, rotated).tolist() == pytest.approx([0.0] * 3, abs=1e-6)
-    assert policy_eval.rotation_angle(z90[None], -z90[None]).tolist() == pytest.approx([0.0], abs=1e-6)
 
 
 def test_fork_rotation_over_all_episodes():

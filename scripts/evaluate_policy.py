@@ -7,8 +7,9 @@ termination term), the final `position_error` / `height_error` (all episodes and
 fork rotation (slot-base orientation vs. its orientation at the reset, largest and final), and saves the per-episode
 values and the summary as JSON to `<run dir>/eval/<checkpoint>.json`.
 
-Final values are those of the last step before the episode ends: the env resets inside the step and recomputes the
-command metrics afterwards, so they are read before each step, the same values training logs as `Metrics/...`.
+Final values are those of the last step before the episode ends (user, 2026-10-15): the env resets inside the step
+and recomputes the command metrics afterwards, so they are read before each step, the same values training logs as
+`Metrics/...`.
 
 Usage:
     uv run --extra isaacsim python scripts/evaluate_policy.py <run dir>/model_<iteration>.pt [--num_envs 1024]
@@ -16,7 +17,9 @@ Summary: `stem_manip.utils.policy_eval` (tests: `tests/test_policy_eval.py`).
 """
 
 import argparse
+import dataclasses
 import json
+import math
 import time
 from pathlib import Path
 
@@ -34,6 +37,7 @@ args_cli = parser.parse_args()
 import torch  # noqa: E402
 
 from stem_manip.utils import policy_eval  # noqa: E402
+from stem_manip.utils.quat import rotation_angle  # noqa: E402
 
 
 def evaluate() -> None:
@@ -85,7 +89,7 @@ def evaluate() -> None:
         with torch.inference_mode():
             while not done.all():
                 # the state of the last step: the step below resets the envs whose episode ends
-                rotation = policy_eval.rotation_angle(start_quat, slot_base(base).pose()[1])
+                rotation = rotation_angle(start_quat, slot_base(base).pose()[1])
                 max_rotation = torch.maximum(max_rotation, rotation)
                 before = {
                     "length_s": (base.episode_length_buf + 1) * base.step_dt,
@@ -119,15 +123,13 @@ def evaluate() -> None:
         print(format_summary(summary))
         out = args_cli.checkpoint.resolve().parent / "eval" / f"{args_cli.checkpoint.stem}.json"
         out.parent.mkdir(parents=True, exist_ok=True)
-        per_episode = {"ended_by": {k: v.tolist() for k, v in episodes.ended_by.items()}} | {
-            key: getattr(episodes, key).tolist() for key in record if key != "ended_by"
-        }
-        out.write_text(json.dumps({"meta": meta, "summary": summary, "episodes": per_episode}, indent=1))
+        result = {"meta": meta, "summary": summary, "episodes": dataclasses.asdict(episodes)}
+        out.write_text(json.dumps(result, indent=1, default=torch.Tensor.tolist))
         print(f"[INFO] saved to {out} ({time.perf_counter() - t_start:.0f} s)")
         env.close()
 
 
-def format_summary(summary: dict[str, float]) -> str:
+def format_summary(summary: dict[str, float | int]) -> str:
     """One row per value: shares in %, errors in mm, angles in degrees, lengths in s."""
     rows = []
     for key, value in summary.items():
@@ -136,7 +138,7 @@ def format_summary(summary: dict[str, float]) -> str:
         elif "_error/" in key:
             text = f"{1000 * value:6.1f} mm"
         elif "_rotation/" in key:
-            text = f"{torch.rad2deg(torch.tensor(value)).item():6.1f} deg"
+            text = f"{math.degrees(value):6.1f} deg"
         elif key.startswith("length_s"):
             text = f"{value:6.2f} s"
         else:

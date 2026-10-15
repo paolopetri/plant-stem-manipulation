@@ -1,7 +1,7 @@
 """Summary of a policy evaluation (no simulator imports): how the episodes end, the final errors, the fork rotation.
 
 `scripts/evaluate_policy.py` collects the first episode of every env into `Episodes` and prints `summarize`.
-Tests: `tests/test_policy_eval.py`.
+Tests: `tests/test_policy_eval.py`; the rotation angle is `quat.rotation_angle`.
 """
 
 from __future__ import annotations
@@ -9,8 +9,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import torch
-
-from stem_manip.utils.quat import quat_conjugate, quat_mul, rotvec_from_quat
 
 
 @dataclass
@@ -31,7 +29,7 @@ class Episodes:
     """Rotation angle of the slot base from its orientation at the reset at the end [rad]."""
 
 
-def summarize(episodes: Episodes, time_out: str, success_distance: float) -> dict[str, float]:
+def summarize(episodes: Episodes, time_out: str, success_distance: float) -> dict[str, float | int]:
     """Summary of the episodes, key -> value.
 
     Args:
@@ -42,7 +40,8 @@ def summarize(episodes: Episodes, time_out: str, success_distance: float) -> dic
     Returns:
         `episodes`, `length_s/mean`, `ended_by/<term>` and `ended_by/early (any)` (shares of the episodes);
         `<group>/position_error/...`, `<group>/reached` (share under `success_distance`) and
-        `<group>/height_error/...` for the groups `all` and `time_out` (left out without time-out episodes);
+        `<group>/height_error/...` for the groups `all` and `time_out` (left out without time-out episodes; an
+        episode where the time-out and an early term fire at the same step is in the `time_out` group);
         `all/max_rotation/...` and `all/final_rotation/...`.
     """
     summary = {"episodes": len(episodes.length_s), "length_s/mean": episodes.length_s.mean().item()}
@@ -60,12 +59,6 @@ def summarize(episodes: Episodes, time_out: str, success_distance: float) -> dic
     summary.update(_stats("all/max_rotation", episodes.max_rotation, (0.5, 0.9)))
     summary.update(_stats("all/final_rotation", episodes.final_rotation, (0.5, 0.9)))
     return summary
-
-
-def rotation_angle(quat_from: torch.Tensor, quat_to: torch.Tensor) -> torch.Tensor:
-    """Angle (...,) [rad] in [0, pi] of the rotation from `quat_from` to `quat_to`, unit quaternions (..., 4)
-    (x, y, z, w) in the same frame."""
-    return rotvec_from_quat(quat_mul(quat_to, quat_conjugate(quat_from))).norm(dim=-1)
 
 
 def _stats(name: str, values: torch.Tensor, quantiles: tuple[float, ...]) -> dict[str, float]:
