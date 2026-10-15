@@ -53,7 +53,7 @@ def test_build_with_another_slot_base_pose_is_stale(assets, xyz, rpy):
 
 
 def test_build_without_a_slot_base_frame_is_stale(assets):
-    """A build from before the frame was named slot_base (e.g. tool_tip) has no slot_base."""
+    """A built URDF without a slot_base frame (e.g. an old build with the frame under another name)."""
     assets.write_text(_built_urdf(slot_base_link="tool_tip"))  # glossary: allow
     assert "slot_base" in fr3.stale_build("pusher")
 
@@ -72,24 +72,25 @@ def test_sibling_franka_description_is_next_to_the_repo():
     assert repo_root.parent / "franka_description" == _load_build_asset().SIBLING_FRANKA_DESCRIPTION
 
 
-def test_franka_description_variable_wins_over_the_sibling(tmp_path, monkeypatch):
-    build_asset = _load_build_asset()
-    (tmp_path / "sibling").mkdir()
-    monkeypatch.setattr(build_asset, "SIBLING_FRANKA_DESCRIPTION", tmp_path / "sibling")
+@pytest.fixture
+def build_asset(tmp_path, monkeypatch):
+    """build_asset.py with FRANKA_DESCRIPTION unset and its sibling franka_description in tmp_path (not created)."""
+    module = _load_build_asset()
+    monkeypatch.setattr(module, "SIBLING_FRANKA_DESCRIPTION", tmp_path / "franka_description")
+    monkeypatch.delenv("FRANKA_DESCRIPTION", raising=False)
+    return module
+
+
+def test_franka_description_variable_wins_over_the_sibling(build_asset, tmp_path, monkeypatch):
+    build_asset.SIBLING_FRANKA_DESCRIPTION.mkdir()
     monkeypatch.setenv("FRANKA_DESCRIPTION", str(tmp_path / "from_variable"))
     assert build_asset.default_franka_description() == tmp_path / "from_variable"
 
 
-def test_sibling_franka_description_is_used_when_the_variable_is_unset(tmp_path, monkeypatch):
-    build_asset = _load_build_asset()
-    (tmp_path / "sibling").mkdir()
-    monkeypatch.setattr(build_asset, "SIBLING_FRANKA_DESCRIPTION", tmp_path / "sibling")
-    monkeypatch.delenv("FRANKA_DESCRIPTION", raising=False)
-    assert build_asset.default_franka_description() == tmp_path / "sibling"
+def test_sibling_franka_description_is_used_when_the_variable_is_unset(build_asset, tmp_path):
+    build_asset.SIBLING_FRANKA_DESCRIPTION.mkdir()
+    assert build_asset.default_franka_description() == tmp_path / "franka_description"
 
 
-def test_no_franka_description_without_variable_and_sibling(tmp_path, monkeypatch):
-    build_asset = _load_build_asset()
-    monkeypatch.setattr(build_asset, "SIBLING_FRANKA_DESCRIPTION", tmp_path / "missing")
-    monkeypatch.delenv("FRANKA_DESCRIPTION", raising=False)
+def test_no_franka_description_without_variable_and_sibling(build_asset):
     assert build_asset.default_franka_description() is None

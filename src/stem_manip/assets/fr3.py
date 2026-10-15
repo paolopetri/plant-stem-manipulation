@@ -29,10 +29,16 @@ from stem_manip.assets import REPO_ASSETS_DIR
 
 BUILD_DIR = REPO_ASSETS_DIR / "fr3" / "build"
 EE_DIR = REPO_ASSETS_DIR / "fr3" / "end_effectors"
+SLOT_BASE = "slot_base"  # frame name the build gives the slot base (SLOT_BASE in assets/fr3/build_asset.py)
 
 # Bodies for tasks: the end-effector body has the end-effector's name (e.g. "fork_v2").
 # slot_base and fr3_link8 are plain frames in the USD, not bodies (the converter turns massless links
 # without geometry into frames). Use the end-effector body + slot_base_offset(ee) instead.
+
+
+def _slot_base_yaml(ee: str) -> dict:
+    """The `slot_base` section (xyz, rpy) of end_effectors/<ee>/<ee>.yaml."""
+    return yaml.safe_load((EE_DIR / ee / f"{ee}.yaml").read_text())["slot_base"]
 
 
 def slot_base_offset(ee: str) -> tuple[tuple[float, float, float], tuple[float, float, float, float]]:
@@ -41,7 +47,7 @@ def slot_base_offset(ee: str) -> tuple[tuple[float, float, float], tuple[float, 
     Returns (pos, rot) with rot as quaternion (x, y, z, w), the Isaac Lab 3.0 convention.
     Pass it as OffsetCfg(pos=pos, rot=rot) with body name `ee`, e.g. to the IK action or a FrameTransformer.
     """
-    slot_base = yaml.safe_load((EE_DIR / ee / f"{ee}.yaml").read_text())["slot_base"]
+    slot_base = _slot_base_yaml(ee)
     # URDF rpy: fixed-axis roll, pitch, yaw -> R = Rz(yaw) Ry(pitch) Rx(roll)
     cr, sr = math.cos(slot_base["rpy"][0] / 2), math.sin(slot_base["rpy"][0] / 2)
     cp, sp = math.cos(slot_base["rpy"][1] / 2), math.sin(slot_base["rpy"][1] / 2)
@@ -61,9 +67,9 @@ def stale_build(ee: str) -> str | None:
     Compares the slot_base pose in the built URDF with the yaml's `slot_base`, to 1e-8 (the build writes 9
     significant digits). The USD is converted from that URDF, so rerun the build and the conversion when stale.
     """
-    expected = yaml.safe_load((EE_DIR / ee / f"{ee}.yaml").read_text())["slot_base"]
+    expected = _slot_base_yaml(ee)
     root = ET.parse(BUILD_DIR / f"fr3_{ee}.urdf").getroot()
-    joint = next((j for j in root.iter("joint") if j.find("child").get("link") == "slot_base"), None)
+    joint = next((j for j in root.iter("joint") if j.find("child").get("link") == SLOT_BASE), None)
     if joint is None:
         return "no slot_base frame in the built URDF"
     for key in ("xyz", "rpy"):

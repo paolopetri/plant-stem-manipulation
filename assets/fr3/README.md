@@ -46,10 +46,7 @@ uv run view_urdf.py --ee fork_v2                        # sanity check, open htt
 ISAACLAB_DIR=~/IsaacLab ./convert_to_usd.sh fork_v2     # -> build/fr3_fork_v2_usd/fr3_fork_v2/fr3_fork_v2.usda
 ```
 
-`build_asset.py` copies the FR3 meshes from the `franka_description` repo. It takes the first of:
-`--franka-description <path>`, the variable `FRANKA_DESCRIPTION`, `../franka_description` next to the repo.
-With none of them the build stops with
-`ERROR: base URDF uses package:// paths -> pass --franka-description <path to franka_description repo>, ...`.
+`build_asset.py` copies the FR3 meshes from the `franka_description` repo; where it finds it: Setup step 4.
 CI uses the `franka_description` commit recorded in `FRANKA_DESCRIPTION_COMMIT` at the repo root.
 
 After building, check the result in simulation from the repo root:

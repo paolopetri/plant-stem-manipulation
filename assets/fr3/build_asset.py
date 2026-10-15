@@ -15,7 +15,6 @@ Output:
 
 Usage:
   uv run build_asset.py --ee fork_v2
-  (franka_description: --franka-description, else FRANKA_DESCRIPTION, else ../franka_description next to the repo)
 """
 
 from __future__ import annotations
@@ -65,8 +64,8 @@ def resolve_base_mesh(filename: str, base_dir: Path, franka_root: Path | None) -
             fail(f"unexpected ROS package in mesh path: {filename}")
         if franka_root is None:
             fail(
-                "base URDF uses package:// paths -> pass --franka-description <path to franka_description repo>, "
-                f"set FRANKA_DESCRIPTION, or clone it to {SIBLING_FRANKA_DESCRIPTION}"
+                "base URDF uses package:// paths and franka_description was not found "
+                "-> see --franka-description in --help"
             )
         return franka_root / rel, Path("franka") / rel
 
