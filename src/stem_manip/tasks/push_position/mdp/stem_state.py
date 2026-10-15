@@ -6,8 +6,8 @@ No contact forces in the observations (decision 2026-10-06).
 
 - `StemState`: the stem accessor of `docs/architecture.md` (Stem interface): points at given arc lengths, the
   bending curvature of every joint, the distance of points to the centre line, all in the robot base frame, and the
-  axial compression of every joint, the arc length of every segment. It owns the stem model, the segment length (read from the stem asset) and the
-  world-to-robot-base transform.
+  axial compression of every joint, the arc length of every segment. It owns the stem model, the segment length
+  (read from the stem asset) and the world-to-robot-base transform.
 - `stem_state(env)`: the env's one instance, built from `env.cfg.stem_model` and the scene entities `STEM` and
   `ROBOT` (cached by `stem_manip.utils.per_env`).
 - Observation term `stem_points`: points at arc lengths, flattened (num_envs, 3 * len(arc_lengths)) [m]. Used for the

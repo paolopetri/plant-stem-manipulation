@@ -49,6 +49,12 @@ def robot_contact_force(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> t
     return _policy_step_force(contact_force_pairs(env, sensor_cfg))
 
 
+def fork_contact_force(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
+    """Largest single contact force of the fork on the stem, (num_envs,) [N]: the reading of `robot_contact_force`
+    over the fork only."""
+    return _policy_step_force(contact_force_pairs(env, sensor_cfg)[..., FORK_BODY : FORK_BODY + 1])
+
+
 def arm_contact_force(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
     """Largest single contact force of the robot bodies other than the fork on the stem, (num_envs,) [N]: the reading
     of `robot_contact_force` over the arm's bodies only."""

@@ -142,6 +142,9 @@ MIN_JOINT_MARGIN = 0.25  # [rad] terminate closer to any FR3 joint limit (the sw
 # [N] arm contact: a robot body other than the fork touches the stem, contact force (mean over the policy step) above
 # this; ends the episode (user, 2026-10-15, #160)
 ARM_CONTACT_FORCE = 0.05
+# [N] fork contact for the contact point (a metric): the fork's contact force (mean over the policy step) above this;
+# the arm-contact threshold (#166)
+FORK_CONTACT_FORCE = 0.05
 ARM_JOINTS = ["fr3_joint[1-7]"]
 # The robot's rigid bodies, by their prim paths below the robot prim (the FR3 USD nests each link under its parent;
 # the end-effector body under the frame fr3_link8): the fork first, then the arm links, the order the contact terms
@@ -215,6 +218,7 @@ class CommandsCfg:
         resampling_time_range=(1e9, 1e9),
         sensor_cfg=SceneEntityCfg("stem_contact"),
         arm_contact_force=ARM_CONTACT_FORCE,
+        fork_contact_force=FORK_CONTACT_FORCE,
     )
 
 
