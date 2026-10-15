@@ -61,6 +61,7 @@ Before writing or reviewing code, read `CODING_STANDARDS.md`: decision tags, sin
 ## Agent skills
 
 - `docs/agents/workflow.md`: how new work goes from decision to PR, which skills the user starts, context and model choice.
+- `docs/agents/worktrees.md`: create, set up and remove a git worktree for a branch.
 - `docs/agents/issue-tracker.md`: GitHub issues via `gh`; every branch has an issue.
 - `docs/agents/triage-labels.md`: label vocabulary.
 - `docs/agents/domain.md`: domain docs, single-context: `GLOSSARY.md` and `docs/adr/` at the repo root.
