@@ -12,6 +12,10 @@ Modes:
   A table goal is rejected when IK does not reach it (`POS_TOL`, `ANGLE_TOL`), when a joint is closer than
   `START_POSE_MIN_MARGIN` to its limit, or when an arm body (any robot body but the fork: surface points of the FR3
   collision meshes) is closer than `START_POSE_ARM_CLEARANCE` to the stem's surface. Joint angles rounded to 1 mrad.
+- `pose`: one start pose, printed as the Hydra override line of the reset event's `poses` (to play a policy from it:
+  README, "Push task: training"). `--height H --azimuth DEG` solves it like a table goal (same IK, goal and checks; the
+  checks are printed, not enforced); `--held_out NAME` prints a committed held-out pose (`EVAL_START_POSES`) without
+  the simulator.
 - `replay` (viewer check): shows every table pose (and the held-out poses) one after the other for `--hold` seconds,
   with the stem at `START_POSE_STEM_XY`, and prints each pose's slot-base height, azimuth, joint margin and arm
   clearance.
@@ -20,6 +24,8 @@ Checked in `tests/test_fr3_reference.py` (independent FK on every committed pose
 
 Usage (from the repo root; headless unless a visualizer is requested):
     uv run --extra isaacsim python scripts/start_poses.py solve
+    uv run --extra isaacsim python scripts/start_poses.py pose --height 0.25 --azimuth 30
+    uv run python scripts/start_poses.py pose --held_out b_side_90
     uv run --extra isaacsim python scripts/start_poses.py replay --viz kit
 """
 
@@ -28,7 +34,12 @@ import argparse
 from isaaclab.app import add_launcher_args, launch_simulation
 
 parser = argparse.ArgumentParser(description="Solve or replay the push task's start poses.")
-parser.add_argument("mode", choices=["solve", "replay"], help="Solve the table with IK, or replay the committed poses.")
+parser.add_argument(
+    "mode", choices=["solve", "pose", "replay"], help="Solve the table, one pose (override line), or replay the poses."
+)
+parser.add_argument("--height", type=float, default=None, help="pose: slot-base height [m].")
+parser.add_argument("--azimuth", type=float, default=None, help="pose: azimuth about the stem axis [deg].")
+parser.add_argument("--held_out", default=None, help="pose: name of a committed held-out pose, instead of solving.")
 parser.add_argument("--hold", type=float, default=2.0, help="replay: seconds per pose.")
 add_launcher_args(parser)
 args_cli = parser.parse_args()
@@ -75,11 +86,24 @@ def goal_pose(height: float, azimuth: float) -> tuple[tuple[float, float, float]
     return position, torch.tensor((fork_x, fork_y, (0.0, 0.0, -1.0))).T
 
 
+def override_line(q: list[float]) -> str:
+    """Hydra override of the reset event's `poses` with the single pose q [rad], quoted for the shell."""
+    return "'env.events.start_pose.params.poses=[[" + ",".join(f"{v:.3f}" for v in q) + "]]'"
+
+
 def main() -> None:
+    if args_cli.mode == "pose" and args_cli.held_out is not None:
+        print(override_line(task.EVAL_START_POSES[args_cli.held_out]))
+        return
+    if args_cli.mode == "pose" and (args_cli.height is None or args_cli.azimuth is None):
+        parser.error("pose needs --height and --azimuth, or --held_out")
     stem_module = stem_model(task.STEM_MODEL)
     geometry = stem_params(task.STEM_MODEL)["geometry"]
     stem_radius, stem_length = geometry["diameter"] / 2, geometry["length"]
-    if args_cli.mode == "solve":
+    if args_cli.mode == "pose":
+        goals = {"pose": (args_cli.height, math.radians(args_cli.azimuth))}
+        names = list(goals)
+    elif args_cli.mode == "solve":
         heights = torch.arange(
             task.START_POSE_HEIGHTS[0], task.START_POSE_HEIGHTS[1] + 1e-6, HEIGHT_STEP, dtype=torch.float64
         ).tolist()
@@ -99,7 +123,7 @@ def main() -> None:
         from isaaclab.sim import SimulationContext
         from isaaclab.utils import configclass
 
-        num_envs = len(names) if args_cli.mode == "solve" else 1
+        num_envs = len(names) if args_cli.mode != "replay" else 1
 
         @configclass
         class StartPoseSceneCfg(InteractiveSceneCfg):
@@ -167,7 +191,7 @@ def main() -> None:
         seed = torch.tensor(task.EVAL_START_POSES["a_above_tip"], device=device).repeat(num_envs, 1)
         write(seed)
 
-        if args_cli.mode == "solve":
+        if args_cli.mode != "replay":
             targets = [goal_pose(*goals[name]) for name in names]
             goal_pos = torch.tensor([t[0] for t in targets], device=device)
             goal_quat = quat_from_matrix(torch.stack([t[1] for t in targets]).to(device))
@@ -189,6 +213,16 @@ def main() -> None:
             pos, quat = kinematics.pose()
             pos_err, angle_err = (pos - goal_pos).norm(dim=-1), rotvec_between(quat, goal_quat).norm(dim=-1)
             margins, (clearances, closest) = margin(), arm_clearance()
+            if args_cli.mode == "pose":
+                print(
+                    f"height {args_cli.height:.3f} m, azimuth {args_cli.azimuth:+.1f} deg: pos error "
+                    f"{float(pos_err[0]) * 1e3:.2f} mm, angle error {math.degrees(angle_err[0]):.2f} deg, margin "
+                    f"{float(margins[0]):.2f} rad (table: >= {task.START_POSE_MIN_MARGIN}), arm clearance "
+                    f"{float(clearances[0]) * 100:.1f} cm ({closest[0]}; table: >= "
+                    f"{task.START_POSE_ARM_CLEARANCE * 100:.0f} cm)"
+                )
+                print(override_line(q[0].tolist()))
+                return
             table, held_out = [], {}
             for i, name in enumerate(names):
                 height, azimuth = goals[name]

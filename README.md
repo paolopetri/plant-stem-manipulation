@@ -112,6 +112,22 @@ uv run python tools/autotrain/upload_video.py logs/autotrain/<name>.out logs/rsl
 uv run --extra isaacsim isaaclab play --task StemManip-Push-Position-FR3-v0 --num_envs 4 --checkpoint <model.pt> --viz kit
 ```
 
+Play from a chosen start pose (evaluation outside the training's start-pose table): `isaaclab play` passes Hydra
+overrides to the env cfg, so the reset event's `poses` (one or more arm joint vectors, rad) and `joint_noise` can be
+set on the command line. `scripts/start_poses.py pose` prints the `poses` line: a held-out pose (`a_above_tip`,
+`b_side_90`, `c_low`) as committed, or a new pose beside the stem solved with IK (slot-base height in m, azimuth
+about the stem axis in deg; it also prints the joint margin and arm clearance, which the table requires to be at
+least 0.5 rad and 5 cm). `joint_noise=0.0` starts exactly at the pose.
+
+```bash
+uv run --extra isaacsim python scripts/start_poses.py pose --held_out b_side_90
+uv run --extra isaacsim python scripts/start_poses.py pose --height 0.25 --azimuth 30
+uv run --extra isaacsim --extra video isaaclab play --task StemManip-Push-Position-FR3-v0 --num_envs 1 \
+    --checkpoint <model.pt> --video --video_length 938 \
+    'env.events.start_pose.params.poses=[[-0.515,0.378,0.096,-1.873,-0.046,2.249,-1.183]]' \
+    env.events.start_pose.params.joint_noise=0.0
+```
+
 `upload_video.py` reads the wandb run id from the train output, so it needs the run's output saved to a file
 (`... > logs/autotrain/<name>.out 2>&1`). The output is large (about 120 harmless PhysX warnings per env at
 startup: the contact sensor's filter pattern also matches prims that are not rigid bodies).
