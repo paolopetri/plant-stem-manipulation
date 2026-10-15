@@ -6,8 +6,8 @@ No contact forces in the observations (decision 2026-10-06).
 
 - `StemState`: the stem accessor of `docs/architecture.md` (Stem interface): points at given arc lengths, the
   bending curvature of every joint, the distance of points to the centre line, all in the robot base frame, and the
-  axial compression of every joint. It owns the stem model, the segment length (read from the stem asset) and the
-  world-to-robot-base transform.
+  axial compression of every joint, the arc length of every segment. It owns the stem model, the segment length
+  (read from the stem asset) and the world-to-robot-base transform.
 - `stem_state(env)`: the env's one instance, built from `env.cfg.stem_model` and the scene entities `STEM` and
   `ROBOT` (cached by `stem_manip.utils.per_env`).
 - Observation term `stem_points`: points at arc lengths, flattened (num_envs, 3 * len(arc_lengths)) [m]. Used for the
@@ -85,6 +85,14 @@ class StemState:
         The force is the same in every frame, so no transform to the robot base.
         """
         return self._model.joint_wrenches(self._stem)[:, 1:, 0]
+
+    def segment_arc_lengths(self) -> torch.Tensor:
+        """Arc length of every segment's centre from the stem base, shape (num_segments,) [m]: (i + 1/2) x the segment
+        length (0 at the base, the stem length at the tip, as `points_b`). Places a per-segment reading, e.g. the
+        fork's contact force, on the stem (the contact point, `metrics.py`)."""
+        poses = self._segment_poses()
+        index = torch.arange(poses.shape[1], dtype=poses.dtype, device=poses.device)
+        return (index + 0.5) * self._segment_length
 
     def _segment_poses(self) -> torch.Tensor:
         """Segment poses (num_envs, num_segments, 7), world frame; read anew at every call (a reset can write the stem

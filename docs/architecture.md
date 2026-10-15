@@ -116,8 +116,9 @@ Task `StemManip-Push-Position-FR3-v0`, cfg in `src/stem_manip/tasks/push_positio
    `TerminationsCfg` of the env cfg, damage limits from `damage` in `assets/stem/stem.yaml`): distance of the stem
    point to the target (coarse and fine tanh, the fine one an ellipsoid that weighs the height error more) and a
    height term, fork-to-stem approach, curvature and contact-force penalties, action rate, early-termination
-   penalty; terminate on time out, curvature limit, contact-force limit and joint margin, no slot-base bound. Contact
-   forces (sensor `stem_contact` on the stem segments, filtered to the robot) are used here, not in the observation.
+   penalty; terminate on time out, curvature limit, contact-force limit, joint margin and arm contact, no slot-base
+   bound. Contact forces (sensor `stem_contact` on the stem segments, filtered to the robot's rigid bodies and split
+   into the fork and the other robot bodies) are used here and in the metrics, not in the observation.
 
 The **stem point of interest** is given by one arc length from the stem base, set in the env cfg to the stem length:
 the tip (`STEM_POINT_ARC_LENGTH`; the same quantity as the observed points along the stem). Its **target**
@@ -142,6 +143,7 @@ stem_state(env).points_b(arc_lengths)  -> (num_envs, k, 3)                # poin
 stem_state(env).curvature()            -> (num_envs, num_stem_joints)     # bending curvature of every joint [1/m]
 stem_state(env).distance_b(points_b)   -> (num_envs, k)                   # distance of points to the centre line [m]
 stem_state(env).axial_compression()    -> (num_envs, num_stem_joints)     # axial joint force [N], + = compression
+stem_state(env).segment_arc_lengths()  -> (num_segments,)                 # segment centres from the base [m]
 ```
 
 - `StemState` takes the stem model module, the stem asset and the robot asset in its constructor (unit-tested with

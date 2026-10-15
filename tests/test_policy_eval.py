@@ -9,7 +9,11 @@ from stem_manip.utils import policy_eval
 
 
 def episodes(**overrides) -> policy_eval.Episodes:
-    """Four episodes: two time-outs, one curvature limit, one ended by contact force and joint margin at once."""
+    """Four episodes: two time-outs, one curvature limit, one ended by contact force and joint margin at once.
+
+    The fork touched the stem in episodes 1, 2 and 4 (contact points 0.30, 0.45, 0.10 m); episode 3 had no fork
+    contact, its contact point is the metric's 0.
+    """
     fields = dict(
         ended_by={
             "time_out": torch.tensor([True, True, False, False]),
@@ -22,6 +26,8 @@ def episodes(**overrides) -> policy_eval.Episodes:
         height_error=torch.tensor([0.002, -0.004, 0.03, 0.06]),
         max_rotation=torch.tensor([0.1, 0.3, 0.5, 1.5]),
         final_rotation=torch.tensor([0.1, 0.2, 0.5, 1.0]),
+        fork_contact=torch.tensor([True, True, False, True]),
+        contact_point=torch.tensor([0.30, 0.45, 0.0, 0.10]),
     )
     fields.update(overrides)
     return policy_eval.Episodes(**fields)
@@ -99,3 +105,35 @@ def test_no_time_out_episodes_leave_out_the_time_out_group():
     assert summary["ended_by/time_out"] == 0.0
     assert "all/position_error/mean" in summary
     assert not [key for key in summary if key.startswith("time_out/")]
+
+
+def test_share_of_episodes_ended_by_arm_contact():
+    ended_by = {
+        "time_out": torch.tensor([True, True, False, False]),
+        "arm_contact": torch.tensor([False, False, True, False]),
+        "contact_force_limit": torch.tensor([False, False, False, True]),
+    }
+    summary = policy_eval.summarize(episodes(ended_by=ended_by), time_out="time_out", success_distance=0.01)
+    assert summary["ended_by/arm_contact"] == pytest.approx(0.25)
+    assert summary["ended_by/early (any)"] == pytest.approx(0.5)
+
+
+def test_contact_point_over_episodes_with_fork_contact():
+    # the three episodes with fork contact, sorted contact points 0.10 0.30 0.45; the one without is left out
+    summary = policy_eval.summarize(episodes(), time_out="time_out", success_distance=0.01)
+    assert summary["all/fork_contact"] == pytest.approx(0.75)
+    expected = {
+        "mean": 0.85 / 3,
+        "p10": 0.14,
+        "median": 0.30,
+        "p90": 0.42,
+    }
+    for key, value in expected.items():
+        assert summary[f"fork_contact/contact_point/{key}"] == pytest.approx(value), key
+
+
+def test_no_fork_contact_leaves_out_the_contact_point():
+    untouched = episodes(fork_contact=torch.tensor([False] * 4), contact_point=torch.zeros(4))
+    summary = policy_eval.summarize(untouched, time_out="time_out", success_distance=0.01)
+    assert summary["all/fork_contact"] == 0.0
+    assert not [key for key in summary if "contact_point" in key]
