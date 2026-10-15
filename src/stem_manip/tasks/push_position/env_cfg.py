@@ -8,7 +8,7 @@
 - Managers from `mdp/` (commands, observations, rewards, terminations, events); weights and ranges as cfg fields.
 - The stem point (its arc length, the stem length = the tip) is a task-cfg field (`CommandsCfg`); the curvature limit
   comes from `assets/stem/stem.yaml`.
-- Contact sensor on the stem: forces for rewards and terminations only, not observed.
+- Contact sensor on the stem: forces for rewards, terminations and metrics only, not observed.
 
 Verify: `scripts/check_push_env.py`, `scripts/check_push_terms.py`; zero/random agent runs headless with few envs.
 """
@@ -139,8 +139,18 @@ CURVATURE_BUDGET = 0.8
 # [N] contact penalty above it, on the largest single contact (normal pushes 0.8-1.4 N measured; clamp bound 4 N)
 CONTACT_FREE_FORCE = 2.0
 MIN_JOINT_MARGIN = 0.25  # [rad] terminate closer to any FR3 joint limit (the sweeps' rule, 2026-10-08)
+# [N] arm contact: a robot body other than the fork touches the stem, contact force (mean over the policy step) above
+# this; ends the episode (user, 2026-10-15, #160)
+ARM_CONTACT_FORCE = 0.05
 ARM_JOINTS = ["fr3_joint[1-7]"]
-ROBOT_LINKS = [f"fr3_link{i}" for i in range(8)] + [END_EFFECTOR]  # all robot bodies that can touch the stem
+# The robot's rigid bodies, by their prim paths below the robot prim (the FR3 USD nests each link under its parent;
+# the end-effector body under the frame fr3_link8): the fork first, then the arm links, the order the contact terms
+# split the stem contact sensor's robot-body axis by (`mdp/contact.py`). Exact paths, no wildcard: `.*<link>` also
+# matched visuals, collision children and joints (#84).
+_ARM_LINKS = [f"fr3_link{i}" for i in range(8)]
+ROBOT_BODY_PATHS = [f"Geometry/base/{'/'.join(_ARM_LINKS)}/fr3_link8/{END_EFFECTOR}"] + [
+    "Geometry/base/" + "/".join(_ARM_LINKS[: i + 1]) for i in range(len(_ARM_LINKS))
+]
 
 
 def git_commit() -> str:
@@ -166,11 +176,11 @@ class StemPushSceneCfg(InteractiveSceneCfg):
         ),
     )
     stem = stem_model(STEM_MODEL).stem_cfg().replace(prim_path="{ENV_REGEX_NS}/Stem")
-    # force of the robot (fork and arm links) on each stem segment, normal and friction, at every physics step;
-    # history = one policy step (set in the env cfg's __post_init__). As in `scripts/check_contact.py`.
+    # force of each robot body (the fork, then the arm links) on each stem segment, normal and friction, at every
+    # physics step; history = one policy step (set in the env cfg's __post_init__). As in `scripts/check_contact.py`.
     stem_contact = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Stem/seg_.*",
-        filter_prim_paths_expr=[f"{{ENV_REGEX_NS}}/Robot/.*{link}" for link in ROBOT_LINKS],
+        filter_prim_paths_expr=[f"{{ENV_REGEX_NS}}/Robot/{path}" for path in ROBOT_BODY_PATHS],
         track_friction_forces=True,
     )
 
@@ -201,7 +211,11 @@ class CommandsCfg:
         debug_vis=True,
     )
     # metrics only, logged and never observed: no command, nothing to resample
-    stem_metrics = mdp.StemMetricsCfg(resampling_time_range=(1e9, 1e9))
+    stem_metrics = mdp.StemMetricsCfg(
+        resampling_time_range=(1e9, 1e9),
+        sensor_cfg=SceneEntityCfg("stem_contact"),
+        arm_contact_force=ARM_CONTACT_FORCE,
+    )
 
 
 @configclass
@@ -298,7 +312,8 @@ class RewardsCfg:
 
 @configclass
 class TerminationsCfg:
-    """Time out; damage limits (curvature, contact force); joint margin. No slot-base bound (user, 2026-10-09)."""
+    """Time out; damage limits (curvature, contact force); joint margin; arm contact (a contact rule, not a damage
+    limit). No slot-base bound (user, 2026-10-09)."""
 
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
     curvature_limit = DoneTerm(func=mdp.curvature_limit, params={"max_curvature": DAMAGE["max_curvature"]})
@@ -309,6 +324,9 @@ class TerminationsCfg:
     joint_margin = DoneTerm(
         func=mdp.joint_limit_margin,
         params={"min_margin": MIN_JOINT_MARGIN, "asset_cfg": SceneEntityCfg("robot", joint_names=ARM_JOINTS)},
+    )
+    arm_contact = DoneTerm(
+        func=mdp.arm_contact, params={"max_force": ARM_CONTACT_FORCE, "sensor_cfg": SceneEntityCfg("stem_contact")}
     )
 
 
