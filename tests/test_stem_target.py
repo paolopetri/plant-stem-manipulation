@@ -1,29 +1,65 @@
 """Unit tests for `stem_manip.utils.stem_target`: target sampling for the stem tip (no simulator needed).
-The tests check (decided values: user, 2026-10-08/09):
+The tests check (decided values: user, 2026-10-08/09 and spec #160):
 
 - Horizontal distance r of the target from the tip's rest position uniform in [0.03, 0.10] m, direction uniform in
   the angle range (default the full circle).
-- Height: on or below the "bowl" (drop 0.6 r^2 / s: the stem pushed at its tip), down to the deepest shape whose
-  peak curvature stays within the budget 0.8 x `damage.max_curvature` (C / S shapes need a moment from the fork's
-  slot). Nothing above the bowl (the inextensible stem reaches at most 0.2-1.7 mm above it, with its base bent to
-  the limit; review 2026-10-09).
-- Shape model: a clamped stem with a force and a moment at the tip, w(x) = a x^2 + b x^3, small deflection; the
-  closed-form drop and peak curvature match a numerical integration of that shape.
+- Height: on or below the "bowl" (the drop of the stem pushed sideways at its tip, by a horizontal force alone),
+  down to the deepest shape whose curvature stays within the budget 0.8 x `damage.max_curvature` (a moment or a C / S
+  bend, or pressing the tip down). Nothing above the bowl.
+- Shape model: a planar elastica (inextensible rod, clamped upright, a force and a moment at the stem point). The
+  rod table matches an independent numerical integration (scipy's `solve_ivp`, shooting from the base): the bowl
+  by a root search on the sideways force, the deepest shape at the parameters a constrained optimizer (SLSQP, scipy)
+  found on 2026-10-15 (dimensionless, s = 1, EI = 1, budget 1.6).
+- The region is dimensionless (r / s, drop / s, budget x s): the targets scale with s.
 - Sampled per env relative to that env's rest position; different targets per env and per call.
 """
 
 import math
 
+import numpy as np
 import pytest
 import torch
+from scipy.integrate import solve_ivp
+from scipy.optimize import brentq
 
 from stem_manip.utils import stem_target
 
 ARC_LENGTH = 0.40  # [m] the tip (user, 2026-10-08)
 DISTANCE_RANGE = (0.03, 0.10)  # [m] (user, 2026-10-08)
 CURVATURE_AT_BUDGET = 4.0  # [1/m] the budget 0.8 (user, 2026-10-09) x damage.max_curvature 5 1/m
+BUDGET = CURVATURE_AT_BUDGET * ARC_LENGTH  # dimensionless budget x s
 FULL_CIRCLE = (-math.pi, math.pi)
 NUM_ENVS = 4096
+
+# deepest shapes within the budget 1.6 (dimensionless: base curvature k0, force fx, fz with fz > 0 pressing down),
+# found by SLSQP over (k0, fx, fz) on 2026-10-15; keyed by r [m] at s = 0.40 m
+DEEPEST_SHAPES = {
+    0.03: (-1.37499003, 3.14540674, 14.60703736),
+    0.05: (-1.24609713, 3.66818623, 13.10409426),
+    0.075: (-1.05092303, 4.10885451, 11.23328683),
+    0.10: (-0.82182576, 4.32260469, 9.44244472),
+}
+
+
+def _shoot(k0: float, fx: float, fz: float) -> np.ndarray:
+    """Elastica from the clamped base, s = 1: theta' = kappa, kappa' = fx cos(theta) - fz sin(theta), (x, z) along
+    (sin, cos). Rows theta, kappa, x, z over 2001 points."""
+
+    def rhs(_, y):
+        return [y[1], fx * np.cos(y[0]) - fz * np.sin(y[0]), np.sin(y[0]), np.cos(y[0])]
+
+    sol = solve_ivp(rhs, (0.0, 1.0), [0.0, k0, 0.0, 0.0], rtol=1e-11, atol=1e-12, t_eval=np.linspace(0, 1, 2001))
+    return sol.y
+
+
+def _bowl(distance: float) -> float:
+    """Drop [m] of the stem pushed sideways at its tip to `distance` [m]: horizontal force, no tip moment."""
+
+    def base_curvature(fx: float) -> float:  # zero tip moment
+        return brentq(lambda k0: _shoot(k0, fx, 0.0)[1, -1], 0.0, 2 * abs(fx) + 1e-3)
+
+    fx = brentq(lambda f: _shoot(base_curvature(f), f, 0.0)[2, -1] - distance / ARC_LENGTH, -1e-6, -3.0)
+    return (1.0 - _shoot(base_curvature(fx), fx, 0.0)[3, -1]) * ARC_LENGTH
 
 
 def _rest_points() -> torch.Tensor:
@@ -36,73 +72,84 @@ def _rest_points() -> torch.Tensor:
     return rest
 
 
-def _sample(angle_range: tuple[float, float] = FULL_CIRCLE, seed: int = 0) -> tuple[torch.Tensor, torch.Tensor]:
+def _sample(
+    angle_range: tuple[float, float] = FULL_CIRCLE,
+    seed: int = 0,
+    arc_length: float = ARC_LENGTH,
+    distance_range: tuple[float, float] = DISTANCE_RANGE,
+    max_curvature: float = CURVATURE_AT_BUDGET,
+) -> tuple[torch.Tensor, torch.Tensor]:
     rest = _rest_points()
     targets = stem_target.sample_targets(
         rest,
-        ARC_LENGTH,
-        DISTANCE_RANGE,
+        arc_length,
+        distance_range,
         angle_range,
-        CURVATURE_AT_BUDGET,
+        max_curvature,
         generator=torch.Generator().manual_seed(seed),
     )
     return rest, targets
 
 
-def _drop_factor(rest: torch.Tensor, targets: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    """Horizontal distance r and drop factor c = drop * s / r^2 of each target."""
-    distance = (targets[:, :2] - rest[:, :2]).norm(dim=-1)
-    return distance, (rest[:, 2] - targets[:, 2]) * ARC_LENGTH / distance**2
+def _distance_and_drop(rest: torch.Tensor, targets: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Horizontal distance r [m] and drop [m] of each target below its rest position."""
+    return (targets[:, :2] - rest[:, :2]).norm(dim=-1), rest[:, 2] - targets[:, 2]
 
 
-@pytest.mark.parametrize("tip_slope", [-1.0, 0.0, 0.75, 1.5, 2.0, 3.1, 6.8])
-def test_shape_factors_match_numerical_integration(tip_slope: float):
-    """w(x) = a x^2 + b x^3 on s = 1 with w(1) = 1, w'(1) = tip_slope: drop 1/2 int w'^2, peak |w''|."""
-    a, b = 3.0 - tip_slope, tip_slope - 2.0
-    x = torch.linspace(0.0, 1.0, 20001, dtype=torch.float64)
-    drop = 0.5 * torch.trapezoid((2 * a * x + 3 * b * x**2) ** 2, x)
-    curvature = (2 * a + 6 * b * x).abs().max()
-    slope = torch.tensor(tip_slope, dtype=torch.float64)
-    assert float(stem_target.drop_factor(slope)) == pytest.approx(float(drop), rel=1e-6)
-    assert float(stem_target.curvature_factor(slope)) == pytest.approx(float(curvature), rel=1e-9)
+@pytest.mark.parametrize("distance", [0.03, 0.05, 0.075, 0.10])
+def test_bowl_matches_numerical_integration(distance: float):
+    table = stem_target.rod_table(BUDGET)
+    drop = float(table.bowl_drop(torch.tensor([distance], dtype=torch.float64), ARC_LENGTH)[0])
+    assert drop == pytest.approx(_bowl(distance), abs=1e-5)  # [m], 0.01 mm
 
 
-def test_tip_push_is_the_bowl():
-    """Force at the tip only (tip slope 1.5 r/s): drop 0.6 r^2/s, peak curvature 3 r/s^2 at the base."""
-    slope = torch.tensor(1.5, dtype=torch.float64)
-    assert float(stem_target.drop_factor(slope)) == pytest.approx(0.6)
-    assert float(stem_target.curvature_factor(slope)) == pytest.approx(3.0)
-    assert float(stem_target.bowl_drop(torch.tensor(0.10), ARC_LENGTH)) == pytest.approx(0.015, rel=1e-6)
+@pytest.mark.parametrize("distance", list(DEEPEST_SHAPES))
+def test_deepest_shape_matches_numerical_integration(distance: float):
+    """The optimizer's shape reaches r within the budget; the table's deepest drop is that shape's drop."""
+    theta, kappa, x, z = _shoot(*DEEPEST_SHAPES[distance])
+    assert abs(x[-1]) * ARC_LENGTH == pytest.approx(distance, abs=1e-6)
+    assert float(np.abs(kappa).max()) <= BUDGET * (1 + 1e-5)
+    table = stem_target.rod_table(BUDGET)
+    drop = float(table.deepest_drop(torch.tensor([distance], dtype=torch.float64), ARC_LENGTH)[0])
+    assert drop == pytest.approx((1.0 - z[-1]) * ARC_LENGTH, abs=2e-5)  # [m], 0.02 mm
 
 
-def test_deepest_shape_at_the_decided_budget():
-    """At r = 10 cm the deepest shape within 4 1/m has c = 0.9307 (8.3 mm below the bowl), at 3 cm c = 3.0296."""
-    deepest = stem_target.deepest_drop_factor(torch.tensor([0.10, 0.03], dtype=torch.float64), ARC_LENGTH, 4.0)
-    torch.testing.assert_close(deepest, torch.tensor([0.9307, 3.0296], dtype=torch.float64), rtol=0.0, atol=1e-4)
+def test_room_below_the_bowl():
+    """Room between the bowl and the deepest shape at the decided budget: 14.1 mm at r = 3 cm, 18.0 mm at 10 cm
+    (independent integration above; the linear small-deflection model gave 5.5 and 8.3 mm)."""
+    table = stem_target.rod_table(BUDGET)
+    distance = torch.tensor([0.03, 0.10], dtype=torch.float64)
+    room = table.deepest_drop(distance, ARC_LENGTH) - table.bowl_drop(distance, ARC_LENGTH)
+    torch.testing.assert_close(room, torch.tensor([0.01408, 0.01798], dtype=torch.float64), rtol=0.0, atol=5e-5)
+
+
+def test_distance_beyond_the_table_is_rejected():
+    table = stem_target.rod_table(BUDGET)
+    with pytest.raises(ValueError):
+        table.bowl_drop(torch.tensor([0.30], dtype=torch.float64), ARC_LENGTH)
 
 
 def test_targets_lie_in_the_region():
     rest, targets = _sample()
     assert targets.shape == (NUM_ENVS, 3)
-    distance, c = _drop_factor(rest, targets)
+    distance, drop = _distance_and_drop(rest, targets)
     assert float(distance.min()) >= DISTANCE_RANGE[0] - 1e-9
     assert float(distance.max()) <= DISTANCE_RANGE[1] + 1e-9
-    deepest = stem_target.deepest_drop_factor(distance, ARC_LENGTH, CURVATURE_AT_BUDGET)
-    assert float(c.min()) >= 0.6 - 1e-9  # on or below the bowl
-    assert bool((c <= deepest + 1e-9).all())
-    # the whole band is used: targets near the bowl and near the deepest shape
-    position = (c - 0.6) / (deepest - 0.6)
-    assert float(position.min()) < 0.05 and float(position.max()) > 0.95
+    table = stem_target.rod_table(BUDGET)
+    bowl, deepest = table.bowl_drop(distance, ARC_LENGTH), table.deepest_drop(distance, ARC_LENGTH)
+    assert float((drop - bowl).min()) >= -1e-9  # on or below the bowl
+    assert float((drop - deepest).max()) <= 1e-9  # within the budget
+    # the whole band is used, uniformly: targets near the bowl and near the deepest shape
+    position = (drop - bowl) / (deepest - bowl)
+    counts = torch.histc(position, bins=8, min=0.0, max=1.0)
+    assert bool((counts > 0.8 * NUM_ENVS / 8).all()), counts
 
 
-def test_targets_stay_within_the_curvature_budget():
-    """The gentlest shape that reaches each target bends the stem by at most the budget."""
+def test_distances_are_uniform():
     rest, targets = _sample()
-    distance, c = _drop_factor(rest, targets)
-    slope = stem_target.gentlest_tip_slope(c)
-    curvature = stem_target.curvature_factor(slope) * distance / ARC_LENGTH**2
-    assert float(curvature.max()) <= CURVATURE_AT_BUDGET + 1e-6
-    assert float(stem_target.drop_factor(slope).sub(c).abs().max()) < 1e-9
+    distance, _ = _distance_and_drop(rest, targets)
+    counts = torch.histc(distance, bins=7, min=DISTANCE_RANGE[0], max=DISTANCE_RANGE[1])
+    assert bool((counts > 0.8 * NUM_ENVS / 7).all()), counts
 
 
 def test_directions_cover_the_angle_range():
@@ -115,6 +162,13 @@ def test_directions_cover_the_angle_range():
     rest, targets = _sample(angle_range=quarter)
     angle = torch.atan2(targets[:, 1] - rest[:, 1], targets[:, 0] - rest[:, 0])
     assert float(angle.min()) >= quarter[0] - 1e-6 and float(angle.max()) <= quarter[1] + 1e-6
+
+
+def test_targets_scale_with_the_arc_length():
+    """A stem twice as long, with the same budget x s and distances scaled with it: offsets twice as large."""
+    rest, short = _sample()
+    _, long = _sample(arc_length=2 * ARC_LENGTH, distance_range=(0.06, 0.20), max_curvature=0.5 * CURVATURE_AT_BUDGET)
+    torch.testing.assert_close(long - rest, 2 * (short - rest), rtol=1e-9, atol=1e-12)
 
 
 def test_targets_differ_per_env_and_per_call():
