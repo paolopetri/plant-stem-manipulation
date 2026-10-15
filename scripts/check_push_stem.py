@@ -4,7 +4,8 @@ The slot base is driven by the task's action term (Franka's Cartesian impedance 
 limit and setpoint clamp, `mdp.SlotBaseImpedanceAction`), scripted with `rollout.toward`. The stem base stands at
 (0.65, 0) m. The contact force is the force of the robot on the stem from the task's stem contact sensor
 (`stem_contact`, normal + friction), summed over all stem segments and robot bodies, at every physics step: the
-spring bound of the clamp holds for the total force, not for a single contact.
+spring bound of the clamp holds for the total force, not for a single contact. Every phase starts from the held-out
+start pose a_above_tip without joint noise (the scripted paths start there; every env alike), as `check_push_terms.py`.
 
 Phases:
 - normal push: the fork behind the stem at 0.30 m height, at full speed until 1 cm before contact, then 10 cm into
@@ -52,7 +53,7 @@ import torch
 
 import stem_manip.tasks  # noqa: F401  (registers the task)
 from stem_manip.assets.stem import stem_model, stem_params
-from stem_manip.tasks.push_position.env_cfg import STEM_MODEL, StemPushPositionEnvCfg
+from stem_manip.tasks.push_position.env_cfg import EVAL_START_POSES, STEM_MODEL, StemPushPositionEnvCfg
 from stem_manip.utils import check_report, rollout
 from stem_manip.utils.stem_geometry import point_pose
 
@@ -87,6 +88,7 @@ def main() -> None:
     env_cfg.sim.device = args_cli.device or env_cfg.sim.device
     env_cfg.episode_length_s = 1e4  # the scripted phases run without a time out
     env_cfg.events.spawn_stem.params.update(x_range=(STEM_BASE[0],) * 2, y_range=(STEM_BASE[1],) * 2)
+    env_cfg.events.start_pose.params.update(poses=(EVAL_START_POSES["a_above_tip"],), joint_noise=0.0)
     with launch_simulation(env_cfg, args_cli):
         env = gym.make(TASK, cfg=env_cfg).unwrapped
         env.reset()
