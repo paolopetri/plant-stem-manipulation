@@ -65,8 +65,8 @@ STEM_POINT_ARC_LENGTH = 0.40
 # Rewards and terminations (user, 2026-10-09; docs/notes/2026-10-09.md). Damage limits come from `stem.yaml`.
 DAMAGE = stem_params(STEM_MODEL)["damage"]
 DISTANCE_STD = (0.05, 0.01)  # [m] stem tip to target: coarse (targets 3-10 cm away), fine (success within 1 cm)
-# [m] height error alone. One term, no coarse / fine pair (user, 2026-10-09): height errors span only ~0-23 mm (bowl
-# drop up to ~15 mm + up to 8.3 mm deeper); the side-push gap of 0-8.3 mm lies on this tanh's slope, and larger
+# [m] height error alone. One term, no coarse / fine pair (user, 2026-10-09): height errors span only ~0-33 mm (bowl
+# drop up to ~15 mm + up to ~18 mm deeper); the side-push gap of 0-18 mm lies on this tanh's slope, and larger
 # height errors occur only before the push, where the 3-D coarse term already gives the gradient.
 HEIGHT_STD = 0.003
 APPROACH_STD = 0.1  # [m] slot base to the nearest stem point (start: the fork is 0.2-0.4 m from the stem)
