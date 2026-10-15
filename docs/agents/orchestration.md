@@ -22,7 +22,7 @@ Each agent gets its own git worktree; setup, the GPU limit and merging: `worktre
 1. Check the agent's report against the `implement` steps and flag any skipped step.
 2. Run `/code-review` against `main`; show the user the agent's summary and the findings.
 3. Send only the findings the user approves back to the agent; record the decision on the ticket.
-4. Merge after the user's OK and green CI (below), then comment one line on the parent issue.
+4. Merge after the user's OK and green CI (`gh pr checks N`), then comment one line on the parent issue.
 
 ## End
 
