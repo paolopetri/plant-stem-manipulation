@@ -65,8 +65,8 @@ STEM_POINT_ARC_LENGTH = 0.40
 # Rewards and terminations (user, 2026-10-09; docs/notes/2026-10-09.md). Damage limits come from `stem.yaml`.
 DAMAGE = stem_params(STEM_MODEL)["damage"]
 DISTANCE_STD = (0.05, 0.01)  # [m] stem tip to target: coarse (targets 3-10 cm away), fine (success within 1 cm)
-# [m] height error alone. One term, no coarse / fine pair (user, 2026-10-09): height errors span only ~0-23 mm (bowl
-# drop up to ~15 mm + up to 8.3 mm deeper); the side-push gap of 0-8.3 mm lies on this tanh's slope, and larger
+# [m] height error alone. One term, no coarse / fine pair (user, 2026-10-09): height errors span only ~0-33 mm (bowl
+# drop up to ~15 mm + up to ~18 mm deeper); the side-push gap of 0-18 mm lies on this tanh's slope, and larger
 # height errors occur only before the push, where the 3-D coarse term already gives the gradient.
 HEIGHT_STD = 0.003
 APPROACH_STD = 0.1  # [m] slot base to the nearest stem point (start: the fork is 0.2-0.4 m from the stem)
@@ -124,7 +124,8 @@ class ActionsCfg:
 
 @configclass
 class CommandsCfg:
-    """Target position of the stem tip, sampled once per episode (decided values: cfg defaults, user 2026-10-08)."""
+    """Target position of the stem tip, sampled once per episode (decided values: cfg defaults, user 2026-10-08), and
+    the stem metrics (a metrics-only term, `mdp/metrics.py`)."""
 
     # resampling time far above the episode length: the target is sampled only at reset
     stem_target = mdp.StemTipTargetCommandCfg(
@@ -133,6 +134,8 @@ class CommandsCfg:
         resampling_time_range=(1e9, 1e9),
         debug_vis=True,
     )
+    # metrics only, logged and never observed: no command, nothing to resample
+    stem_metrics = mdp.StemMetricsCfg(resampling_time_range=(1e9, 1e9))
 
 
 @configclass
@@ -181,7 +184,7 @@ class EventCfg:
 @configclass
 class RewardsCfg:
     """Task (stem tip to target), approach (fork to stem), damage penalties below the limits, smooth motion, early
-    terminations. Weights: a first guess for the baseline (user, 2026-10-09)."""
+    terminations. Weights: a first guess for the baseline (user, 2026-10-09); termination penalty 2026-10-15."""
 
     distance_coarse = RewTerm(func=mdp.stem_point_distance_tanh, weight=1.0, params={"std": DISTANCE_STD[0]})
     # ellipsoid (user, 2026-10-10): height error scaled to std HEIGHT_STD (3 mm), so that a side push stalling on the
@@ -206,7 +209,9 @@ class RewardsCfg:
         params={"threshold": CONTACT_FREE_FORCE, "sensor_cfg": SceneEntityCfg("stem_contact")},
     )
     action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
-    terminated = RewTerm(func=mdp.is_terminated, weight=-10.0)
+    # about -5 per termination in effect (x policy dt 0.032 s), so that continuing beats ending early; early
+    # terminations only, not the time out (user, 2026-10-15)
+    terminated = RewTerm(func=mdp.is_terminated, weight=-150.0)
 
 
 @configclass

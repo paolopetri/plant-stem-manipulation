@@ -45,6 +45,7 @@ Each model module provides the same functions:
 | `segment_poses(stem)` | (num_envs, num_segments, 7) segment poses, read by the stem state (Stem interface) |
 | `segment_length(stem)` | rest length of one segment read from the asset (one scalar; per-env lengths: #90) |
 | `segment_masses(stem)`, `joint_gains(stem)` | read back masses and per-joint stiffness / damping (/ armature) |
+| `joint_wrenches(stem)` | (num_envs, num_segments, 6) joint reaction wrenches, read by the stem state (`chain` only) |
 | `write_kick(stem, angular_velocity)` | rigid rotation of the stem above the first joint (checks) |
 | `segment_force_setter(stem)` | `set_force(segment, force)`: constant world-frame force on a segment (checks) |
 
@@ -121,9 +122,9 @@ Task `StemManip-Push-Position-FR3-v0`, cfg in `src/stem_manip/tasks/push_positio
 The **stem point of interest** is given by one arc length from the stem base, set in the env cfg to the stem length:
 the tip (`STEM_POINT_ARC_LENGTH`; the same quantity as the observed points along the stem). Its **target**
 is sampled once per episode around the tip's rest position: sideways in any direction, at the height the tip reaches
-when pushed (the "bowl") or below it, down to the deepest stem shape within a fraction of the curvature limit (C / S
-bends, which need a moment from the fork's slot). Ranges: `StemTipTargetCommandCfg` (`mdp/commands.py`); shape model:
-`stem_manip.utils.stem_target`. At every reset the stem base is moved to a random place in the spawn area
+when pushed sideways (the "bowl") or below it, down to the deepest stem shape within a fraction of the curvature limit
+(a moment or C / S bend from the fork's slot, or pressing the tip down). Ranges: `StemTipTargetCommandCfg`
+(`mdp/commands.py`); shape model (planar elastica) and its rod table: `stem_manip.utils.stem_target`. At every reset the stem base is moved to a random place in the spawn area
 (`STEM_SPAWN_X` / `STEM_SPAWN_Y` in the env cfg); the target is sampled around the new base.
 
 ## Stem interface (keeps the stem model swappable)
@@ -136,12 +137,13 @@ stem state (`mdp/stem_state.py`), all in the robot base frame:
 stem_state(env).points_b(arc_lengths)  -> (num_envs, k, 3)                # points at arc lengths [m]; 0 = the stem base
 stem_state(env).curvature()            -> (num_envs, num_stem_joints)     # bending curvature of every joint [1/m]
 stem_state(env).distance_b(points_b)   -> (num_envs, k)                   # distance of points to the centre line [m]
+stem_state(env).axial_compression()    -> (num_envs, num_stem_joints)     # axial joint force [N], + = compression
 ```
 
 - `StemState` takes the stem model module, the stem asset and the robot asset in its constructor (unit-tested with
   fakes in `tests/test_stem_state.py`). It owns the segment length (the model's `segment_length(stem)`, read from
   the asset) and the world-to-robot-base transform; segment poses (`segment_poses(stem)`) are read anew at every
-  call and stay internal. The geometry is `stem_manip.utils.stem_geometry`.
+  call and stay internal; the compression reads the model's `joint_wrenches(stem)` (`chain` only). The geometry is `stem_manip.utils.stem_geometry`.
 - `stem_state(env)` builds it once per env (`stem_manip.utils.per_env`) from the env cfg field `stem_model` and the
   scene entities `stem` and `robot`. The stem observations, the target command (stem point and stem base), the
   approach and curvature rewards and the curvature-limit termination take no stem-model or scene-entity params; the
