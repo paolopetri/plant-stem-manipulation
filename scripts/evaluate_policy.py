@@ -4,12 +4,14 @@ Loads the policy the way Isaac Lab's `play` does (RSL-RL runner, `get_inference_
 sampling; env seed = the agent cfg's seed), runs `--num_envs` envs and counts the first episode of every env (all envs
 start together, so short episodes are not over-represented). Prints how the episodes end (time-out vs. each early
 termination term), the final `position_error` / `height_error` (all episodes and time-out episodes only) and the
-fork rotation (slot-base orientation vs. its orientation at the reset, largest and final), and saves the per-episode
-values and the summary as JSON to `<run dir>/eval/<checkpoint>.json`.
+fork rotation (slot-base orientation vs. its orientation at the reset, largest and final), the contact point (over the
+episodes with fork contact, from the stem metrics) and the share ended by arm contact, and saves the per-episode values
+and the summary as JSON to `<run dir>/eval/<checkpoint>.json`.
 
 Final values are those of the last step before the episode ends (user, 2026-10-15): the env resets inside the step
 and recomputes the command metrics afterwards, so they are read before each step, the same values training logs as
-`Metrics/...`.
+`Metrics/...`. The contact point and fork contact are thus those of the episode without its last policy step, as
+training logs them (`mdp/metrics.py`).
 
 Usage:
     uv run --extra isaacsim python scripts/evaluate_policy.py <run dir>/model_<iteration>.pt [--num_envs 1024]
@@ -27,6 +29,7 @@ from isaaclab.app import add_launcher_args, launch_simulation
 
 TASK = "StemManip-Push-Position-FR3-v0"
 COMMAND = "stem_target"
+METRICS = "stem_metrics"
 
 parser = argparse.ArgumentParser(description="Evaluate a checkpoint of the push task with the mean action.")
 parser.add_argument("checkpoint", type=Path, help="Checkpoint, e.g. logs/rsl_rl/stem_push_position/<run>/model_749.pt.")
@@ -71,6 +74,7 @@ def evaluate() -> None:
         base = env.unwrapped
         n, device = base.num_envs, base.device
         command = base.command_manager.get_term(COMMAND)
+        stem_metrics = base.command_manager.get_term(METRICS)
         terms = base.termination_manager.active_terms
         (time_out,) = [name for name in terms if base.termination_manager.get_term_cfg(name).time_out]
 
@@ -85,6 +89,8 @@ def evaluate() -> None:
             "height_error": torch.zeros(n, device=device),
             "max_rotation": torch.zeros(n, device=device),
             "final_rotation": torch.zeros(n, device=device),
+            "fork_contact": torch.zeros(n, dtype=torch.bool, device=device),
+            "contact_point": torch.zeros(n, device=device),
         }
         with torch.inference_mode():
             while not done.all():
@@ -97,6 +103,8 @@ def evaluate() -> None:
                     "height_error": command.metrics["height_error"].clone(),
                     "max_rotation": max_rotation.clone(),
                     "final_rotation": rotation,
+                    "fork_contact": stem_metrics.metrics["fork_contact"] > 0,
+                    "contact_point": stem_metrics.metrics["contact_point"].clone(),
                 }
                 obs, _, dones, _ = env.step(policy(obs))
                 policy.reset(dones)
@@ -133,9 +141,9 @@ def format_summary(summary: dict[str, float | int]) -> str:
     """One row per value: shares in %, errors in mm, angles in degrees, lengths in s."""
     rows = []
     for key, value in summary.items():
-        if key.startswith("ended_by/") or key.endswith("/reached"):
+        if key.startswith("ended_by/") or key.endswith(("/reached", "/fork_contact")):
             text = f"{100 * value:6.1f} %"
-        elif "_error/" in key:
+        elif "_error/" in key or "contact_point/" in key:
             text = f"{1000 * value:6.1f} mm"
         elif "_rotation/" in key:
             text = f"{math.degrees(value):6.1f} deg"
