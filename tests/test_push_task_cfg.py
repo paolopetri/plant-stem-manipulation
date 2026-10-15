@@ -60,16 +60,15 @@ def test_target_sampling_is_decided(cfg: StemPushPositionEnvCfg, field: str):
 
 
 def test_stem_point_is_the_tip(cfg: StemPushPositionEnvCfg):
-    """Segment index + offset along it give the arc length of the stem's tip."""
-    geometry = stem_params(STEM_MODEL)["geometry"]
-    segment_length = geometry["length"] / geometry["num_segments"]
-    command = cfg.commands.stem_target
-    assert (command.segment_index + 0.5) * segment_length + command.offset == pytest.approx(geometry["length"])
+    """The command's arc length is the stem length (the tip), so a change of stem length cannot silently move the stem
+    point off the tip."""
+    assert cfg.commands.stem_target.arc_length == pytest.approx(stem_params(STEM_MODEL)["geometry"]["length"])
 
 
 def test_stem_model_is_named_once(cfg: StemPushPositionEnvCfg):
     """The env cfg names the stem model (`chain`, supervisors 2026-10-06); the terms that read the stem take no
-    stem-model or scene-entity params (they read it through the stem state)."""
+    stem-model or scene-entity params and the target command has no stem-model field (they read it through the stem
+    state)."""
     assert cfg.stem_model == "chain"
     stem_terms = {
         "stem_base": cfg.observations.policy.stem_base,
@@ -81,6 +80,7 @@ def test_stem_model_is_named_once(cfg: StemPushPositionEnvCfg):
     }
     for name, term in stem_terms.items():
         assert not {"model", "asset_cfg", "robot_cfg"} & set(term.params), name
+    assert not hasattr(cfg.commands.stem_target, "stem_model")
 
 
 def test_episode_length_is_decided(cfg: StemPushPositionEnvCfg):

@@ -13,8 +13,6 @@ No contact forces in the observations (decision 2026-10-06).
   stem base (arc length 0) and the 5 points along the stem (0.08 ... 0.40 m, the last one is the tip; user,
   2026-10-08). The target is observed with Isaac Lab's `generated_commands` (robot base frame, `mdp/commands.py`).
 - The curvature and the distance are for the rewards and terminations (privileged, not observed).
-- `segment_length(model)`, `stem_segment_poses`, `stem_points_b`, `to_robot_base`: the target command's own path to
-  the stem, until it reads the stem state as well (#139).
 
 Verify: `tests/test_stem_state.py` (with a fake stem model), `scripts/check_push_obs.py` (in the env).
 """
@@ -22,16 +20,14 @@ Verify: `tests/test_stem_state.py` (with a fake stem model), `scripts/check_push
 from __future__ import annotations
 
 from collections.abc import Sequence
-from functools import lru_cache
 from types import ModuleType
 from typing import TYPE_CHECKING
 
 import torch
 
-from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils.math import combine_frame_transforms, subtract_frame_transforms
 
-from stem_manip.assets.stem import stem_model, stem_params
+from stem_manip.assets.stem import stem_model
 from stem_manip.utils import stem_geometry
 from stem_manip.utils.per_env import per_env
 
@@ -111,40 +107,3 @@ def stem_points(env: ManagerBasedEnv, arc_lengths: Sequence[float]) -> torch.Ten
     """Observation: points on the stem at `arc_lengths` [m], robot base frame, (num_envs, 3 * len) [m], raw meters
     (x, y, z of the first point, then the next)."""
     return stem_state(env).points_b(arc_lengths).flatten(start_dim=1)
-
-
-def stem_segment_poses(
-    env: ManagerBasedEnv, model: str, asset_cfg: SceneEntityCfg = SceneEntityCfg(STEM)
-) -> torch.Tensor:
-    """Target command only (#139): segment poses (num_envs, num_segments, 7), position + quaternion (x, y, z, w),
-    world frame."""
-    return stem_model(model).segment_poses(env.scene[asset_cfg.name])
-
-
-@lru_cache
-def segment_length(model: str) -> float:
-    """Target command only (#139): rest length of one segment of the stem model from its yaml [m] (all segments
-    equally long)."""
-    geometry = stem_params(model)["geometry"]
-    return geometry["length"] / geometry["num_segments"]
-
-
-def stem_points_b(
-    env: ManagerBasedEnv,
-    arc_lengths: Sequence[float],
-    model: str,
-    asset_cfg: SceneEntityCfg = SceneEntityCfg(STEM),
-    robot_cfg: SceneEntityCfg = SceneEntityCfg(ROBOT),
-) -> torch.Tensor:
-    """Target command only (#139): points on the stem's centre line at `arc_lengths` [m], robot base frame, shape
-    (num_envs, len, 3) [m]."""
-    points_w = stem_geometry.stem_points(stem_segment_poses(env, model, asset_cfg), arc_lengths, segment_length(model))
-    return to_robot_base(env, points_w, robot_cfg)
-
-
-def to_robot_base(
-    env: ManagerBasedEnv, points_w: torch.Tensor, robot_cfg: SceneEntityCfg = SceneEntityCfg(ROBOT)
-) -> torch.Tensor:
-    """Target command only (#139): world-frame points (num_envs, num_points, 3) [m] in the robot base frame, same
-    shape."""
-    return _world_to_base(env.scene[robot_cfg.name], points_w)

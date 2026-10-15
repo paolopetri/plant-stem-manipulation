@@ -6,8 +6,8 @@
 - Actions: relative slot-base pose (position and rotation step, robot base frame), executed by Franka's Cartesian
   impedance law (`mdp.SlotBaseImpedanceAction`, the same controller as on the real FR3); robot in torque mode.
 - Managers from `mdp/` (commands, observations, rewards, terminations, events); weights and ranges as cfg fields.
-- The stem point (segment index + offset, the tip) is a task-cfg field (`CommandsCfg`); the curvature limit comes from
-  `assets/stem/stem.yaml`.
+- The stem point (its arc length, the stem length = the tip) is a task-cfg field (`CommandsCfg`); the curvature limit
+  comes from `assets/stem/stem.yaml`.
 - Contact sensor on the stem: forces for rewards and terminations only, not observed.
 
 Verify: `scripts/check_push_env.py`, `scripts/check_push_terms.py`; zero/random agent runs headless with few envs.
@@ -59,6 +59,8 @@ START_JOINT_POS = {
 STEM_SPAWN_X = (0.50, 0.65)
 STEM_SPAWN_Y = (-0.15, 0.15)
 # The spawn event ignores the stem's `init_state.pos`: to place the stem elsewhere, also set `events.spawn_stem = None`.
+# [m] arc length of the target command's stem point from the stem base: the stem length, i.e. the tip (user, 2026-10-08)
+STEM_POINT_ARC_LENGTH = 0.40
 
 # Rewards and terminations (user, 2026-10-09; docs/notes/2026-10-09.md). Damage limits come from `stem.yaml`.
 DAMAGE = stem_params(STEM_MODEL)["damage"]
@@ -126,7 +128,10 @@ class CommandsCfg:
 
     # resampling time far above the episode length: the target is sampled only at reset
     stem_target = mdp.StemTipTargetCommandCfg(
-        stem_model=STEM_MODEL, curvature_budget=CURVATURE_BUDGET, resampling_time_range=(1e9, 1e9), debug_vis=True
+        arc_length=STEM_POINT_ARC_LENGTH,
+        curvature_budget=CURVATURE_BUDGET,
+        resampling_time_range=(1e9, 1e9),
+        debug_vis=True,
     )
 
 

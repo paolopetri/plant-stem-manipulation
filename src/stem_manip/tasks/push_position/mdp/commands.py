@@ -1,12 +1,15 @@
 """Target command for the stem point (stage 1): a position for the stem's tip, sampled once per episode.
 
-The stem point is given by a segment index + an offset along that segment (task cfg; the tip, user 2026-10-08).
+The stem point is given by its arc length from the stem base (task cfg: the stem length, i.e. the tip; user
+2026-10-08), the same quantity the observations use. The stem is read through the env's stem state
+(`mdp/stem_state.py`): the stem point at its arc length, the stem base at arc length 0.
 At reset the target is sampled around the point's rest position (`stem_manip.utils.stem_target`): horizontal
 distance and direction uniform, height on or below the "bowl" the point reaches when pushed, down to the deepest
 stem shape within `curvature_budget` x `damage.max_curvature` (user, 2026-10-09). The rest position is the
 stem base plus the point's arc length straight up (assumes an upright stem and an upright robot base; a tilted
 stem (#91) needs a change here). The base is read from the clamped segment 0, so it follows the
-spawn randomization (Isaac Lab resets the events before the command manager).
+spawn randomization (Isaac Lab resets the events before the command manager). The damage limit comes from the stem
+model named in the env cfg (`env.cfg.stem_model`).
 
 The command is the target position in the robot base frame (num_envs, 3) [m]; metrics `position_error` [m] (stem
 point to target) and `height_error` [m] (its z part, + = above the target). Debug markers: target (red, green
@@ -24,16 +27,15 @@ from typing import TYPE_CHECKING
 import torch
 
 import isaaclab.sim as sim_utils
-from isaaclab.managers import CommandTerm, CommandTermCfg, SceneEntityCfg
+from isaaclab.managers import CommandTerm, CommandTermCfg
 from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.math import combine_frame_transforms
 
 from stem_manip.assets.stem import stem_params
-from stem_manip.utils.stem_geometry import point_pose
 from stem_manip.utils.stem_target import sample_targets
 
-from .stem_state import segment_length, stem_points_b, stem_segment_poses, to_robot_base
+from .stem_state import stem_state
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
@@ -47,11 +49,9 @@ class StemTipTargetCommand(CommandTerm):
     def __init__(self, cfg: StemTipTargetCommandCfg, env: ManagerBasedEnv):
         super().__init__(cfg, env)
         self.robot = env.scene[cfg.asset_name]
-        self._robot_cfg = SceneEntityCfg(cfg.asset_name)
-        self._stem_cfg = SceneEntityCfg(cfg.stem_asset_name)
-        self.arc_length = (cfg.segment_index + 0.5) * segment_length(cfg.stem_model) + cfg.offset
+        self.arc_length = cfg.arc_length
         """Arc length of the stem point from the base [m] (for its rest position)."""
-        self.max_curvature = cfg.curvature_budget * stem_params(cfg.stem_model)["damage"]["max_curvature"]
+        self.max_curvature = cfg.curvature_budget * stem_params(env.cfg.stem_model)["damage"]["max_curvature"]
         """Curvature of the deepest target shape [1/m]."""
         self.target_b = torch.zeros(self.num_envs, 3, device=self.device)
         self.target_w = torch.zeros(self.num_envs, 3, device=self.device)
@@ -73,12 +73,10 @@ class StemTipTargetCommand(CommandTerm):
 
     def stem_point_b(self) -> torch.Tensor:
         """Current position of the stem point in the robot base frame (num_envs, 3) [m]."""
-        poses = stem_segment_poses(self._env, self.cfg.stem_model, self._stem_cfg)
-        point_w = point_pose(poses, self.cfg.segment_index, self.cfg.offset)[:, :3]
-        return to_robot_base(self._env, point_w.unsqueeze(1), self._robot_cfg)[:, 0]
+        return stem_state(self._env).points_b((self.arc_length,))[:, 0]
 
     def _resample_command(self, env_ids: Sequence[int]):
-        base = stem_points_b(self._env, (0.0,), self.cfg.stem_model, self._stem_cfg, self._robot_cfg)[:, 0]
+        base = stem_state(self._env).points_b((0.0,))[:, 0]
         rest = base[env_ids]  # stem base (clamped segment 0)
         rest[:, 2] += self.arc_length  # upright stem: the point's rest position straight above the base
         self.target_b[env_ids] = sample_targets(
@@ -134,17 +132,8 @@ class StemTipTargetCommandCfg(CommandTermCfg):
     asset_name: str = "robot"
     """Robot whose base frame the command is expressed in."""
 
-    stem_asset_name: str = "stem"
-    """Scene name of the stem."""
-
-    stem_model: str = MISSING
-    """Stem model name (`stem_manip.assets.stem.STEM_MODELS`)."""
-
-    segment_index: int = 19
-    """Segment that carries the stem point (19 = tip segment of the 20-segment chain)."""
-
-    offset: float = 0.01
-    """Distance of the stem point from the segment centre along the stem [m] (+L/2 = the tip)."""
+    arc_length: float = MISSING
+    """Arc length of the stem point from the stem base [m] (the stem length = the tip)."""
 
     distance_range: tuple[float, float] = (0.03, 0.10)
     """Horizontal distance of the target from the stem point's rest position [m]."""
