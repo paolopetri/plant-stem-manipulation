@@ -42,7 +42,8 @@ Each model module provides the same functions:
 | `stem_cfg()` | Isaac Lab asset cfg of the upright stem (set `prim_path` in the scene) |
 | `physics_cfg()` | physics cfg of the scene (the engine follows from the model) |
 | `fix_stem_base(stem)` | clamp the base after the simulation is built (chain: nothing to do) |
-| `segment_poses(stem)` | (num_envs, num_segments, 7) segment poses, the stem interface below |
+| `segment_poses(stem)` | (num_envs, num_segments, 7) segment poses, read by the stem state (Stem interface) |
+| `segment_length(stem)` | rest length of one segment read from the asset (one scalar; per-env lengths: #90) |
 | `segment_masses(stem)`, `joint_gains(stem)` | read back masses and per-joint stiffness / damping (/ armature) |
 | `write_kick(stem, angular_velocity)` | rigid rotation of the stem above the first joint (checks) |
 | `segment_force_setter(stem)` | `set_force(segment, force)`: constant world-frame force on a segment (checks) |
@@ -106,7 +107,8 @@ Task `StemManip-Push-Position-FR3-v0`, cfg in `src/stem_manip/tasks/push_positio
 3. **Observation** (stem state read from the simulation; on the real robot it will come from cameras): robot base
    frame, raw meters; the slot base's pose, applied step and setpoint offset, the stem base, points along the stem
    (the last one the tip) for the previous and the current policy step, and the tip's target. Terms, their order and
-   the arc lengths: `ObservationsCfg` in the env cfg; the stem-state terms are in `mdp/stem_state.py`. No contact
+   the arc lengths: `ObservationsCfg` in the env cfg; the stem terms read the env's stem state
+   (`mdp/stem_state.py`, Stem interface below). No contact
    forces (`docs/adr/0002-contact-forces-not-observed.md`). To be reduced to what the perception can deliver.
 4. **Reward / termination** (`mdp/rewards.py`, `mdp/terminations.py`, contact forces read in
    `mdp/contact.py`; weights and thresholds in `RewardsCfg` /
@@ -126,17 +128,25 @@ bends, which need a moment from the fork's slot). Ranges: `StemTipTargetCommandC
 ## Stem interface (keeps the stem model swappable)
 
 The stem model may change (the `chain` in PhysX is used, the Newton cable is parked; another backend or a Cosserat
-co-simulation later). To keep that change local, **the MDP reads the stem only through one accessor**:
+co-simulation later). To keep that change local, **the MDP reads the stem only through one accessor**, the env's
+stem state (`mdp/stem_state.py`), all in the robot base frame:
 
 ```
-mdp/stem_state.py: stem_segment_poses(env, model) -> (num_envs, num_segments, 7)   # position + quaternion (x, y, z, w), world frame
+stem_state(env).points_b(arc_lengths)  -> (num_envs, k, 3)                # points at arc lengths [m]; 0 = the stem base
+stem_state(env).curvature()            -> (num_envs, num_stem_joints)     # bending curvature of every joint [1/m]
+stem_state(env).distance_b(points_b)   -> (num_envs, k)                   # distance of points to the centre line [m]
 ```
 
-- It calls the model module's `segment_poses(stem)` (see Stem models). MDP terms (observations, rewards,
-  terminations, commands) and `stem_manip.utils.stem_geometry` use only this accessor (plus segment rest lengths),
-  never a backend API directly.
-- Switching the stem model then means changing the model name; task logic, rewards and training setup stay
-  unchanged.
+- `StemState` takes the stem model module, the stem asset and the robot asset in its constructor (unit-tested with
+  fakes in `tests/test_stem_state.py`). It owns the segment length (the model's `segment_length(stem)`, read from
+  the asset) and the world-to-robot-base transform; segment poses (`segment_poses(stem)`) are read anew at every
+  call and stay internal. The geometry is `stem_manip.utils.stem_geometry`.
+- `stem_state(env)` builds it once per env (`stem_manip.utils.per_env`) from the env cfg field `stem_model` and the
+  scene entities `stem` and `robot`. The stem observations, the approach and curvature rewards and the
+  curvature-limit termination take no stem-model or scene-entity params; the base-fixing event reads the model
+  name from the same field.
+- The target command still names the model itself (`StemTipTargetCommandCfg.stem_model`) and reads the segment
+  length from the yaml, until #139; switching the stem model means changing both for now.
 - Writing stem state (base clamping and the spawn-area reset in `mdp/events.py`) goes through the model module or
   the asset's generic Isaac Lab API, kept in that one file.
 
