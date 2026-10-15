@@ -20,7 +20,11 @@ Before any `uv run` in the worktree:
 
 ## GPU
 
-At most two sessions run Isaac Sim at the same time (checks, not training runs); stagger their launches by about a minute (shared shader cache).
+Simulator runs (checks, recordings; not training runs) go through `scripts/gpu_slot.py`, with the system python:
+
+`scripts/gpu_slot.py uv run --extra isaacsim python scripts/check_fr3.py`
+
+It runs the command once a GPU slot is free (`flock` lock files shared by all worktrees; slot count and lock dir in the script), waits without polling, frees the slot when the command ends (also on a crash or kill) and returns the command's exit status. Never wait for a slot with a `pgrep` loop. Stagger launches by about a minute (shared shader cache).
 
 ## Merge
 
