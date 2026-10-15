@@ -2,7 +2,7 @@
 
 How work goes from an idea to a merged PR (user, 2026-10-14).
 
-The user-only skills (`/to-spec`, `/to-tickets`, `/implement`, `/implement-spec`, `/handoff`, `/wayfinder`, `/improve-codebase-architecture`) are started by the user. When one fits the step, name it and let the user run it.
+The user-only skills (`/to-spec`, `/to-tickets`, `/implement`, `/implement-spec`, `/handoff`, `/wayfinder`, `/improve-codebase-architecture`, `/retro`) are started by the user. When one fits the step, name it and let the user run it.
 
 ## Decide
 
@@ -21,6 +21,10 @@ Agent-run tickets are the way of working: the agent implements, commits and open
 | Many tickets, each reviewed by the user (rules, docs, decisions) | An orchestrator session starts one agent per ticket; each opens a PR, the orchestrator runs `/code-review` on it. |
 
 PR bodies follow the `pr` skill (`.github/pull_request_template.md`).
+
+## Retro
+
+After a spec or an orchestrated parent issue is merged, the user runs `/retro` on its sessions (user, 2026-10-15). Its suggestions are applied only with the user's OK: as checks or `CODING_STANDARDS.md` rules, or as tickets via `/to-tickets`.
 
 ## Architecture
 
