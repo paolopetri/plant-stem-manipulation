@@ -13,6 +13,7 @@ The rules for writing and reviewing code in this repo; `/code-review` checks a d
 ## Single source of truth
 
 - Every parameter lives in a versioned config file: randomization ranges, reward weights, stem properties, curvature limit. Scripts read it from there.
+- A cfg class field whose value the task cfg sets has no default (`MISSING`), so the value has one source (user, 2026-10-15).
 - Docs point at the cfg instead of restating its values. Tests and checks keep their own copy on purpose: it is the independent expectation the cfg is checked against.
 - When a cfg value changes, grep `README.md`, `docs/`, `tests/` and `scripts/` for the old value and update every hit.
 

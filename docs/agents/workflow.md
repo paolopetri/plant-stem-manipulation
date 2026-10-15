@@ -18,7 +18,7 @@ Agent-run tickets are the way of working: the agent implements, commits and open
 |---|---|
 | One ticket, one session | `/implement #N` on the ticket's branch (`/code-review` at the end), then a PR. |
 | Many tickets, little review each | `/implement-spec`: one integration branch, one `/code-review`, one PR. |
-| Many tickets, each reviewed by the user (rules, docs, decisions) | An orchestrator session starts one agent per ticket; each opens a PR, the orchestrator runs `/code-review` on it. |
+| Many tickets, each reviewed by the user (rules, docs, decisions) | An orchestrator session starts one agent per ticket; each opens a PR, the orchestrator runs `/code-review` on it. Setup and routine: `docs/agents/orchestration.md`. |
 
 PR bodies follow the `pr` skill (`.github/pull_request_template.md`).
 
