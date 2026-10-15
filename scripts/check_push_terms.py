@@ -5,12 +5,14 @@ reset), its value is recorded together with values computed here independently o
 - stem tip from the segment poses (segment 19, +L/2) and the command's target -> distance d and height error dz;
 - slot base from the action term's pose -> distance to the stem, sampled at 1 mm along the arc length;
 - curvature per joint from the segment poses; contact force from the sensor's history (largest single
-  segment-body contact per physics step, mean over the policy step); joint margin from the joint
-  positions and limits.
+  segment-body contact per physics step, mean over the policy step), of all robot bodies, of the fork and of the
+  other robot bodies (arm contact), the fork's column found by its name in the sensor's filter; joint margin from
+  the joint positions and limits.
 Decided values (user, 2026-10-09; the height std and the fine distance's z-scale 2026-10-10), fixed here, not read
 from the cfg: std 0.05 / 0.01 m (distance), 0.003 m (height), 0.1 m (approach); curvature penalty above 0.8 x 5 1/m,
 limit 5 1/m; contact penalty above 2 N, limit 5 N; joint margin 0.25 rad; episode 15 s; termination penalty -4.8
-per termination in effect (weight -150 x policy dt 0.032 s, about -5; user, 2026-10-15).
+per termination in effect (weight -150 x policy dt 0.032 s, about -5; user, 2026-10-15); arm contact above 0.05 N
+(user, 2026-10-15, #160).
 
 Phases (the stem base fixed at x 0.65 m, y 0, and the robot at the held-out start pose a_above_tip
 without joint noise, except in `rest`):
@@ -22,11 +24,18 @@ without joint noise, except in `rest`):
   within 2 mm without a reset), at full speed until 1 cm before contact, then push it slowly (5 cm/s) 4 cm into the
   slot. The target is set 2 cm in +x from the tip's rest position, on the push's path. Approach reward rises and in
   contact is above 1 - tanh((d + 1 mm) / std), d from the slot geometry and the push
-  (`stem_reference.slot_approach_distance`; user, 2026-10-14); contact force > 0.05 N, below 2 N, penalty 0.
+  (`stem_reference.slot_approach_distance`; user, 2026-10-14); contact force > 0.05 N, below 2 N, penalty 0. No arm
+  contact: the force of the other robot bodies stays 0, `arm_contact` never fires, the metric `arm_contact` stays 0.
   Then, as a mechanism check with lowered thresholds (not the decided values): penalty threshold 0 N -> penalty = F^2;
   limit at half the current force -> `contact_force_limit` fires in every env.
 - impact: the fork at full speed into the stem at 0.25 m height (informational: the largest mean force of a policy
   step; whether the 5 N limit is reached by an impact; fails only if the fork does not reach / touch the stem).
+- arm_contact: link 7 into the stem: the flange axis above the stem axis, the slot base at 0.30 m height (link 7
+  below the tip, the fork's plate below link 7), from 12 cm beside the stem slowly (5 cm/s) sideways across it.
+  Link 7 is wider than the fork's plate there (collision meshes: >= 42 mm against 31.5 mm from the flange axis), so it
+  touches first: `arm_contact` fires in every env, with link 7 the body of the largest contact and the fork's force 0
+  up to then, no other termination before; at the reset the metric `arm_contact` and `Episode_Termination/
+  arm_contact` log 1 (every env ended by it).
 - curvature: a force on the tip segment, ramped 0 -> 2 N; the penalty becomes > 0 above 4 1/m and
   `curvature_limit` fires (in every env, at the same step) above 5 1/m; nothing fires earlier.
 - joint_margin: the fork moved straight down at full speed from the start pose; `joint_margin` fires in every env.
@@ -49,7 +58,7 @@ import argparse
 
 from isaaclab.app import add_launcher_args, launch_simulation
 
-PHASES = ("rest", "action_rate", "push", "impact", "curvature", "joint_margin")
+PHASES = ("rest", "action_rate", "push", "impact", "arm_contact", "curvature", "joint_margin")
 parser = argparse.ArgumentParser(description="Reward and termination check for the stage-1 push task.")
 parser.add_argument("--num_envs", type=int, default=4, help="Number of envs.")
 parser.add_argument("--phases", nargs="+", default=list(PHASES), choices=PHASES, help="Phases to run, in order.")
@@ -80,6 +89,7 @@ FINE_Z_SCALE = 0.01 / 0.003  # distance_fine: height error scaled (ellipsoid, st
 MAX_CURVATURE = 5.0  # [1/m]
 CURVATURE_AT_BUDGET = 0.8 * MAX_CURVATURE  # [1/m]
 FREE_FORCE, MAX_FORCE = 2.0, 5.0  # [N]
+ARM_CONTACT_FORCE = 0.05  # [N] (user, 2026-10-15, #160)
 MIN_MARGIN = 0.25  # [rad]
 EPISODE_S = 15.0  # [s]
 TIP_SEGMENT = 19
@@ -98,6 +108,11 @@ APPROACH_MARGIN = 1e-3  # [m] on d
 RAMP_FORCE, RAMP_STEPS = 2.0, 150  # [N], policy steps: tip force ramp of the curvature phase
 SUCCESS_DISTANCE = 0.01  # [m] time to reach: first d below this
 PUSH_TARGET_DX = 0.02  # [m] push phase: target this far in +x from the tip's rest position
+FORK_BODY_NAME = "fork_v2"
+# arm_contact phase: the flange axis is this far behind the slot base along the fork (fork_v2.yaml: slot base at
+# (0.04, -0.04) m in the flange frame); slot-base height; start beside the stem and the end of the sideways move [m]
+FLANGE_BEHIND = math.hypot(0.039952, 0.039952)
+ARM_HEIGHT, ARM_SIDE_START, ARM_SIDE_END = 0.30, -0.12, 0.05
 TERMINATION_PENALTY = -150.0 * 0.032  # in effect per termination: weight x policy dt (user, 2026-10-15)
 REWARD_TOL = 1e-4
 APPROACH_TOL = 5e-4  # [m]
@@ -114,6 +129,7 @@ def main() -> None:
         sim, device, n = env.sim, env.device, env.num_envs
         robot, stem, sensor = env.scene["robot"], env.scene["stem"], env.scene["stem_contact"]
         command = env.command_manager.get_term("stem_target")
+        stem_metrics = env.command_manager.get_term("stem_metrics")
         action_term = env.action_manager.get_term("slot_base")
         model = stem_model(STEM_MODEL)
         geometry = stem_params(STEM_MODEL)["geometry"]
@@ -122,6 +138,10 @@ def main() -> None:
         lengths = torch.full((geometry["num_segments"],), segment_length, device=device)
         dense = [i * 1e-3 for i in range(round(geometry["length"] * 1e3) + 1)]  # arc lengths every 1 mm
         arm = robot.find_joints("fr3_joint[1-7]")[0]
+        filter_names = sensor.contact_view.filter_names[0]  # robot bodies of the sensor's force matrix, in its order
+        fork_column = filter_names.index(FORK_BODY_NAME)
+        arm_columns = [i for i in range(len(filter_names)) if i != fork_column]
+        link7_column = filter_names.index("fr3_link7")
         max_step, max_step_change = action_term.cfg.max_step, action_term.cfg.max_step_change
 
         # -- independent values, taken when the termination manager starts (before the automatic reset)
@@ -143,13 +163,18 @@ def main() -> None:
             force = data.normal_force_matrix_w_history.torch + data.friction_force_matrix_w_history.torch
             q = robot.data.joint_pos.torch[:, arm]
             limits = robot.data.joint_pos_limits.torch[:, arm]
+            pairs = force.norm(dim=-1)  # (envs, history, segments, bodies)
             snap.update(
                 d=error.norm(dim=-1),
                 d_fine=(error * error.new_tensor([1.0, 1.0, FINE_Z_SCALE])).norm(dim=-1),
                 dz=error[:, 2],
                 approach_d=(stem_b - slot_base[:, None]).norm(dim=-1).min(dim=-1).values,
                 curvature=joint_curvature(poses, lengths),
-                force=force.norm(dim=-1).flatten(start_dim=2).max(dim=-1).values.mean(dim=1),  # largest single contact
+                force=pairs.flatten(start_dim=2).max(dim=-1).values.mean(dim=1),  # largest single contact
+                fork_force=pairs[..., fork_column].flatten(start_dim=2).max(dim=-1).values.mean(dim=1),
+                arm_force=pairs[..., arm_columns].flatten(start_dim=2).max(dim=-1).values.mean(dim=1),
+                # body of the largest single contact over the policy step
+                top_body=pairs.amax(dim=(1, 2)).argmax(dim=-1),
                 margin=torch.minimum(q - limits[..., 0], limits[..., 1] - q).min(dim=-1).values,
                 slot_base=slot_base,
             )
@@ -227,6 +252,7 @@ def main() -> None:
                 "curvature_limit": s["curvature"].max(dim=-1).values > MAX_CURVATURE,
                 "contact_force_limit": s["force"] > limit_params["max_force"],
                 "joint_margin": s["margin"] < MIN_MARGIN,
+                "arm_contact": s["arm_force"] > ARM_CONTACT_FORCE,
             }
             early = torch.zeros(n, dtype=torch.bool, device=device)
             for name, value in limits.items():
@@ -335,7 +361,9 @@ def main() -> None:
         env.cfg.episode_length_s = 1e4
 
         for phase in args_cli.phases:
-            state.update(phase=phase, expect_reset=phase in ("rest", "impact", "curvature", "joint_margin"))
+            state.update(
+                phase=phase, expect_reset=phase in ("rest", "impact", "arm_contact", "curvature", "joint_margin")
+            )
             if phase == "rest":
                 env.cfg.episode_length_s = EPISODE_S
                 place_stem(fixed=False)
@@ -398,10 +426,11 @@ def main() -> None:
                         break
                     step(toward(goal))
                 goal[:, 0] = contact_x + PUSH_DEPTH
-                max_force, max_penalty, max_curv = 0.0, 0.0, 0.0
+                max_force, max_penalty, max_curv, max_arm = 0.0, 0.0, 0.0, 0.0
                 for _ in range(400):
                     step(toward(goal, speed=0.5))
                     max_force = max(max_force, float(snap["force"].max()))
+                    max_arm = max(max_arm, float(snap["arm_force"].max()))
                     max_penalty = max(max_penalty, float(recorded["contact_force"].max()))
                     max_curv = max(max_curv, float(snap["curvature"].max()))
                     if (snap["slot_base"][:, 0] >= goal[:, 0] - 1e-3).all():
@@ -413,6 +442,12 @@ def main() -> None:
                 approach_min = 1.0 - math.tanh((approach_d + APPROACH_MARGIN) / STD["approach"])
                 min_force_end = float(snap["force"].min())
                 first_reach = reach["first"].clone()
+                arm_metric = float(stem_metrics.metrics["arm_contact"].max())
+                results["push: no arm contact"] = (
+                    max_arm == 0.0 and arm_metric == 0.0,
+                    f"largest force of the other robot bodies {max_arm:.2e} N; metric arm_contact {arm_metric:.0f} "
+                    f"(arm_contact itself is compared at every step below)",
+                )
                 results["push: approach"] = (
                     reached
                     and bool((approach_behind > approach_start + 0.01).all())
@@ -468,6 +503,42 @@ def main() -> None:
                     f"{reach_info}; largest mean force of a policy step {max_force:.2f} N (limit {MAX_FORCE} N), "
                     f"contact limit "
                     f"fired: {fired}, joint margin fired: {margin_fired}",
+                )
+
+            elif phase == "arm_contact":
+                place_stem(fixed=True)
+                goal = torch.tensor(
+                    [STEM_BASE[0] + FLANGE_BEHIND, STEM_BASE[1] + ARM_SIDE_START, ARM_HEIGHT], device=device
+                ).repeat(n, 1)
+                reached, reach_info = drive_to(goal)
+                goal[:, 1] = STEM_BASE[1] + ARM_SIDE_END
+                fired = torch.zeros(n, dtype=torch.bool, device=device)
+                fork_touched = torch.zeros(n, dtype=torch.bool, device=device)
+                link7_first = torch.zeros(n, dtype=torch.bool, device=device)
+                others = torch.zeros(n, dtype=torch.bool, device=device)
+                logged: dict[str, float] = {}
+                for _ in range(300):
+                    step(toward(goal, speed=0.5))
+                    now = recorded["arm_contact"] & ~fired
+                    fork_touched |= ~fired & (snap["fork_force"] > 0.0)
+                    for name in ("curvature_limit", "contact_force_limit", "joint_margin"):
+                        others |= ~fired & recorded[name]
+                    link7_first |= now & (snap["top_body"] == link7_column)
+                    if now.any():
+                        logged = {
+                            key: env.extras["log"][key]
+                            for key in ("Metrics/stem_metrics/arm_contact", "Episode_Termination/arm_contact")
+                        }
+                    fired |= now
+                    if fired.all():
+                        break
+                ok = reached and bool(fired.all() and link7_first.all()) and not bool((fork_touched | others).any())
+                ok = ok and all(value == 1.0 for value in logged.values())
+                results["arm contact (link 7)"] = (
+                    ok,
+                    f"{reach_info}; fired in every env: {bool(fired.all())}, link 7 the body of the largest contact: "
+                    f"{link7_first.tolist()}; fork force > 0 before: {fork_touched.tolist()}; other terminations "
+                    f"before: {bool(others.any())}; logged at the last reset {logged}",
                 )
 
             elif phase == "curvature":
