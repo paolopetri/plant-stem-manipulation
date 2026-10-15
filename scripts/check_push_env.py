@@ -33,6 +33,10 @@ Checks:
   above stay below the caps because of the step-change limit);
 - setpoint clamp: at every physics step of the move down, the setpoint the law uses is at most 4 mm from the tool; while
   the tool is blocked by the ground (last `BLOCKED_STEPS` policy steps) exactly 4 mm;
+- contact force at the ground: a contact sensor on the fork (net force, check only; the task's sensor is on the
+  stem). While blocked (last `BLOCKED_STEPS` policy steps), its mean over each policy step is > 0 and <= 4.2 N (the
+  clamp's spring bound 4 mm x K_p 1000 = 4 N, + 5 %) and varies by at most 0.2 N (no chatter); the impact before is
+  reported, not bounded (user, 2026-10-15; #77);
 - restart after contact: lifting off the ground, the applied step changes by at most 0.08 mm per policy step;
 - applied step within the caps (3.2 mm, 1.44 deg) in every phase;
 - slot-base observations = independent kinematics, after every policy step of every phase (incl. the clamp): the
@@ -82,6 +86,7 @@ import time
 import gymnasium as gym
 import torch
 
+from isaaclab.sensors import ContactSensorCfg
 from isaaclab.utils.math import matrix_from_quat
 
 import stem_manip.tasks  # noqa: F401  (registers the task)
@@ -134,6 +139,9 @@ LIMITS_ERRORS = (
 FIRST_STEP, FIRST_ROT_STEP = 8e-5, 0.000349  # [m], [rad] step-change limits 0.08 mm (2026-10-08) / 0.02 deg
 CAP_STEP, CAP_ROT_STEP = 0.0032, 0.02513  # [m], [rad] speed caps 10 cm/s (2026-10-08) / 45 deg/s (2026-10-07)
 CLAMP_OFFSET = 4e-3  # [m] setpoint clamp, 4 N at K_p 1000 (2026-10-08)
+# [N] blocked: policy-step mean <= spring bound 4 mm x K_p 1000 = 4 N, + 5 % (user, 2026-10-15)
+CLAMP_FORCE = 4.2
+CHATTER_TOL = 0.2  # [N] largest spread of the policy-step mean while blocked (user, 2026-10-15)
 CLAMP_ROT_OFFSET = 0.05236  # [rad] orientation clamp, 3 deg (2026-10-08)
 SLOT_BASE_POS_TOL, SLOT_BASE_ROT_TOL = (
     1e-5,
@@ -156,6 +164,10 @@ def main() -> None:
     env_cfg.terminations.joint_margin = None
     env_cfg.events.spawn_stem = None  # the fork must not touch the stem: no spawn area, stem out of reach
     env_cfg.scene.stem.init_state.pos = STEM_AWAY
+    # contact force of the fork at the ground (net force: the stem is out of reach), every physics step of a policy step
+    env_cfg.scene.fork_contact = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/.*fork_v2", history_length=env_cfg.decimation
+    )
     if args_cli.rot_stiffness is not None:
         env_cfg.actions.slot_base.stiffness_rot = args_cli.rot_stiffness
     if args_cli.max_step is not None:
@@ -401,18 +413,24 @@ def main() -> None:
             stretch.copy_(torch.maximum(stretch, (term.command_pose()[0] - pos).norm(dim=-1)))
 
         term.apply_actions = apply_and_measure
+        fork_contact = env.scene["fork_contact"]
         down = torch.zeros(6, device=device)
         down[2] = -1.0
-        stretches = []
+        stretches, ground_forces = [], []
         for i in range(DOWN_STEPS):
             if i == DOWN_STEPS - BLOCKED_STEPS:
                 window()
             stretch.zero_()
             step(down, track_tilt=False)
             stretches.append(stretch.clone())
+            # (n, physics steps of this policy step): fork net contact force [N]
+            ground_forces.append(fork_contact.data.net_forces_w_history.torch.norm(dim=-1).amax(dim=-1))
         term.apply_actions = apply_actions
         stretches = torch.stack(stretches)  # (DOWN_STEPS, n)
         blocked = stretches[-BLOCKED_STEPS:]
+        ground_forces = torch.stack(ground_forces)  # (DOWN_STEPS, n, decimation)
+        blocked_means = ground_forces[-BLOCKED_STEPS:].mean(dim=-1)  # (BLOCKED_STEPS, n): mean over each policy step
+        ground_spread = float((blocked_means.max(dim=0).values - blocked_means.min(dim=0).values).max())
         clamp_margin = margin
         slot_base_height = term.slot_base_pose()[0][:, 2]
         # -- restart after contact: lift; the applied step changes by at most the step-change limit
@@ -491,6 +509,15 @@ def main() -> None:
                 f"(bound {CLAMP_OFFSET * 1e3:.1f} mm), while blocked {float(blocked.min()) * 1e3:.4f}-"
                 f"{float(blocked.max()) * 1e3:.4f} mm, slot base at z {float(slot_base_height.min()) * 1e3:.1f}-"
                 f"{float(slot_base_height.max()) * 1e3:.1f} mm; joint margin {clamp_margin:.2f} rad",
+            ),
+            "contact force at the ground": (
+                float(blocked_means.max()) <= CLAMP_FORCE
+                and float(blocked_means.min()) > 0.0
+                and ground_spread <= CHATTER_TOL,
+                f"while blocked: mean over a policy step {float(blocked_means.min()):.3f}-"
+                f"{float(blocked_means.max()):.3f} N (bound {CLAMP_FORCE} N), largest spread in one env "
+                f"{ground_spread:.3f} N (tol {CHATTER_TOL:.2f} N); impact (not bounded): largest fork contact force "
+                f"{float(ground_forces.max()):.3f} N at a physics step",
             ),
             "restart after contact": (
                 bool((lift_change <= FIRST_STEP + 1e-6).all()),

@@ -39,6 +39,7 @@ uv run --extra isaacsim python scripts/sweep_stem_solver.py --test kick   # cabl
 uv run --extra isaacsim python scripts/check_contact.py --test slot       # FR3 + fork push the chain stem: pass/fail
 uv run --extra isaacsim python scripts/sweep_impedance.py                 # impedance controller study (fork + stem)
 uv run --extra isaacsim python scripts/check_push_env.py      # push task: controller and action limits, pass/fail
+uv run --extra isaacsim python scripts/check_push_stem.py     # push task: the action pushes the stem, contact force
 uv run --extra isaacsim python scripts/sweep_action_poses.py  # push task: following over the workspace
 uv run --extra isaacsim python scripts/check_push_obs.py      # push task: target command and stem observations
 uv run --extra isaacsim python scripts/check_push_terms.py    # push task: rewards and terminations
@@ -73,6 +74,7 @@ uv run --extra isaacsim python scripts/check_stem.py --viz kit --slow_motion 5
 uv run --extra isaacsim python scripts/sweep_stem_solver.py --test kick --viz newton_gl --slow_motion 5 --steps 200
 uv run --extra isaacsim python scripts/check_contact.py --test slot_far --viz kit --slow_motion 3
 uv run --extra isaacsim python scripts/check_push_env.py --num_envs 1 --viz kit --slow_motion 3
+uv run --extra isaacsim python scripts/check_push_stem.py --num_envs 1 --viz kit --slow_motion 3
 uv run --extra isaacsim python scripts/check_push_obs.py --num_envs 4 --viz kit --slow_motion 3
 uv run --extra isaacsim python scripts/check_push_terms.py --phases push --viz kit --slow_motion 1
 uv run --extra isaacsim python scripts/check_push_agents.py --agents random --num_envs 4 --viz kit --slow_motion 2
