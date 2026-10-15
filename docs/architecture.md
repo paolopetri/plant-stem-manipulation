@@ -118,7 +118,8 @@ Task `StemManip-Push-Position-FR3-v0`, cfg in `src/stem_manip/tasks/push_positio
    penalty; terminate on time out, curvature limit, contact-force limit and joint margin, no slot-base bound. Contact
    forces (sensor `stem_contact` on the stem segments, filtered to the robot) are used here, not in the observation.
 
-The **stem point of interest** is given by a segment index + an offset along that segment: the tip. Its **target**
+The **stem point of interest** is given by one arc length from the stem base, set in the env cfg to the stem length:
+the tip (`STEM_POINT_ARC_LENGTH`; the same quantity as the observed points along the stem). Its **target**
 is sampled once per episode around the tip's rest position: sideways in any direction, at the height the tip reaches
 when pushed (the "bowl") or below it, down to the deepest stem shape within a fraction of the curvature limit (C / S
 bends, which need a moment from the fork's slot). Ranges: `StemTipTargetCommandCfg` (`mdp/commands.py`); shape model:
@@ -142,11 +143,9 @@ stem_state(env).distance_b(points_b)   -> (num_envs, k)                   # dist
   the asset) and the world-to-robot-base transform; segment poses (`segment_poses(stem)`) are read anew at every
   call and stay internal. The geometry is `stem_manip.utils.stem_geometry`.
 - `stem_state(env)` builds it once per env (`stem_manip.utils.per_env`) from the env cfg field `stem_model` and the
-  scene entities `stem` and `robot`. The stem observations, the approach and curvature rewards and the
-  curvature-limit termination take no stem-model or scene-entity params; the base-fixing event reads the model
-  name from the same field.
-- The target command still names the model itself (`StemTipTargetCommandCfg.stem_model`) and reads the segment
-  length from the yaml, until #139; switching the stem model means changing both for now.
+  scene entities `stem` and `robot`. The stem observations, the target command (stem point and stem base), the
+  approach and curvature rewards and the curvature-limit termination take no stem-model or scene-entity params; the
+  base-fixing event and the command's damage limit read the model name from the same field.
 - Writing stem state (base clamping and the spawn-area reset in `mdp/events.py`) goes through the model module or
   the asset's generic Isaac Lab API, kept in that one file.
 
