@@ -149,10 +149,9 @@ class StemTipTargetCommandCfg(CommandTermCfg):
     distance_range: tuple[float, float] = (0.03, 0.10)
     """Horizontal distance of the target from the stem point's rest position [m]."""
 
-    curvature_budget: float = 0.8
-    """The deepest target shape bends the stem to at most this fraction of `damage.max_curvature` (user, 2026-10-09:
-    0.8, i.e. 4 1/m, for clear C / S bends that need the fork's slot). The drop is sampled uniformly between the
-    bowl and that shape."""
+    curvature_budget: float = MISSING
+    """The deepest target shape bends the stem to at most this fraction of `damage.max_curvature`. The drop is
+    sampled uniformly between the bowl and that shape."""
 
     angle_range: tuple[float, float] = (-math.pi, math.pi)
     """Horizontal direction of the target from the rest position [rad] (from +x towards +y): full circle."""

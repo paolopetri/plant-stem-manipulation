@@ -68,7 +68,9 @@ DISTANCE_STD = (0.05, 0.01)  # [m] stem tip to target: coarse (targets 3-10 cm a
 # height errors occur only before the push, where the 3-D coarse term already gives the gradient.
 HEIGHT_STD = 0.003
 APPROACH_STD = 0.1  # [m] slot base to the nearest stem point (start: the fork is 0.2-0.4 m from the stem)
-CURVATURE_BUDGET = 0.8  # curvature penalty above 0.8 x the limit (= the targets' curvature budget)
+# curvature budget (user, 2026-10-09): 0.8 x the limit, i.e. 4 1/m, for clear C / S bends that need the fork's slot;
+# the targets stay inside it and the curvature penalty starts at it
+CURVATURE_BUDGET = 0.8
 # [N] contact penalty above it, on the largest single contact (normal pushes 0.8-1.4 N measured; clamp bound 4 N)
 CONTACT_FREE_FORCE = 2.0
 MIN_JOINT_MARGIN = 0.25  # [rad] terminate closer to any FR3 joint limit (the sweeps' rule, 2026-10-08)
