@@ -3,10 +3,10 @@ deepest shape within a curvature budget (user, 2026-10-08/09; spec #160, ADR 000
 
 The stem does not stretch, so a point at arc length s pushed sideways by r also drops. Shape model: a planar
 elastica, an inextensible rod clamped upright at its base with a force and a moment at the point (large
-deflection). With EI = 1 its angle from the vertical theta obeys theta'' = fx cos(theta) - fz sin(theta). The shape
-depends on the stem's length and curvature limit, not on its stiffness (stiffness sets the force needed), so the
-reachable region is dimensionless: r / s, drop / s, curvature budget x s. The rod table (`rod_table`) holds, per
-r / s:
+deflection). With EI = 1 its angle from the vertical theta obeys theta'' = fx cos(theta) - fz sin(theta) (fz > 0
+presses down). The shape depends on the stem's length and curvature limit, not on its stiffness (stiffness sets the
+force needed), so the reachable region is dimensionless: r / s, drop / s, curvature budget x s. The rod table
+(`rod_table`) holds, per r / s:
 - the bowl: the drop of the stem pushed sideways at the point by a horizontal force alone (no moment). Closed form
   of that elastica, integrated by quadrature;
 - the deepest shape: the largest drop of any elastica whose curvature stays within the budget. A moment or a C / S
@@ -16,7 +16,7 @@ The deepest shape has its largest curvature, equal to the budget, where the inte
 frame of that point the shape depends only on the force P: kappa^2 = budget^2 - 2 P (1 - cos(phi)) <= budget^2.
 So the table integrates one curve per P from that point both ways and takes every window of length 1 along it;
 the deepest drop at each r / s is the largest over all P and windows.
-Nothing above the bowl is sampled (only a little room there, with the base bent hard).
+Nothing above the bowl is sampled (user, 2026-10-09).
 
 Assumes an upright stem in a frame with z up (robot base frame). Batched over envs, no simulator needed.
 Tests: `tests/test_stem_target.py`.
