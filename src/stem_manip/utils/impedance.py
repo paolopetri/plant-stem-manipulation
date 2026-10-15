@@ -1,4 +1,4 @@
-"""Franka's Cartesian impedance law and the policy's target integration (torch only, no simulator).
+"""Franka's Cartesian impedance law and the policy's setpoint integration (torch only, no simulator).
 
 The same functions are meant to run in simulation (action term of the push task) and to be ported 1:1 to the
 real FR3 (libfranka torque loop), so that the policy sees the same controller on both sides. Background, gains and
@@ -35,79 +35,80 @@ def _limited_step(
     """Action (n, 3) clipped to [-1, 1] per axis, scaled by max_step, its length limited to max_step; then, if
     `prev_step` and `max_change` are given, its change from `prev_step` limited to length `max_change`. The cap has
     priority: the result is at most max_step long even after a longer `prev_step` (e.g. where the clamp dragged the
-    target)."""
+    setpoint)."""
     step = _limit_norm(action.clamp(-1.0, 1.0) * max_step, max_step)
     if prev_step is not None and max_change is not None:
         step = _limit_norm(prev_step + _limit_norm(step - prev_step, max_change), max_step)
     return step
 
 
-def integrate_target(
-    target: torch.Tensor,
+def integrate_setpoint(
+    setpoint: torch.Tensor,
     action: torch.Tensor,
     max_step: float,
     prev_step: torch.Tensor | None = None,
     max_change: float | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """New target = previous target + step (IndustReal's policy-level action integrator, PLAI).
+    """New setpoint = previous setpoint + step (IndustReal's policy-level action integrator, PLAI).
 
     The action (n, 3) is clipped to [-1, 1] per axis and scaled by `max_step` [m]; the step's length is then
     limited to `max_step` (speed cap). With `prev_step` (n, 3) [m] and `max_change` the change of the step per policy
     step is limited to length `max_change` [m] (acceleration limit: keeps the tracking error small; Overleaf
-    controller section). Returns (new target, step).
+    controller section). Returns (new setpoint, step).
     """
     step = _limited_step(action, max_step, prev_step, max_change)
-    return target + step, step
+    return setpoint + step, step
 
 
 def integrate_orientation(
-    target_quat: torch.Tensor,
+    setpoint_quat: torch.Tensor,
     action: torch.Tensor,
     max_rot_step: float,
     prev_step: torch.Tensor | None = None,
     max_change: float | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """New target orientation = rotation step applied to the previous target orientation (PLAI for rotation).
+    """New setpoint orientation = rotation step applied to the previous setpoint orientation (PLAI for rotation).
 
     The action (n, 3) is a rotation vector in the robot base frame, clipped to [-1, 1] per axis and scaled by
     `max_rot_step` [rad]; its angle is then limited to `max_rot_step`. With `prev_step` (n, 3) [rad] and `max_change`
-    the change of the rotation vector per policy step is limited to `max_change` [rad]. Returns (new target
+    the change of the rotation vector per policy step is limited to `max_change` [rad]. Returns (new setpoint
     quaternion, rotation step (n, 3) [rad]).
     """
     step = _limited_step(action, max_rot_step, prev_step, max_change)
-    quat = _quat_mul(quat_from_rotvec(step), target_quat)  # base-frame rotation: applied from the left
+    quat = _quat_mul(quat_from_rotvec(step), setpoint_quat)  # base-frame rotation: applied from the left
     return quat / quat.norm(dim=-1, keepdim=True), step
 
 
-def clamp_target_offset(
-    target: torch.Tensor, pos: torch.Tensor, max_offset: float
+def clamp_setpoint_offset(
+    setpoint: torch.Tensor, pos: torch.Tensor, max_offset: float
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Target position (n, 3) moved towards the slot base position `pos` so that it is at most `max_offset` [m] away.
+    """Setpoint position (n, 3) moved towards the slot base position `pos` so that it is at most `max_offset` [m] away.
 
     Bounds the spring force of the law to K_p * max_offset when the tool is blocked (e.g. pushed against something).
-    Returns (clamped target, held (n,) bool: where the clamp acted).
+    Returns (clamped setpoint, held (n,) bool: where the clamp acted).
     """
-    offset = target - pos
+    offset = setpoint - pos
     distance = offset.norm(dim=-1, keepdim=True)
     held = distance > max_offset
-    return torch.where(held, pos + offset * (max_offset / distance), target), held.squeeze(-1)
+    return torch.where(held, pos + offset * (max_offset / distance), setpoint), held.squeeze(-1)
 
 
-def clamp_target_rot_offset(
-    target_quat: torch.Tensor, quat: torch.Tensor, max_angle: float
+def clamp_setpoint_rot_offset(
+    setpoint_quat: torch.Tensor, quat: torch.Tensor, max_angle: float
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Target orientation (n, 4) turned towards the slot base orientation `quat` so that the rotation between them is at
-    most `max_angle` [rad] (bounds the spring moment to K_o * max_angle). Returns (clamped target, held (n,) bool)."""
-    offset = rotvec_between(target_quat, quat)  # base frame: slot base -> target
+    """Setpoint orientation (n, 4) turned towards the slot base orientation `quat` so that the rotation between them is
+    at most `max_angle` [rad] (bounds the spring moment to K_o * max_angle). Returns (clamped setpoint, held (n,)
+    bool)."""
+    offset = rotvec_between(setpoint_quat, quat)  # base frame: slot base -> setpoint
     angle = offset.norm(dim=-1, keepdim=True)
     held = angle > max_angle
     clamped = _quat_mul(quat_from_rotvec(offset * (max_angle / angle.clamp(min=max_angle))), quat)
-    return torch.where(held, clamped / clamped.norm(dim=-1, keepdim=True), target_quat), held.squeeze(-1)
+    return torch.where(held, clamped / clamped.norm(dim=-1, keepdim=True), setpoint_quat), held.squeeze(-1)
 
 
 def substep_command(
-    target_start: torch.Tensor,
-    target_quat_start: torch.Tensor,
+    setpoint_start: torch.Tensor,
+    setpoint_quat_start: torch.Tensor,
     step: torch.Tensor,
     fraction: float,
     pos: torch.Tensor,
@@ -118,26 +119,26 @@ def substep_command(
     max_offset: float,
     max_rot_offset: float,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Target pose and velocity the law uses at one physics (torque-loop) step within a policy step.
+    """Setpoint pose and velocity the law uses at one physics (torque-loop) step within a policy step.
 
-    The target moves linearly (turns at constant rate) from (`target_start`, `target_quat_start`) by `step` (n, 6:
+    The setpoint moves linearly (turns at constant rate) from (`setpoint_start`, `setpoint_quat_start`) by `step` (n, 6:
     translation [m], rotation vector [rad]) over the policy step; `fraction` in (0, 1] is the elapsed part. It is then
     clamped to `max_offset` [m] / `max_rot_offset` [rad] from the measured slot base pose (`pos`, `quat`): bounds the
     spring force and moment when the tool is blocked, inactive in free motion (the distance is the lag there). The
-    feedforward velocity is the step's velocity; where the clamp holds the target, the target moves with the slot
+    feedforward velocity is the step's velocity; where the clamp holds the setpoint, the setpoint moves with the slot
     base, so its velocity is the slot base's (`slot_base_vel`, `slot_base_ang_vel`): the damping then adds no force to
     the bounded spring force. Runs at the physics rate in simulation and in the 1 kHz loop on the real FR3.
-    Returns (target position (n, 3), target orientation (n, 4), target velocity (n, 3), target angular velocity
+    Returns (setpoint position (n, 3), setpoint orientation (n, 4), setpoint velocity (n, 3), setpoint angular velocity
     (n, 3), held (n, 2) bool: where the clamp acted on the position / orientation).
     """
-    target_pos, held = clamp_target_offset(target_start + fraction * step[:, :3], pos, max_offset)
-    target_quat = _quat_mul(quat_from_rotvec(fraction * step[:, 3:]), target_quat_start)
-    target_quat, held_rot = clamp_target_rot_offset(
-        target_quat / target_quat.norm(dim=-1, keepdim=True), quat, max_rot_offset
+    setpoint_pos, held = clamp_setpoint_offset(setpoint_start + fraction * step[:, :3], pos, max_offset)
+    setpoint_quat = _quat_mul(quat_from_rotvec(fraction * step[:, 3:]), setpoint_quat_start)
+    setpoint_quat, held_rot = clamp_setpoint_rot_offset(
+        setpoint_quat / setpoint_quat.norm(dim=-1, keepdim=True), quat, max_rot_offset
     )
-    target_vel = torch.where(held.unsqueeze(-1), slot_base_vel, step[:, :3] / policy_dt)
-    target_ang_vel = torch.where(held_rot.unsqueeze(-1), slot_base_ang_vel, step[:, 3:] / policy_dt)
-    return target_pos, target_quat, target_vel, target_ang_vel, torch.stack((held, held_rot), dim=-1)
+    setpoint_vel = torch.where(held.unsqueeze(-1), slot_base_vel, step[:, :3] / policy_dt)
+    setpoint_ang_vel = torch.where(held_rot.unsqueeze(-1), slot_base_ang_vel, step[:, 3:] / policy_dt)
+    return setpoint_pos, setpoint_quat, setpoint_vel, setpoint_ang_vel, torch.stack((held, held_rot), dim=-1)
 
 
 def _sqrtm_spd(matrix: torch.Tensor) -> torch.Tensor:
@@ -176,44 +177,44 @@ def cartesian_impedance_torque(
     twist: torch.Tensor,
     q: torch.Tensor,
     dq: torch.Tensor,
-    target_pos: torch.Tensor,
-    target_vel: torch.Tensor,
-    target_quat: torch.Tensor,
+    setpoint_pos: torch.Tensor,
+    setpoint_vel: torch.Tensor,
+    setpoint_quat: torch.Tensor,
     k_pos: float,
     k_rot: float,
     k_ns: float,
     q_ns: torch.Tensor,
     damping: torch.Tensor | None = None,
-    target_ang_vel: torch.Tensor | None = None,
+    setpoint_ang_vel: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Joint torques (n, num_joints) of Franka's Cartesian impedance example controller.
 
     tau = J^T [-K_p (x - x_d) - D_p (v - v_d);  -K_o e_o - D_o (w - w_d)]
           + (I - J^T J^T+) (k_ns (q_ns - q) - 2 sqrt(k_ns) dq)
     with D = 2 sqrt(K) as in franka_ros / libfranka, e_o from the quaternion error as in their code (vector part
-    of q^-1 q_d, rotated to the base frame, sign flipped), and v_d, w_d the target velocities (0 in Franka's
+    of q^-1 q_d, rotated to the base frame, sign flipped), and v_d, w_d the setpoint velocities (0 in Franka's
     example, the feedforward terms here). Gravity and Coriolis are not included: the robot compensates gravity, and the
     Coriolis term is added on the real robot from libfranka's model (not available from the simulator).
 
     Args:
         jacobian: slot-base geometric Jacobian (n, 6, m). pos, quat: slot-base pose (n, 3), (n, 4).
         twist: slot-base linear and angular velocity (n, 6). q, dq: joint positions and velocities (n, m).
-        target_pos, target_vel, target_quat: target position (n, 3), velocity (n, 3), orientation (n, 4).
+        setpoint_pos, setpoint_vel, setpoint_quat: setpoint position (n, 3), velocity (n, 3), orientation (n, 4).
         k_pos [N/m], k_rot [N m/rad], k_ns [N m/rad]: stiffnesses. q_ns: null-space rest posture (n, m).
         damping: task-space damping matrix (n, 6, 6), e.g. `apparent_mass_damping`; None = Franka's 2 sqrt(K).
-        target_ang_vel: target angular velocity (n, 3) [rad/s] (rotational feedforward); None = 0 (Franka).
+        setpoint_ang_vel: setpoint angular velocity (n, 3) [rad/s] (rotational feedforward); None = 0 (Franka).
     """
     d_pos, d_rot, d_ns = 2.0 * k_pos**0.5, 2.0 * k_rot**0.5, 2.0 * k_ns**0.5
-    quat = torch.where((quat * target_quat).sum(-1, keepdim=True) < 0.0, -quat, quat)  # same hemisphere
-    error_quat = _quat_mul(_quat_conj(quat), target_quat)
+    quat = torch.where((quat * setpoint_quat).sum(-1, keepdim=True) < 0.0, -quat, quat)  # same hemisphere
+    error_quat = _quat_mul(_quat_conj(quat), setpoint_quat)
     error_rot = -_quat_apply(quat, error_quat[..., :3])
-    angular_error = twist[..., 3:] if target_ang_vel is None else twist[..., 3:] - target_ang_vel
-    velocity_error = torch.cat((twist[..., :3] - target_vel, angular_error), dim=-1)
+    angular_error = twist[..., 3:] if setpoint_ang_vel is None else twist[..., 3:] - setpoint_ang_vel
+    velocity_error = torch.cat((twist[..., :3] - setpoint_vel, angular_error), dim=-1)
     if damping is None:
         damping_force = torch.cat((d_pos * velocity_error[..., :3], d_rot * velocity_error[..., 3:]), dim=-1)
     else:
         damping_force = (damping @ velocity_error.unsqueeze(-1)).squeeze(-1)
-    force = -k_pos * (pos - target_pos) - damping_force[..., :3]
+    force = -k_pos * (pos - setpoint_pos) - damping_force[..., :3]
     moment = -k_rot * error_rot - damping_force[..., 3:]
     jacobian_t = jacobian.transpose(-1, -2)
     tau_task = (jacobian_t @ torch.cat((force, moment), dim=-1).unsqueeze(-1)).squeeze(-1)

@@ -4,29 +4,29 @@ Creates the env with a few envs, resets it and drives the slot base with constan
 hold (zero action), then full translation along +x, +y, +z, each for `--steps` policy steps and followed by a hold;
 then a full rotation about the vertical (+z) for `--steps` policy steps and a hold. Then, each after a reset to the
 start pose: a full +y translation and a full rotation about +z from rest (step limits), and a move +x followed by a
-full move down (-z) into the ground and a lift (target clamp, restart after contact). The action term (6-D:
+full move down (-z) into the ground and a lift (setpoint clamp, restart after contact). The action term (6-D:
 translation and rotation step, robot base frame) is Franka's Cartesian impedance law with an
-integrated target, speed cap, step-change limit and target-offset clamp (`mdp.SlotBaseImpedanceAction`). With the
-step-change limit the target ramps up at the start of a move and brakes during the hold.
+integrated setpoint, speed cap, step-change limit and setpoint-offset clamp (`mdp.SlotBaseImpedanceAction`). With the
+step-change limit the setpoint ramps up at the start of a move and brakes during the hold.
 The controller is tested without the stem: the spawn area is switched off and the stem stands out of the fork's reach
 behind the robot (`STEM_AWAY`); the clamp test pushes the fork into the ground instead.
 Checks:
 - shapes: observation (num_envs, 57) and action (num_envs, 6), all observations finite;
 - start pose: slot base within 5 mm of (0.40, 0, 0.50) m and within 1 deg of its orientation at reset after the hold;
 - holds still: the slot base moves less than 1 mm during the last half of the hold;
-- follows the actions: following error (largest distance to the target over the move and the hold; at the end of
-  a policy step the interpolated target equals the step's end target) <= 2 mm; the tool passes the target's final
+- follows the actions: following error (largest distance to the setpoint over the move and the hold; at the end of
+  a policy step the interpolated setpoint equals the step's end setpoint) <= 2 mm; the tool passes the setpoint's final
   position by at most 5 mm and ends within 1 mm of it; sideways drift < 2 mm; orientation within 1 deg throughout.
-  The final target is the target after the clamp; that every commanded step was executed follows from the following
-  error: had the clamp shortened a step, target and tool would be 4 mm apart at the end of that policy step;
-- follows the rotation: about +z, angle following <= 2 deg, overshoot past the final target <= 2 deg, slot-base
-  drift while turning <= 2 mm, end within 1 deg of the target after the hold;
+  The final setpoint is the setpoint after the clamp; that every commanded step was executed follows from the following
+  error: had the clamp shortened a step, setpoint and tool would be 4 mm apart at the end of that policy step;
+- follows the rotation: about +z, angle following <= 2 deg, overshoot past the final setpoint <= 2 deg, slot-base
+  drift while turning <= 2 mm, end within 1 deg of the setpoint after the hold;
 - step limits: from rest the first step is exactly 0.08 mm (+y translation) and 0.02 deg (rotation about +z), and
   the step then reaches the caps 3.2 mm and 1.44 deg;
 - follows at full speed: over the +y ramp (incl. `FULL_SPEED_STEPS` steps at the cap, 10 cm/s) following error
   <= 2 mm; over the rotation ramp (up to 45 deg/s) angle following <= 2 deg and slot-base drift <= 2 mm (the moves
   above stay below the caps because of the step-change limit);
-- target clamp: at every physics step of the move down, the target the law uses is at most 4 mm from the tool; while
+- setpoint clamp: at every physics step of the move down, the setpoint the law uses is at most 4 mm from the tool; while
   the tool is blocked by the ground (last `BLOCKED_STEPS` policy steps) exactly 4 mm;
 - restart after contact: lifting off the ground, the applied step changes by at most 0.08 mm per policy step;
 - applied step within the caps (3.2 mm, 1.44 deg) in every phase;
@@ -35,9 +35,9 @@ Checks:
   measured joint angles via the FR3 Denavit-Hartenberg parameters and the yaml's slot_base
   (`stem_manip.utils.fr3_reference`, no code shared with the observations); the observed applied step x the decided
   caps equals the step the decided limits (cap, step-change limit) give for the action, computed here (independent,
-  but only in the policy steps where the clamp did not act; the row reports n of N), and the target's motion over the
-  policy step (self-consistency only: the target is the action term's own state); the observed target offset x the
-  decided bounds (4 mm, 3 deg) equals the target minus that slot base. Tolerance 1e-5 m and 1e-5 rad (user,
+  but only in the policy steps where the clamp did not act; the row reports n of N), and the setpoint's motion over the
+  policy step (self-consistency only: the setpoint is the action term's own state); the observed setpoint offset x the
+  decided bounds (4 mm, 3 deg) equals the setpoint minus that slot base. Tolerance 1e-5 m and 1e-5 rad (user,
   2026-10-14): both sides use the same nominal kinematics, so only float32 rounding remains (about 1e-6 over the
   chain); 10x margin.
 The expected limits are the decided values (option B1), not the cfg's: with an override flag those checks fail.
@@ -96,7 +96,7 @@ OVERSHOOT_TOL = 5e-3  # [m]
 END_TOL = 1e-3  # [m] after the hold following a move
 DRIFT_TOL = 2e-3  # [m]
 ROT_FOLLOW_TOL, ROT_OVERSHOOT_TOL, ROT_DRIFT_TOL = math.radians(2.0), math.radians(2.0), 2e-3  # user, 2026-10-07
-OBS_DIM = 57  # slot base: position 3, orientation 6, applied step 6, target offset 6; stem base 3, 5 stem points x 2
+OBS_DIM = 57  # slot base: position 3, orientation 6, applied step 6, setpoint offset 6; stem base 3, 5 stem points x 2
 OBS_SLOT_BASE_POS, OBS_SLOT_BASE_ROT = (
     slice(0, 3),
     slice(3, 9),
@@ -106,18 +106,18 @@ OBS_STEP_POS, OBS_STEP_ROT, OBS_OFFSET_POS, OBS_OFFSET_ROT = slice(9, 12), slice
 SLOT_BASE_ERRORS = (
     "position",
     "orientation",
-    "applied step = target motion (self-consistency)",
-    "applied rotation = target turn (self-consistency)",
+    "applied step = setpoint motion (self-consistency)",
+    "applied rotation = setpoint turn (self-consistency)",
     "applied step = limits (independent)",
     "applied rotation = limits (independent)",
-    "target offset",
-    "target rotation offset",
+    "setpoint offset",
+    "setpoint rotation offset",
 )
 ROT_ERRORS = (
     "orientation",
-    "applied rotation = target turn (self-consistency)",
+    "applied rotation = setpoint turn (self-consistency)",
     "applied rotation = limits (independent)",
-    "target rotation offset",
+    "setpoint rotation offset",
 )
 LIMITS_ERRORS = (
     "applied step = limits (independent)",
@@ -127,7 +127,7 @@ LIMITS_ERRORS = (
 # fixed here, not read from the cfg, so that a wrong cfg value fails (with an override flag these checks fail too)
 FIRST_STEP, FIRST_ROT_STEP = 8e-5, 0.000349  # [m], [rad] step-change limits 0.08 mm (2026-10-08) / 0.02 deg
 CAP_STEP, CAP_ROT_STEP = 0.0032, 0.02513  # [m], [rad] speed caps 10 cm/s (2026-10-08) / 45 deg/s (2026-10-07)
-CLAMP_OFFSET = 4e-3  # [m] target clamp, 4 N at K_p 1000 (2026-10-08)
+CLAMP_OFFSET = 4e-3  # [m] setpoint clamp, 4 N at K_p 1000 (2026-10-08)
 CLAMP_ROT_OFFSET = 0.05236  # [rad] orientation clamp, 3 deg (2026-10-08)
 SLOT_BASE_POS_TOL, SLOT_BASE_ROT_TOL = (
     1e-5,
@@ -185,7 +185,9 @@ def main() -> None:
         # largest difference of each slot-base observation from its independent value [m or rad]
         obs_errors = dict.fromkeys(SLOT_BASE_ERRORS, 0.0)
         obs_checked, limits_checked = 0, 0  # policy steps compared (limits: steps where the clamp did not act)
-        max_target_offset = 0.0  # largest observed target offset (position part, normalized), to show the clamp's range
+        max_setpoint_offset = (
+            0.0  # largest observed setpoint offset (position part, normalized), to show the clamp's range
+        )
         expected_step = torch.zeros(n, 6, device=device)  # applied step [m, rad] expected from the action and limits
 
         def limited(action: torch.Tensor, prev: torch.Tensor, cap: float, change: float) -> torch.Tensor:
@@ -199,36 +201,39 @@ def main() -> None:
             return limit(prev + limit(wanted - prev, change), cap)
 
         def slot_base_obs_errors(
-            policy: torch.Tensor, target_before: torch.Tensor, target_quat_before: torch.Tensor, action: torch.Tensor
+            policy: torch.Tensor,
+            setpoint_before: torch.Tensor,
+            setpoint_quat_before: torch.Tensor,
+            action: torch.Tensor,
         ) -> dict[str, torch.Tensor]:
-            """Differences (n,) of the slot-base slices of `policy` from the independent kinematics, from the target's
-            motion since (`target_before`, `target_quat_before`) and from the step the limits give for `action`
+            """Differences (n,) of the slot-base slices of `policy` from the independent kinematics, from the setpoint's
+            motion since (`setpoint_before`, `setpoint_quat_before`) and from the step the limits give for `action`
             (`SLOT_BASE_ERRORS`, see the module docstring). Then sets `expected_step` to the step actually applied (the
-            target's motion, after the clamp), from which the next step's limits start."""
+            setpoint's motion, after the clamp), from which the next step's limits start."""
             slot_base = slot_base_pose(robot.data.joint_pos.torch[:, fk_joint_ids], term.cfg.body_name)
             slot_base_pos, slot_base_rot = slot_base[:, :3, 3], slot_base[:, :3, :3]
             obs = policy.double()
-            target = term.target().double()
-            target_rot = matrix_from_quat(term.target_quat()).double()
-            turned = rotvec_from_matrix(target_rot @ matrix_from_quat(target_quat_before).double().transpose(1, 2))
+            setpoint = term.setpoint().double()
+            setpoint_rot = matrix_from_quat(term.setpoint_quat()).double()
+            turned = rotvec_from_matrix(setpoint_rot @ matrix_from_quat(setpoint_quat_before).double().transpose(1, 2))
             step_pos, step_rot = obs[:, OBS_STEP_POS] * CAP_STEP, obs[:, OBS_STEP_ROT] * CAP_ROT_STEP
             limits_pos = limited(action[:3].expand(n, 3), expected_step[:, :3], CAP_STEP, FIRST_STEP).double()
             limits_rot = limited(action[3:].expand(n, 3), expected_step[:, 3:], CAP_ROT_STEP, FIRST_ROT_STEP).double()
             slot_base_rot6d = torch.cat((slot_base_rot[..., 0], slot_base_rot[..., 1]), dim=-1)
-            offset_rot = rotvec_from_matrix(target_rot @ slot_base_rot.transpose(1, 2))
+            offset_rot = rotvec_from_matrix(setpoint_rot @ slot_base_rot.transpose(1, 2))
             errors = {
                 "position": (obs[:, OBS_SLOT_BASE_POS] - slot_base_pos).norm(dim=-1),
                 "orientation": (obs[:, OBS_SLOT_BASE_ROT] - slot_base_rot6d).abs().amax(dim=-1),
-                "applied step = target motion (self-consistency)": (step_pos - (target - target_before.double())).norm(
-                    dim=-1
-                ),
-                "applied rotation = target turn (self-consistency)": (step_rot - turned).norm(dim=-1),
+                "applied step = setpoint motion (self-consistency)": (
+                    step_pos - (setpoint - setpoint_before.double())
+                ).norm(dim=-1),
+                "applied rotation = setpoint turn (self-consistency)": (step_rot - turned).norm(dim=-1),
                 "applied step = limits (independent)": (step_pos - limits_pos).norm(dim=-1),
                 "applied rotation = limits (independent)": (step_rot - limits_rot).norm(dim=-1),
-                "target offset": (obs[:, OBS_OFFSET_POS] * CLAMP_OFFSET - (target - slot_base_pos)).norm(dim=-1),
-                "target rotation offset": (obs[:, OBS_OFFSET_ROT] * CLAMP_ROT_OFFSET - offset_rot).norm(dim=-1),
+                "setpoint offset": (obs[:, OBS_OFFSET_POS] * CLAMP_OFFSET - (setpoint - slot_base_pos)).norm(dim=-1),
+                "setpoint rotation offset": (obs[:, OBS_OFFSET_ROT] * CLAMP_ROT_OFFSET - offset_rot).norm(dim=-1),
             }
-            expected_step[:] = torch.cat((target - target_before.double(), turned), dim=-1).to(expected_step.dtype)
+            expected_step[:] = torch.cat((setpoint - setpoint_before.double(), turned), dim=-1).to(expected_step.dtype)
             return errors
 
         def window() -> None:
@@ -237,11 +242,11 @@ def main() -> None:
             margin = math.inf
 
         def step(action: torch.Tensor, track_tilt: bool = True) -> None:
-            nonlocal frame_start, finite, max_angle, margin, obs_checked, limits_checked, max_target_offset
-            target_before, target_quat_before = term.target().clone(), term.target_quat().clone()
+            nonlocal frame_start, finite, max_angle, margin, obs_checked, limits_checked, max_setpoint_offset
+            setpoint_before, setpoint_quat_before = term.setpoint().clone(), term.setpoint_quat().clone()
             obs, _, _, _, _ = env.step(action.repeat(n, 1))
             finite = finite and bool(torch.isfinite(obs["policy"]).all())
-            errors = slot_base_obs_errors(obs["policy"], target_before, target_quat_before, action)
+            errors = slot_base_obs_errors(obs["policy"], setpoint_before, setpoint_quat_before, action)
             free = ~term.clamp_held().any(dim=-1)  # where the clamp acted, the limits' step is not the applied one
             for name, error in errors.items():
                 error = error[free] if name in LIMITS_ERRORS else error
@@ -249,7 +254,7 @@ def main() -> None:
                     obs_errors[name] = max(obs_errors[name], float(error.max()))
             obs_checked += 1
             limits_checked += int(free.all())
-            max_target_offset = max(max_target_offset, float(obs["policy"][:, OBS_OFFSET_POS].norm(dim=-1).max()))
+            max_setpoint_offset = max(max_setpoint_offset, float(obs["policy"][:, OBS_OFFSET_POS].norm(dim=-1).max()))
             q = robot.data.joint_pos.torch[:, joint_ids]
             margin = min(margin, float(torch.minimum(q - limits[..., 0], limits[..., 1] - q).min()))
             applied = term.processed_actions
@@ -286,10 +291,10 @@ def main() -> None:
             positions = []  # slot base positions during the hold
             for i in range(args_cli.steps + args_cli.hold_steps):
                 step(action if i < args_cli.steps else zero)
-                follow = torch.maximum(follow, (term.slot_base_pose()[0] - term.target()).norm(dim=-1))
+                follow = torch.maximum(follow, (term.slot_base_pose()[0] - term.setpoint()).norm(dim=-1))
                 if i >= args_cli.steps:
                     positions.append(term.slot_base_pose()[0][:, axis].clone())
-            end = term.target().clone()  # final target (the target brakes during the hold)
+            end = term.setpoint().clone()  # final setpoint (the setpoint brakes during the hold)
             overshoot = (torch.stack(positions) - end[:, axis]).max(dim=0).values
             pos = term.slot_base_pose()[0]
             delta = pos - start
@@ -316,15 +321,15 @@ def main() -> None:
         for i in range(args_cli.steps + args_cli.hold_steps):
             step(rotate if i < args_cli.steps else zero, track_tilt=False)
             slot_base_drift = torch.maximum(slot_base_drift, (term.slot_base_pose()[0] - slot_base_start).norm(dim=-1))
-            rot_follow = torch.maximum(rot_follow, angle_between(term.slot_base_pose()[1], term.target_quat()))
+            rot_follow = torch.maximum(rot_follow, angle_between(term.slot_base_pose()[1], term.setpoint_quat()))
             rot_speed = max(rot_speed, float(term.processed_actions[:, 3:].norm(dim=-1).max()))
             if i >= args_cli.steps:
                 quats.append(term.slot_base_pose()[1].clone())
-        target_end = term.target_quat().clone()
-        # overshoot: rotation from the final target to the tool, about +z (the turning direction)
-        rot_overshoot = torch.stack([rotvec_between(q, target_end)[:, 2] for q in quats]).max(0).values
-        rot_end = angle_between(term.slot_base_pose()[1], target_end)
-        turned = angle_between(target_end, quat_ref)
+        setpoint_end = term.setpoint_quat().clone()
+        # overshoot: rotation from the final setpoint to the tool, about +z (the turning direction)
+        rot_overshoot = torch.stack([rotvec_between(q, setpoint_end)[:, 2] for q in quats]).max(0).values
+        rot_end = angle_between(term.slot_base_pose()[1], setpoint_end)
+        turned = angle_between(setpoint_end, quat_ref)
 
         rot_margin = margin
 
@@ -351,8 +356,8 @@ def main() -> None:
                 step(action, track_tilt=False)
                 taken.append(term.processed_actions.clone())
                 pos, quat = term.slot_base_pose()
-                follow["pos"] = torch.maximum(follow["pos"], (pos - term.target()).norm(dim=-1))
-                follow["angle"] = torch.maximum(follow["angle"], angle_between(quat, term.target_quat()))
+                follow["pos"] = torch.maximum(follow["pos"], (pos - term.setpoint()).norm(dim=-1))
+                follow["angle"] = torch.maximum(follow["angle"], angle_between(quat, term.setpoint_quat()))
                 follow["drift"] = torch.maximum(follow["drift"], (pos - slot_base_start).norm(dim=-1))
             return taken[0], taken[-1], margin, follow
 
@@ -361,14 +366,16 @@ def main() -> None:
         first, last, ramp_margin, ramp_follow = ramp(1, ramp_steps)
         first_rot, last_rot, rot_ramp_margin, rot_ramp_follow = ramp(5, rot_ramp_steps)
 
-        # -- target clamp: +x, then full move down into the ground; at every physics step the target the law uses may
-        # be at most CLAMP_OFFSET ahead of the tool (measured around each apply_actions call)
+        # -- setpoint clamp: +x, then full move down into the ground; at every physics step the setpoint the law uses
+        # may be at most CLAMP_OFFSET ahead of the tool (measured around each apply_actions call)
         restart()
         x_move = torch.zeros(6, device=device)
         x_move[0] = 1.0
         for i in range(CLAMP_APPROACH_STEPS + args_cli.hold_steps):
             step(x_move if i < CLAMP_APPROACH_STEPS else zero, track_tilt=False)
-        stretch = torch.zeros(n, device=device)  # largest target-tool distance over the physics steps of a policy step
+        stretch = torch.zeros(
+            n, device=device
+        )  # largest setpoint-tool distance over the physics steps of a policy step
         apply_actions = term.apply_actions
 
         def apply_and_measure() -> None:
@@ -454,11 +461,11 @@ def main() -> None:
                 f"{math.degrees(float(rot_ramp_follow['angle'].max())):.2f} deg, slot-base drift "
                 f"{float(rot_ramp_follow['drift'].max()) * 1e3:.2f} mm",
             ),
-            "target clamp": (
+            "setpoint clamp": (
                 bool((stretches <= CLAMP_OFFSET + 1e-6).all())
                 and bool(((blocked - CLAMP_OFFSET).abs() < 1e-6).all())
                 and clamp_margin >= JOINT_MARGIN_MIN,
-                f"moving down into the ground: largest target-tool distance {float(stretches.max()) * 1e3:.4f} mm "
+                f"moving down into the ground: largest setpoint-tool distance {float(stretches.max()) * 1e3:.4f} mm "
                 f"(bound {CLAMP_OFFSET * 1e3:.1f} mm), while blocked {float(blocked.min()) * 1e3:.4f}-"
                 f"{float(blocked.max()) * 1e3:.4f} mm, slot base at z {float(slot_base_height.min()) * 1e3:.1f}-"
                 f"{float(slot_base_height.max()) * 1e3:.1f} mm; joint margin {clamp_margin:.2f} rad",
@@ -487,8 +494,8 @@ def main() -> None:
                 f"{name} {error:.1e} rad" if name in ROT_ERRORS else f"{name} {error * 1e3:.5f} mm"
                 for name, error in obs_errors.items()
             )
-            + f" (tol {SLOT_BASE_POS_TOL * 1e3:.2f} mm, {SLOT_BASE_ROT_TOL:.0e} rad); largest observed target offset "
-            f"{max_target_offset:.3f} of the bound",
+            + f" (tol {SLOT_BASE_POS_TOL * 1e3:.2f} mm, {SLOT_BASE_ROT_TOL:.0e} rad); largest observed setpoint offset "
+            f"{max_setpoint_offset:.3f} of the bound",
         )
         rot_ok = (
             float(rot_follow.max()) <= ROT_FOLLOW_TOL

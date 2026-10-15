@@ -36,11 +36,11 @@ confirm the controller and to tell us about the lab's FR3 setup (end of this sec
 3.2\,mm, i.e.\ 10\,cm/s) and a rotation of the fork (rotation vector, at most 1.44$^\circ$, i.e.\ 45$^\circ$/s), both in
 the robot's base frame. The step may change by at most 0.08\,mm (0.02$^\circ$) from one policy step to the next, which
 limits the acceleration to 0.08\,m/s$^2$ (20$^\circ$/s$^2$) and with it the lag (Section~\ref{sec:al}). The steps are
-applied to the \emph{previous target} pose, not to the measured slot base pose (IndustReal's policy-level action
+applied to the \emph{previous setpoint} pose, not to the measured slot base pose (IndustReal's policy-level action
 integrator~\cite{tang2023industreal}), so commanded steps are not lost while the tool moves freely. Within the policy
-step the target moves and turns at constant rate, and its velocities $\dot x_d$, $\omega_d$ are passed to the
-controller. At every control step the target is kept within 4\,mm and 3$^\circ$ of the measured slot base pose, which bounds
-the spring force to 4\,N and the moment to 5.2\,N\,m when the fork is blocked; while held, the target moves with the
+step the setpoint moves and turns at constant rate, and its velocities $\dot x_d$, $\omega_d$ are passed to the
+controller. At every control step the setpoint is kept within 4\,mm and 3$^\circ$ of the measured slot base pose, which bounds
+the spring force to 4\,N and the moment to 5.2\,N\,m when the fork is blocked; while held, the setpoint moves with the
 tool and its velocity is the tool's. The fork starts horizontal; its orientation is then free.
 
 \paragraph{Control law.} Every control step the joint torques are
@@ -51,7 +51,7 @@ tool and its velocity is the tool's. The fork starts horizontal; its orientation
        + \tau_\text{Coriolis},
   \label{eq:impedance}
 \end{equation}
-a spring and damper that pull the slot base $x$ to its target $x_d$ and its orientation to the target orientation
+a spring and damper that pull the slot base $x$ to its setpoint $x_d$ and its orientation to the setpoint orientation
 ($e_o$: orientation error), plus a weak spring that keeps the elbow of the redundant arm near its rest posture. This is the law of
 Franka's example controllers~\cite{libfranka,frankaros}, with one change: Franka sets the damping to
 $D = 2\sqrt{K}$, which is critically damped only for a tool of 1\,kg. The arm's inertia felt at the tool,
@@ -74,7 +74,7 @@ torque change at most 1\,N\,m per ms (Franka's limit).
   Gravity & switched off for the robot & compensated by the robot (fork mass entered as load) \\
   Motor inertia & added to every joint (gear ratio$^2\times$motor inertia, from Franka's description files)
     & physical; whether libfranka's $M$ includes it is to be checked \\
-  Target clamp, feedforward & every 2\,ms, function \texttt{substep\_command} & the same function in C++ in the 1\,kHz loop \\
+  Setpoint clamp, feedforward & every 2\,ms, function \texttt{substep\_command} & the same function in C++ in the 1\,kHz loop \\
   Speed cap, acceleration limit & policy side, every 32\,ms & the same Python code, every 32\,ms \\
   Policy & same process, every 32\,ms & Python process, sends the step to the C++ loop every 32\,ms \\
   \bottomrule
@@ -112,10 +112,10 @@ hold the tool is within 0.5\,mm of the commanded end point in all tests.
   \label{tab:controller-choices}
   \begin{tabular}{lr@{\qquad}lrr}
     \toprule
-    Target                      & travelled & Damping              & following & overshoot \\
+    Setpoint                      & travelled & Damping              & following & overshoot \\
     \midrule
     measured position + action  & 1--4\,cm  & Franka, $2\sqrt{K}$   & 1.5\,mm   & 7.1\,mm \\
-    previous target + action    & 10\,cm    & apparent mass         & 1.0\,mm   & 2.0\,mm \\
+    previous setpoint + action    & 10\,cm    & apparent mass         & 1.0\,mm   & 2.0\,mm \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -155,7 +155,7 @@ hold the tool is within 0.5\,mm of the commanded end point in all tests.
 
 \paragraph{Findings.}
 \begin{itemize}
-  \item Adding each action to the previous target is essential; with Franka's damping the tool overshoots by up
+  \item Adding each action to the previous setpoint is essential; with Franka's damping the tool overshoots by up
         to 7\,mm in the directions where the arm feels heavy; damping by the apparent mass removes most of it.
   \item The simulated FR3 initially had no motor inertia. Without it the arm oscillated and pressed the stem with
         5\,N instead of 0.85\,N; at the wrist the motor inertia is about 100 times the link inertia.

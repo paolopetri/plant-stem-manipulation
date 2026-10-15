@@ -17,7 +17,7 @@ __all__ = [
     "stem_point_distance_tanh",
     "stem_point_height_tanh",
     "stem_points",
-    "target_offset",
+    "setpoint_offset",
     "slot_base_pos",
     "slot_base_rot6d",
 ]
@@ -28,7 +28,7 @@ from .actions_cfg import SlotBaseImpedanceActionCfg
 from .commands import StemTipTargetCommandCfg
 from .contact import robot_contact_force
 from .events import fix_stem_base, reset_stem_base_uniform
-from .observations import applied_step, slot_base_pos, slot_base_rot6d, target_offset
+from .observations import applied_step, setpoint_offset, slot_base_pos, slot_base_rot6d
 from .rewards import (
     approach_tanh,
     contact_force_penalty,

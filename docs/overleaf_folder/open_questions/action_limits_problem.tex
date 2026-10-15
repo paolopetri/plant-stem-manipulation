@@ -31,17 +31,17 @@ trade-off, what we measured, and every design choice that moves it.
 
 \paragraph{What the policy does.} The policy is a neural network trained by reinforcement learning (RL) in
 simulation. At 31.25\,Hz (every 32\,ms, one ``policy step'') it reads the state (fork pose, stem shape, target) and
-outputs a small displacement and rotation of the fork's \emph{target} pose $x_d$. The next target is the previous
-target plus this step, so commanded steps are not lost even if the tool lags behind. Within the 32\,ms the target
+outputs a small displacement and rotation of the fork's \emph{setpoint} pose $x_d$. The next setpoint is the previous
+setpoint plus this step, so commanded steps are not lost even if the tool lags behind. Within the 32\,ms the setpoint
 moves at constant velocity $\dot x_d$ from the old to the new value. A Cartesian impedance controller at 1\,kHz
-(2\,ms in simulation) turns the target into joint torques:
+(2\,ms in simulation) turns the setpoint into joint torques:
 \begin{equation}
   \tau = J^\top\!\left[\,K\,(x_d - x) + D\,(\dot x_d - \dot x)\,\right] + \tau_\text{null} + \tau_\text{Coriolis}.
   \label{eq:al-law}
 \end{equation}
 $x$ is the measured slot base pose, $J$ the slot-base Jacobian, $K$ the stiffness and $D$ the damping (written here for
 the position; the orientation has its own stiffness $K_o$). This is the law of Franka's example controllers, with
-two changes: the target velocity $\dot x_d$ is fed forward (Franka's examples use $\dot x_d = 0$), and the damping
+two changes: the setpoint velocity $\dot x_d$ is fed forward (Franka's examples use $\dot x_d = 0$), and the damping
 $D = 2\sqrt{K}\,\Lambda^{1/2}$ is chosen critical for the arm's actual inertia $\Lambda$ (Section~\ref{sec:al-problem})
 instead of Franka's $2\sqrt K$, which is critical only for a 1\,kg tool.
 
@@ -94,8 +94,8 @@ numbers do not, and the paper does not test a soft Cartesian impedance controlle
   \toprule
   Step & Same in sim and real? & Source of differences \\
   \midrule
-  policy step $\to$ target pose & yes (same code) & none \\
-  target $\to$ torques, law~\eqref{eq:al-law} & yes (ported to C++, checked) & port errors; $J$, $M$ from different
+  policy step $\to$ setpoint pose & yes (same code) & none \\
+  setpoint $\to$ torques, law~\eqref{eq:al-law} & yes (ported to C++, checked) & port errors; $J$, $M$ from different
     models \\
   \textbf{torques $\to$ fork motion} & \textbf{no} & arm inertia, joint friction, motor inertia, delays, 1 vs.\ 2\,ms
     control period \\
@@ -106,8 +106,8 @@ numbers do not, and the paper does not test a soft Cartesian impedance controlle
 \end{tabular}}
 \end{center}
 The step ``torques $\to$ fork motion'' is where the arm's dynamics act. How much of it reaches the fork's motion
-depends on the tracking error: if the tool follows the target within a small error, its motion is essentially the
-target's motion, which our code computes identically in sim and real; the larger the error, the more the motion is
+depends on the tracking error: if the tool follows the setpoint within a small error, its motion is essentially the
+setpoint's motion, which our code computes identically in sim and real; the larger the error, the more the motion is
 shaped by the arm's dynamics, which differ.
 
 % ---------------------------------------------------------------------------------------------------------------------
@@ -116,7 +116,7 @@ shaped by the arm's dynamics, which differ.
 
 \paragraph{What blocks us: agility versus a small tracking error.} We want two things from the fork's motion:
 \begin{enumerate}
-  \item \textbf{Small lag behind the commanded target}, so that the fork's motion is set by our controller, which
+  \item \textbf{Small lag behind the commanded setpoint}, so that the fork's motion is set by our controller, which
         is the same in simulation and on the FR3, and not by the arm's dynamics, which differ and are not yet
         identified. Action spaces that keep the tracking error small transfer better~\cite{al-aljalbout2024}.
   \item \textbf{Agility}: reach the stem well within the 10\,s episode, brake late before contact, and react quickly
@@ -132,25 +132,25 @@ from, how severe it is for the task, and how severe it will be on the real robot
 
 \paragraph{Why the tool lags: the impedance law as a mass on a spring.} Consider one direction, free space,
 gravity compensated. The controller makes the slot base behave like a mass $\Lambda$ (the arm's inertia felt at the
-slot base, explained in the next paragraph) attached by a spring $K$ and a damper $D$ to the moving target:
+slot base, explained in the next paragraph) attached by a spring $K$ and a damper $D$ to the moving setpoint:
 \begin{equation}
   \Lambda\,\ddot x = K\,(x_d - x) + D\,(\dot x_d - \dot x).
 \end{equation}
-Write the lag as $e = x_d - x$ (target minus slot base). Then $\ddot x = \ddot x_d - \ddot e$, and substituting gives
+Write the lag as $e = x_d - x$ (setpoint minus slot base). Then $\ddot x = \ddot x_d - \ddot e$, and substituting gives
 \begin{equation}
   \Lambda\,\ddot e + D\,\dot e + K\,e = \Lambda\,\ddot x_d.
   \label{eq:al-error}
 \end{equation}
 The lag itself behaves like a damped mass-spring system, driven by the force $\Lambda \ddot x_d$, i.e.\ by the
-\emph{acceleration of the target}. Three cases follow:
+\emph{acceleration of the setpoint}. Three cases follow:
 \begin{enumerate}
-  \item \textbf{Target at rest or moving at constant speed} ($\ddot x_d = 0$): the right-hand side is zero, so any lag
+  \item \textbf{Setpoint at rest or moving at constant speed} ($\ddot x_d = 0$): the right-hand side is zero, so any lag
         dies out and $e \to 0$. Physically: moving at constant speed in free space needs no force (no friction, no
-        gravity), so the spring does not need to be stretched. This holds only because the target velocity is fed
+        gravity), so the spring does not need to be stretched. This holds only because the setpoint velocity is fed
         forward. Without it the damper pulls back with $D\dot x$ all the time, and the spring must balance it:
         $e = D\dot x_d / K$. With $D = 2\sqrt{K\Lambda} = 180$\,N\,s/m ($K = 400$\,N/m, $\Lambda = 20$\,kg) and
         20\,cm/s this gives 90\,mm; we measured 82\,mm (Table~\ref{tab:al-time}).
-  \item \textbf{Target accelerating at constant $a$}: the right-hand side is the constant force $\Lambda a$. Once the
+  \item \textbf{Setpoint accelerating at constant $a$}: the right-hand side is the constant force $\Lambda a$. Once the
         transient has died out ($\ddot e = \dot e = 0$), $K e = \Lambda a$, so
         \begin{equation}
           e = \frac{\Lambda\, a}{K}.
@@ -158,11 +158,11 @@ The lag itself behaves like a damped mass-spring system, driven by the force $\L
         \end{equation}
         Physically: Newton's law. To accelerate the mass $\Lambda$ at $a$, the force $\Lambda a$ is needed, and its only
         source is the stretched spring. Example: $\Lambda = 20$\,kg, $a = 0.1$\,m/s$^2$, $K = 1000$\,N/m: $e = 2$\,mm.
-        The same holds when braking (the tool then runs ahead of the target, which shows up as overshoot).
+        The same holds when braking (the tool then runs ahead of the setpoint, which shows up as overshoot).
   \item \textbf{How fast the lag builds up and dies out}: Eq.~\eqref{eq:al-error} is critically damped, with the time
         constant $\sqrt{\Lambda/K}$: 0.14\,s for 20\,kg and 1000\,N/m, 0.22\,s for 400\,N/m, i.e.\ 4--7 policy steps.
         The lag reaches the value of Eq.~\eqref{eq:al-lag} if the acceleration lasts longer than about three time
-        constants, and it disappears again within a similar time once the target moves at constant speed. This
+        constants, and it disappears again within a similar time once the setpoint moves at constant speed. This
         matters for testing: short test moves end before the lag has settled. Our first sweep (20 policy steps per
         segment, reversals that only braked) therefore showed 1.9\,mm at 0.1\,m/s$^2$; moves that brake \emph{and}
         reverse, or that run up to the speed cap, accelerate long enough and reached 2.15\,mm
@@ -205,7 +205,7 @@ fork works for stems at the far edge of the spawn area, 9 October), so the lag t
 this as a known limit until the inertia feedforward (B3).
 
 \paragraph{How severe the trade-off is for the task.} Turning Eq.~\eqref{eq:al-lag} around: for a largest acceptable lag $e_\text{max}$, the
-target may accelerate at most at
+setpoint may accelerate at most at
 \begin{equation}
   a_\text{max} \approx \frac{K\, e_\text{max}}{\Lambda}.
   \label{eq:al-amax}
@@ -213,7 +213,7 @@ target may accelerate at most at
 With $\Lambda = 21.5$\,kg (the heaviest pose and direction) and $e_\text{max} = 2$\,mm: 0.04\,m/s$^2$ at
 $K = 400$\,N/m and 0.09\,m/s$^2$ at 1000\,N/m. We use 0.08\,m/s$^2$, which leaves about 15\,\% margin (lag
 $\le 1.72$\,mm; measured 1.68\,mm, Table~\ref{tab:al-final}). What this means for the task (the
-target speeds up at $a_\text{max}$ until the speed cap, then brakes at $a_\text{max}$):
+setpoint speeds up at $a_\text{max}$ until the speed cap, then brakes at $a_\text{max}$):
 \begin{center}
 {\renewcommand{\arraystretch}{1.15}
 \begin{tabular}{rrrrr}
@@ -253,19 +253,19 @@ Two consequences, both measured:
         the fork tilts by about $\Lambda_{op} a / K_o$. Table~\ref{tab:al-diag} shows the tilt falling with $1/K_o$
         (2.0$^\circ$ at $K_o = 30$, 0.26$^\circ$ at 300\,N\,m/rad).
   \item \textbf{Slot-base drift while turning.} Turning the fork at angular acceleration $\alpha$ needs, besides the moment, a
-        force at the slot base, which the position spring supplies by stretching: the slot base moves away from its target by
+        force at the slot base, which the position spring supplies by stretching: the slot base moves away from its setpoint by
         about $\Lambda_{po}\,\alpha / K$, although the position command is constant (Tables~\ref{tab:al-rot}
         and~\ref{tab:al-b1}).
 \end{itemize}
 Both effects scale with the acceleration, like the lag. A controller with inertia feedforward (operational-space
 control, option B3 below) would supply these coupling forces and moments from the model and remove both.
 
-\paragraph{Contact.} When the tool is blocked (e.g.\ pressed against the stem), the target keeps moving and the
+\paragraph{Contact.} When the tool is blocked (e.g.\ pressed against the stem), the setpoint keeps moving and the
 lag becomes force: $K e$. Small lags therefore also mean small unintended forces. A hard bound is added by
-clamping the target: at every control step, $\lVert x_d - x \rVert \le 4$\,mm (spring force $\le 4$\,N at
-$K = 1000$\,N/m) and the angle between target and slot base orientation $\le 3^\circ$ (moment $\le 5.2$\,N\,m at
+clamping the setpoint: at every control step, $\lVert x_d - x \rVert \le 4$\,mm (spring force $\le 4$\,N at
+$K = 1000$\,N/m) and the angle between setpoint and slot base orientation $\le 3^\circ$ (moment $\le 5.2$\,N\,m at
 $K_o = 100$\,N\,m/rad). In free motion the clamp is inactive, because the lag stays below 2\,mm. While it holds the
-target, the target moves with the slot base, so the target velocity fed forward is the slot base's own velocity: the damper
+setpoint, the setpoint moves with the slot base, so the setpoint velocity fed forward is the slot base's own velocity: the damper
 then adds no force to the bounded spring force, and the controller does not switch back and forth between holding and
 releasing. Not bounded by the clamp: the momentum of the arm when the moving fork first hits something (as with any
 impedance controller); the policy is meant to learn to approach gently (contact-force and smoothness penalties).
@@ -315,22 +315,22 @@ How much this matters depends on the option chosen (Section~\ref{sec:al-choices}
 control period 2\,ms, policy step 32\,ms, no stem (free space). Every test commands the fork with the same commands
 a policy could send, through the full controller.
 
-\paragraph{Commands and limits.} A command is a target step per policy step. Three limits act on it:
+\paragraph{Commands and limits.} A command is a setpoint step per policy step. Three limits act on it:
 \begin{itemize}
   \item \emph{speed cap}: the largest step, e.g.\ 3.2\,mm per 32\,ms = 10\,cm/s (rotation: 1.44$^\circ$ = 45$^\circ$/s);
   \item \emph{acceleration limit}: the largest change of the step from one policy step to the next. A change of
         0.1\,mm per step means $a = 0.1\,\text{mm}/(32\,\text{ms})^2 \approx 0.1$\,m/s$^2$, 0.08\,mm per step
-        0.08\,m/s$^2$ (rotation: 0.02$^\circ$ per step $\approx$ 20$^\circ$/s$^2$). Commanding ``full speed'' from rest therefore makes the target speed up at
+        0.08\,m/s$^2$ (rotation: 0.02$^\circ$ per step $\approx$ 20$^\circ$/s$^2$). Commanding ``full speed'' from rest therefore makes the setpoint speed up at
         this acceleration until the speed cap; commanding ``stop'' makes it brake at the same rate;
-  \item the first design (Table~\ref{tab:al-first}) had a speed cap only, so the target jumped from rest to full
+  \item the first design (Table~\ref{tab:al-first}) had a speed cap only, so the setpoint jumped from rest to full
         speed in one step.
 \end{itemize}
 
 \paragraph{Test moves.} \emph{Straight move}: full command along one axis of the robot base frame ($\pm x$, $\pm y$,
-$\pm z$) for a number of policy steps, then zero command (``hold'') for 45 steps (1.4\,s), during which the target
+$\pm z$) for a number of policy steps, then zero command (``hold'') for 45 steps (1.4\,s), during which the setpoint
 brakes and stops. \emph{Reversal}: full command along $+x$, then immediately along $-x$ (same for $y$, $z$), then hold;
 this contains the largest change of velocity. Since 8 October the second segment is twice as long, so that the
-target brakes \emph{and} reverses (before, it only braked to rest). \emph{Full-speed move} (since 8 October): from
+setpoint brakes \emph{and} reverses (before, it only braked to rest). \emph{Full-speed move} (since 8 October): from
 rest up to the speed cap, 10 steps at the cap, then braking to rest (about 16\,cm; rotations about 120$^\circ$),
 one per axis, in a direction with room for it (towards the middle of the workspace; up along $z$).
 \emph{Rotation moves}: the same about the base axes, with zero position command. \emph{Start points}: either the
@@ -343,12 +343,12 @@ concerns the two start points low and close to the robot ($x$ 0.35, $z$ 0.20\,m)
 
 \paragraph{What is measured (all tables).}
 \begin{itemize}
-  \item \emph{Lag} (following error): the largest distance between the target position and the actual slot-base
+  \item \emph{Lag} (following error): the largest distance between the setpoint position and the actual slot-base
         position during the move and the hold. The quantity of Eq.~\eqref{eq:al-lag}.
-  \item \emph{Overshoot}: how far the slot base goes past the target's final position after it stops.
+  \item \emph{Overshoot}: how far the slot base goes past the setpoint's final position after it stops.
   \item \emph{Tilt}: the largest change of the fork's orientation during a straight move, although no rotation is
         commanded.
-  \item \emph{Angle lag}: during rotation moves, the largest angle between the target and the actual orientation.
+  \item \emph{Angle lag}: during rotation moves, the largest angle between the setpoint and the actual orientation.
   \item \emph{Slot-base drift}: during rotation moves, the largest displacement of the slot base, although no translation is
         commanded.
 \end{itemize}
@@ -383,8 +383,8 @@ overshoot $\le 5$\,mm, tilt $\le 1^\circ$; angle lag $\le 2^\circ$, slot-base dr
   \centering
   \caption{\textbf{How the lag evolves over time} (illustrates Eq.~\eqref{eq:al-error}). Start pose, $K = 400$\,N/m,
   $K_o = 30$\,N\,m/rad. One straight move along $+x$ at full command for 40 policy steps. With the acceleration limit
-  of 0.49\,m/s$^2$ the target speeds up during the first 13 steps (0.42\,s) and then moves at constant speed.
-  Lag of the slot base behind the target after 10, 20, 30 and 40 policy steps.}
+  of 0.49\,m/s$^2$ the setpoint speeds up during the first 13 steps (0.42\,s) and then moves at constant speed.
+  Lag of the slot base behind the setpoint after 10, 20, 30 and 40 policy steps.}
   \label{tab:al-time}
   {\renewcommand{\arraystretch}{1.15}
   \begin{tabular}{lrrrr}
@@ -401,7 +401,7 @@ overshoot $\le 5$\,mm, tilt $\le 1^\circ$; angle lag $\le 2^\circ$, slot-base dr
   \end{tabular}}
 
   \smallskip
-  {\small With feedforward the lag builds up while the target accelerates and dies out at constant speed (case 1 and 2
+  {\small With feedforward the lag builds up while the setpoint accelerates and dies out at constant speed (case 1 and 2
   of Section~\ref{sec:al-problem}); without it, the lag grows towards $D\dot x_d/K$. Switching off the null-space
   spring gave the same numbers.}
 \end{table}
@@ -536,7 +536,7 @@ These are the building blocks of the design. Every one moves the balance between
 \emph{gentleness} (forces on the plant) and \emph{effort} (implementation, identification, training time). The
 current value is given in the first column.
 
-\paragraph{Controller (what turns the target into torques).}
+\paragraph{Controller (what turns the setpoint into torques).}
 \begin{center}
 {\small\renewcommand{\arraystretch}{1.2}
 \begin{tabular}{>{\raggedright\arraybackslash}p{0.16\textwidth}>{\raggedright\arraybackslash}p{0.23\textwidth}>{\raggedright\arraybackslash}p{0.245\textwidth}>{\raggedright\arraybackslash}p{0.245\textwidth}}
@@ -544,7 +544,7 @@ current value is given in the first column.
   Building block (current) & What it is & Gains & Costs \\
   \midrule
   Translational stiffness $K$ \newline (\textbf{1000\,N/m}, was 400)
-    & spring between target and slot base position. Franka's examples use 150--400\,N/m; Franka's internal Cartesian
+    & spring between setpoint and slot base position. Franka's examples use 150--400\,N/m; Franka's internal Cartesian
       impedance accepts up to 3000\,N/m
     & lag $\propto 1/K$, so $a_\text{max} \propto K$ (Eq.~\ref{eq:al-amax}); less position error from joint friction on
       the real arm (error $\approx$ friction$/K$)
@@ -552,18 +552,18 @@ current value is given in the first column.
       more; stability margin on the real robot to be checked \\
   \addlinespace\cmidrule(lr){1-4}\addlinespace
   Rotational stiffness $K_o$ \newline (\textbf{100\,N\,m/rad}, was 30)
-    & spring between target and slot base orientation (10--300\,N\,m/rad)
+    & spring between setpoint and slot base orientation (10--300\,N\,m/rad)
     & tilt $\propto 1/K_o$ while translating (Table~\ref{tab:al-diag}); smaller angle lag when turning
     & twists a stem caught in the fork more stiffly; same noise/stability caveat as $K$ \\
   \addlinespace\cmidrule(lr){1-4}\addlinespace
   Damping $D$ \newline (\textbf{$2\sqrt K\Lambda^{1/2}$})
-    & damper between target and slot base velocity
+    & damper between setpoint and slot base velocity
     & critical in every pose and direction; Franka's $2\sqrt K$ (critical only for 1\,kg) overshot by up to 7\,mm
     & uses the model of $\Lambda$ (only for the damping) \\
   \addlinespace\cmidrule(lr){1-4}\addlinespace
   Velocity feedforward $\dot x_d$ \newline (\textbf{on})
-    & the damper acts on the velocity \emph{difference}, not on the slot base velocity; while the clamp holds the target,
-      $\dot x_d$ is the slot base's velocity (the held target moves with the slot base)
+    & the damper acts on the velocity \emph{difference}, not on the slot base velocity; while the clamp holds the setpoint,
+      $\dot x_d$ is the slot base's velocity (the held setpoint moves with the slot base)
     & no lag at constant speed (without it: 82\,mm at 20\,cm/s, Table~\ref{tab:al-time}); no damping force on top of
       the clamp's bound
     & none found \\
@@ -593,14 +593,14 @@ current value is given in the first column.
   Building block (current) & What it is & Gains & Costs \\
   \midrule
   Speed cap \newline (\textbf{10\,cm/s, 45$^\circ$/s}; 20\,cm/s until 8 Oct.)
-    & largest target step per policy step
+    & largest setpoint step per policy step
     & the policy can approach and turn within one episode; 10\,cm/s is reached and left again within about 13\,cm,
       i.e.\ within the stem area
     & 20\,cm/s needed 42\,cm to reach and leave, more than the stem area, and lagged up to 3.35\,mm on such moves
       (Table~\ref{tab:al-final}) \\
   \addlinespace\cmidrule(lr){1-4}\addlinespace
   Acceleration limit \newline (\textbf{0.08\,m/s$^2$, 20$^\circ$/s$^2$}; 0.1\,m/s$^2$ until 8 Oct.)
-    & largest change of the target step from one policy step to the next
+    & largest change of the setpoint step from one policy step to the next
     & \emph{the} knob for the lag (Eq.~\ref{eq:al-lag}); part of the policy-side code, so identical in sim and on the
       robot; the policy sees the applied step, so it can learn the limit
     & less agility: long time to speed and long braking distance (table in Section~\ref{sec:al-problem}) \\
@@ -616,14 +616,14 @@ current value is given in the first column.
     & adds hidden state; Ref.~\cite{al-aljalbout2024} saw learning collapse with a limiter the policy could not see;
       no hard bound on the acceleration \\
   \addlinespace\cmidrule(lr){1-4}\addlinespace
-  Target clamp \newline $\lVert x_d - x\rVert \le e_\text{clamp}$ \newline (\textbf{4\,mm, 3$^\circ$}, every control
+  Setpoint clamp \newline $\lVert x_d - x\rVert \le e_\text{clamp}$ \newline (\textbf{4\,mm, 3$^\circ$}, every control
     step)
-    & the target is never further than $e_\text{clamp}$ from the measured tool; checked at every control step, not
+    & the setpoint is never further than $e_\text{clamp}$ from the measured tool; checked at every control step, not
       once per policy step (which would also cut steps in free motion)
     & hard bound on the spring force when the tool is blocked: 4\,mm $\times$ 1000\,N/m = 4\,N (about 3 times the
       measured push forces of 0.8--1.4\,N), 3$^\circ \times$ 100\,N\,m/rad = 5.2\,N\,m (43\,\% of the FR3's 12\,N\,m
       wrist torque limit; 10$^\circ$ would exceed it), even if the policy keeps pushing
-    & must stay above the free-space lag (2\,mm), otherwise it acts while moving; while it acts, the target does not
+    & must stay above the free-space lag (2\,mm), otherwise it acts while moving; while it acts, the setpoint does not
       follow the commands (the policy sees this in the applied step); runs in the 1\,kHz loop on the robot \\
   \addlinespace\cmidrule(lr){1-4}\addlinespace
   Policy rate \newline (\textbf{31.25\,Hz})
@@ -631,7 +631,7 @@ current value is given in the first column.
     & higher: finer commands, quicker reaction
     & more policy evaluations per second of simulation, so longer training; more sensitive to latency \\
   \addlinespace\cmidrule(lr){1-4}\addlinespace
-  Action space \newline (\textbf{Cartesian steps on the previous target})
+  Action space \newline (\textbf{Cartesian steps on the previous setpoint})
     & alternatives: joint velocities, Cartesian velocities, absolute poses, joint torques
     & joint velocities transferred best in Ref.~\cite{al-aljalbout2024} (stiff joint-level tracking)
     & joint velocities: no Cartesian compliance at contact, which matters for a fragile stem; torques: motion set by
@@ -711,7 +711,7 @@ Decision (7 October 2026, revised 8 October): \textbf{B1 for the first training 
 feedforward) once a policy trains successfully and the robot's $\Lambda$ has been checked. Values from
 Table~\ref{tab:al-final}: $K = 1000$\,N/m, $K_o = 100$\,N\,m/rad, speed caps 10\,cm/s (3.2\,mm per step) and
 45$^\circ$/s, acceleration limits 0.08\,m/s$^2$ (0.08\,mm per step) and 20$^\circ$/s$^2$ (0.02$^\circ$ per step),
-target clamp 4\,mm and 3$^\circ$ at every control step. On 8 October the speed cap was halved and the acceleration
+setpoint clamp 4\,mm and 3$^\circ$ at every control step. On 8 October the speed cap was halved and the acceleration
 limit lowered from 0.1\,m/s$^2$, after moves that run up to the cap and reversals that really reverse showed lags of
 up to 3.35\,mm and 2.15\,mm (Table~\ref{tab:al-final}).
 

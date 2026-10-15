@@ -1,4 +1,4 @@
-"""Unit tests of the Cartesian impedance law and the target integration (no simulator)."""
+"""Unit tests of the Cartesian impedance law and the setpoint integration (no simulator)."""
 
 import math
 
@@ -9,10 +9,10 @@ from stem_manip.utils.impedance import (
     _quat_mul,
     apparent_mass_damping,
     cartesian_impedance_torque,
-    clamp_target_offset,
-    clamp_target_rot_offset,
+    clamp_setpoint_offset,
+    clamp_setpoint_rot_offset,
     integrate_orientation,
-    integrate_target,
+    integrate_setpoint,
     limit_torque_rate,
     quat_from_rotvec,
     rotvec_between,
@@ -25,7 +25,7 @@ GAINS = {"k_pos": 400.0, "k_rot": 10.0, "k_ns": 0.5}
 
 
 def _state(jacobian: torch.Tensor | None = None) -> dict:
-    """Tool at the origin, identity orientation, at rest; target equal to the state."""
+    """Tool at the origin, identity orientation, at rest; setpoint equal to the state."""
     torch.manual_seed(0)
     jacobian = torch.randn(N, 6, M) if jacobian is None else jacobian
     q = torch.randn(N, M)
@@ -36,9 +36,9 @@ def _state(jacobian: torch.Tensor | None = None) -> dict:
         "twist": torch.zeros(N, 6),
         "q": q,
         "dq": torch.zeros(N, M),
-        "target_pos": torch.zeros(N, 3),
-        "target_vel": torch.zeros(N, 3),
-        "target_quat": torch.tensor([[0.0, 0.0, 0.0, 1.0]]).repeat(N, 1),
+        "setpoint_pos": torch.zeros(N, 3),
+        "setpoint_vel": torch.zeros(N, 3),
+        "setpoint_quat": torch.tensor([[0.0, 0.0, 0.0, 1.0]]).repeat(N, 1),
         "q_ns": q.clone(),
     }
 
@@ -54,33 +54,33 @@ def _identity_jacobian() -> torch.Tensor:
 
 
 def test_zero_error_zero_torque():
-    """Tool at its target, at rest, posture at rest: no torque."""
+    """Tool at its setpoint, at rest, posture at rest: no torque."""
     tau = cartesian_impedance_torque(**_state(), **GAINS)
     assert torch.allclose(tau, torch.zeros(N, M), atol=1e-5)
 
 
-def test_spring_pulls_towards_target():
-    """Target 1 cm ahead in x: force K_p * 0.01 along +x, nothing else."""
+def test_spring_pulls_towards_setpoint():
+    """Setpoint 1 cm ahead in x: force K_p * 0.01 along +x, nothing else."""
     state = _state(_identity_jacobian())
-    state["target_pos"][:, 0] = 0.01
+    state["setpoint_pos"][:, 0] = 0.01
     wrench = _task_wrench(state)
     assert torch.allclose(wrench[:, 0], torch.full((N,), 4.0), atol=1e-5)
     assert torch.allclose(wrench[:, 1:], torch.zeros(N, 5), atol=1e-5)
 
 
 def test_damping_opposes_velocity_and_feedforward_cancels_it():
-    """Moving at 0.1 m/s: damping force -2 sqrt(K) * 0.1; with the same target velocity it vanishes."""
+    """Moving at 0.1 m/s: damping force -2 sqrt(K) * 0.1; with the same setpoint velocity it vanishes."""
     state = _state(_identity_jacobian())
     state["twist"][:, 1] = 0.1
     assert torch.allclose(_task_wrench(state)[:, 1], torch.full((N,), -2.0 * math.sqrt(400.0) * 0.1), atol=1e-5)
-    state["target_vel"][:, 1] = 0.1
+    state["setpoint_vel"][:, 1] = 0.1
     assert torch.allclose(_task_wrench(state)[:, 1], torch.zeros(N), atol=1e-5)
 
 
-def test_rotational_spring_turns_towards_target():
-    """Target rotated by +0.2 rad about z: positive moment about z, K_o sin(0.1) (Franka's quaternion error)."""
+def test_rotational_spring_turns_towards_setpoint():
+    """Setpoint rotated by +0.2 rad about z: positive moment about z, K_o sin(0.1) (Franka's quaternion error)."""
     state = _state(_identity_jacobian())
-    state["target_quat"] = torch.tensor([[0.0, 0.0, math.sin(0.1), math.cos(0.1)]]).repeat(N, 1)
+    state["setpoint_quat"] = torch.tensor([[0.0, 0.0, math.sin(0.1), math.cos(0.1)]]).repeat(N, 1)
     wrench = _task_wrench(state)
     assert torch.allclose(wrench[:, 5], torch.full((N,), 10.0 * math.sin(0.1)), atol=1e-5)
     assert torch.allclose(wrench[:, 3:5], torch.zeros(N, 2), atol=1e-5)
@@ -97,14 +97,14 @@ def test_nullspace_does_not_move_the_tool():
     assert tau.abs().max() > 1e-3
 
 
-def test_integrate_target_limits_the_step():
+def test_integrate_setpoint_limits_the_step():
     """Per-axis actions are scaled by max_step, and the step's length never exceeds max_step."""
-    target = torch.zeros(N, 3)
-    new, step = integrate_target(target, torch.tensor([[0.5, 0.0, 0.0], [1.0, 1.0, 1.0]]), 0.00125)
+    setpoint = torch.zeros(N, 3)
+    new, step = integrate_setpoint(setpoint, torch.tensor([[0.5, 0.0, 0.0], [1.0, 1.0, 1.0]]), 0.00125)
     assert torch.allclose(step[0], torch.tensor([0.000625, 0.0, 0.0]))
     assert math.isclose(float(step[1].norm()), 0.00125, rel_tol=1e-6)
     assert torch.allclose(new, step)
-    _, step = integrate_target(target, torch.full((N, 3), 5.0), 0.00125)  # out-of-range actions are clipped
+    _, step = integrate_setpoint(setpoint, torch.full((N, 3), 5.0), 0.00125)  # out-of-range actions are clipped
     assert torch.all(step.norm(dim=-1) <= 0.00125 + 1e-9)
 
 
@@ -126,7 +126,7 @@ def test_damping_matrix_replaces_franka_damping():
     """With D = diag(2 sqrt(K)) passed explicitly, the torque equals Franka's default."""
     state = _state()
     state["twist"] = torch.randn(N, 6)
-    state["target_vel"] = torch.randn(N, 3)
+    state["setpoint_vel"] = torch.randn(N, 3)
     franka = torch.diag(torch.tensor([2 * 20.0] * 3 + [2 * math.sqrt(10.0)] * 3)).repeat(N, 1, 1)
     tau_default = cartesian_impedance_torque(**state, **GAINS)
     tau_matrix = cartesian_impedance_torque(**state, **GAINS, damping=franka)
@@ -154,30 +154,30 @@ def test_integrate_orientation_limits_and_composes_in_base_frame():
 
 
 def test_rotational_feedforward_cancels_damping():
-    """Turning at 0.5 rad/s about z: damping moment -2 sqrt(K_o) * 0.5; with the same target rate it vanishes."""
+    """Turning at 0.5 rad/s about z: damping moment -2 sqrt(K_o) * 0.5; with the same setpoint rate it vanishes."""
     state = _state(_identity_jacobian())
     state["twist"][:, 5] = 0.5
     wrench = _task_wrench(state)
     assert torch.allclose(wrench[:, 5], torch.full((N,), -2.0 * math.sqrt(10.0) * 0.5), atol=1e-5)
-    tau = cartesian_impedance_torque(**state, **GAINS, target_ang_vel=torch.tensor([[0.0, 0.0, 0.5]]).repeat(N, 1))
+    tau = cartesian_impedance_torque(**state, **GAINS, setpoint_ang_vel=torch.tensor([[0.0, 0.0, 0.5]]).repeat(N, 1))
     assert torch.allclose(tau[:, 5], torch.zeros(N), atol=1e-5)
 
 
 def test_step_change_is_limited_and_reaches_the_desired_step():
     """From rest, a full action ramps the step up by at most max_change per policy step until max_step; a zero
-    action then ramps it down the same way (the target brakes instead of stopping at once)."""
+    action then ramps it down the same way (the setpoint brakes instead of stopping at once)."""
     max_step, max_change = 0.0064, 0.0005
-    target, step = torch.zeros(1, 3), torch.zeros(1, 3)
+    setpoint, step = torch.zeros(1, 3), torch.zeros(1, 3)
     full = torch.tensor([[1.0, 0.0, 0.0]])
     steps = []
     for _ in range(20):
-        new_target, new_step = integrate_target(target, full, max_step, step, max_change)
+        new_setpoint, new_step = integrate_setpoint(setpoint, full, max_step, step, max_change)
         assert float((new_step - step).norm()) <= max_change + 1e-9
-        target, step = new_target, new_step
+        setpoint, step = new_setpoint, new_step
         steps.append(float(step[0, 0]))
     assert math.isclose(steps[0], max_change, rel_tol=1e-6)
     assert math.isclose(steps[-1], max_step, rel_tol=1e-6)
-    _, braked = integrate_target(target, torch.zeros(1, 3), max_step, step, max_change)
+    _, braked = integrate_setpoint(setpoint, torch.zeros(1, 3), max_step, step, max_change)
     assert math.isclose(float(braked[0, 0]), max_step - max_change, rel_tol=1e-6)
 
 
@@ -192,10 +192,10 @@ def test_rotation_step_change_is_limited():
 
 def test_speed_cap_holds_after_a_longer_previous_step():
     """The cap has priority over the step-change limit: after a step longer than the cap (the clamp dragged the
-    target along with a fast tool), the next step is at most the cap, for translation and rotation."""
+    setpoint along with a fast tool), the next step is at most the cap, for translation and rotation."""
     prev = torch.tensor([[0.01, 0.0, 0.0], [0.0, 0.0, -0.008]])
     action = torch.tensor([[1.0, 0.0, 0.0], [0.0, 0.0, -1.0]])
-    _, step = integrate_target(torch.zeros(N, 3), action, 0.0064, prev, 1e-4)
+    _, step = integrate_setpoint(torch.zeros(N, 3), action, 0.0064, prev, 1e-4)
     assert (step.norm(dim=-1) <= 0.0064 + 1e-9).all()
     _, rot_step = integrate_orientation(torch.tensor([[0.0, 0.0, 0.0, 1.0]] * N), action, 0.02513, 3 * prev, 0.000349)
     assert (rot_step.norm(dim=-1) <= 0.02513 + 1e-9).all()
@@ -209,22 +209,22 @@ def test_rotvec_from_quat_inverts_quat_from_rotvec():
     assert torch.allclose(rotvec_from_quat(-quat), rotvec, atol=1e-6)
 
 
-def test_clamp_target_offset():
-    """Offsets inside the bound are kept; outside, the target is pulled back along the offset to the bound."""
+def test_clamp_setpoint_offset():
+    """Offsets inside the bound are kept; outside, the setpoint is pulled back along the offset to the bound."""
     pos = torch.tensor([[0.1, 0.2, 0.3], [0.1, 0.2, 0.3]])
-    target = pos + torch.tensor([[0.005, 0.0, 0.0], [0.0, 0.03, 0.04]])
-    clamped, held = clamp_target_offset(target, pos, 0.01)
+    setpoint = pos + torch.tensor([[0.005, 0.0, 0.0], [0.0, 0.03, 0.04]])
+    clamped, held = clamp_setpoint_offset(setpoint, pos, 0.01)
     assert held.tolist() == [False, True]
-    assert torch.allclose(clamped[0], target[0])
+    assert torch.allclose(clamped[0], setpoint[0])
     assert torch.allclose(clamped[1] - pos[1], torch.tensor([0.0, 0.006, 0.008]), atol=1e-7)
 
 
-def test_clamp_target_rot_offset():
-    """A 30 deg target offset about x is reduced to 10 deg about the same axis; a 5 deg offset is kept."""
+def test_clamp_setpoint_rot_offset():
+    """A 30 deg setpoint offset about x is reduced to 10 deg about the same axis; a 5 deg offset is kept."""
     tool = quat_from_rotvec(torch.tensor([[0.0, 0.0, 0.7], [0.0, 0.0, 0.7]]))
     offsets = torch.tensor([[math.radians(5.0), 0.0, 0.0], [math.radians(30.0), 0.0, 0.0]])
-    target = _quat_mul(quat_from_rotvec(offsets), tool)
-    clamped, held = clamp_target_rot_offset(target, tool, math.radians(10.0))
+    setpoint = _quat_mul(quat_from_rotvec(offsets), tool)
+    clamped, held = clamp_setpoint_rot_offset(setpoint, tool, math.radians(10.0))
     assert held.tolist() == [False, True]
     remaining = rotvec_from_quat(_quat_mul(clamped, _quat_conj(tool)))
     assert torch.allclose(remaining[0], offsets[0], atol=1e-6)
@@ -238,24 +238,24 @@ def test_rotvec_between():
     assert torch.allclose(rotvec_between(_quat_mul(quat_from_rotvec(v), b), b), v, atol=1e-6)
 
 
-def test_integrate_target_without_change_limit():
+def test_integrate_setpoint_without_change_limit():
     """`prev_step` without `max_change` means no change limit (not an error)."""
-    target, step = integrate_target(torch.zeros(N, 3), torch.ones(N, 3), 0.0032, torch.zeros(N, 3))
+    setpoint, step = integrate_setpoint(torch.zeros(N, 3), torch.ones(N, 3), 0.0032, torch.zeros(N, 3))
     assert torch.allclose(step.norm(dim=-1), torch.full((N,), 0.0032))
-    assert torch.allclose(target, step)
+    assert torch.allclose(setpoint, step)
 
 
 SUBSTEP = {"policy_dt": 0.032, "max_offset": 0.004, "max_rot_offset": math.radians(3.0)}
 
 
 def test_substep_command_free_motion():
-    """Free motion: the target is interpolated through the step, the clamp is inactive and the feedforward velocity
+    """Free motion: the setpoint is interpolated through the step, the clamp is inactive and the feedforward velocity
     is the step's velocity (the tool lags 0.5 mm, far below the bound); the held flags are False."""
     start = torch.zeros(N, 3)
     start_quat = quat_from_rotvec(torch.zeros(N, 3))
     step = torch.tensor([[0.0032, 0.0, 0.0, 0.0, 0.0, 0.0251], [0.0, 0.002, 0.0, 0.01, 0.0, 0.0]])
     pos = start - torch.tensor([0.0005, 0.0, 0.0])
-    slot_base_vel = torch.full((N, 3), 0.05)  # must not be used: the target is not held
+    slot_base_vel = torch.full((N, 3), 0.05)  # must not be used: the setpoint is not held
     pos_t, quat_t, vel, ang_vel, held = substep_command(
         start, start_quat, step, 0.5, pos, start_quat, slot_base_vel, slot_base_vel, **SUBSTEP
     )
@@ -267,12 +267,12 @@ def test_substep_command_free_motion():
 
 
 def test_substep_command_blocked():
-    """Blocked tool: the target is held at the bound (4 mm / 3 deg from the tool) and moves with the tool, so the
+    """Blocked tool: the setpoint is held at the bound (4 mm / 3 deg from the tool) and moves with the tool, so the
     feedforward velocity is the tool's (the damping adds no force on top of the spring); env 1 stays free. The held
     flags (translation, rotation) say where the clamp acted."""
     pos = torch.zeros(N, 3)
     quat = quat_from_rotvec(torch.zeros(N, 3))
-    start = torch.tensor([[0.003, 0.0, 0.0], [0.0, 0.0, 0.0]])  # env 0: target already 3 mm ahead
+    start = torch.tensor([[0.003, 0.0, 0.0], [0.0, 0.0, 0.0]])  # env 0: setpoint already 3 mm ahead
     start_quat = quat_from_rotvec(torch.tensor([[0.0, 0.0, math.radians(2.5)], [0.0, 0.0, 0.0]]))
     step = torch.tensor([[0.0032, 0.0, 0.0, 0.0, 0.0, math.radians(1.44)], [0.001, 0.0, 0.0, 0.0, 0.0, 0.0]])
     slot_base_vel = torch.tensor([[0.01, 0.0, 0.0], [0.05, 0.0, 0.0]])

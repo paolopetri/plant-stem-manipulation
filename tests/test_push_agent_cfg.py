@@ -17,7 +17,7 @@ RUNNER = {
     "experiment_name": "stem_push_position",
     # critic sees the policy obs only; critic-only contact forces: #87
     "obs_groups": {"actor": ["policy"], "critic": ["policy"]},
-    "clip_actions": None,  # the action term clips each axis to [-1, 1] (`integrate_target`)
+    "clip_actions": None,  # the action term clips each axis to [-1, 1] (`integrate_setpoint`)
     "logger": "wandb",
     "wandb_project": "stem-manip",
 }
