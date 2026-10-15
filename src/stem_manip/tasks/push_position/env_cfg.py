@@ -124,7 +124,8 @@ class ActionsCfg:
 
 @configclass
 class CommandsCfg:
-    """Target position of the stem tip, sampled once per episode (decided values: cfg defaults, user 2026-10-08)."""
+    """Target position of the stem tip, sampled once per episode (decided values: cfg defaults, user 2026-10-08), and
+    the stem metrics (a metrics-only term, `mdp/metrics.py`)."""
 
     # resampling time far above the episode length: the target is sampled only at reset
     stem_target = mdp.StemTipTargetCommandCfg(
@@ -133,6 +134,8 @@ class CommandsCfg:
         resampling_time_range=(1e9, 1e9),
         debug_vis=True,
     )
+    # metrics only, logged and never observed: no command, nothing to resample
+    stem_metrics = mdp.StemMetricsCfg(resampling_time_range=(1e9, 1e9))
 
 
 @configclass
@@ -181,7 +184,7 @@ class EventCfg:
 @configclass
 class RewardsCfg:
     """Task (stem tip to target), approach (fork to stem), damage penalties below the limits, smooth motion, early
-    terminations. Weights: a first guess for the baseline (user, 2026-10-09)."""
+    terminations. Weights: a first guess for the baseline (user, 2026-10-09); termination penalty 2026-10-15."""
 
     distance_coarse = RewTerm(func=mdp.stem_point_distance_tanh, weight=1.0, params={"std": DISTANCE_STD[0]})
     # ellipsoid (user, 2026-10-10): height error scaled to std HEIGHT_STD (3 mm), so that a side push stalling on the
@@ -206,7 +209,9 @@ class RewardsCfg:
         params={"threshold": CONTACT_FREE_FORCE, "sensor_cfg": SceneEntityCfg("stem_contact")},
     )
     action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
-    terminated = RewTerm(func=mdp.is_terminated, weight=-10.0)
+    # about -5 per termination in effect (x policy dt 0.032 s), so that continuing beats ending early; early
+    # terminations only, not the time out (user, 2026-10-15)
+    terminated = RewTerm(func=mdp.is_terminated, weight=-150.0)
 
 
 @configclass

@@ -9,6 +9,7 @@ Each model module provides the same functions (table in `docs/architecture.md`, 
 - `segment_poses(stem)`: (num_envs, num_segments, 7) segment poses, world frame;
 - `segment_length(stem)`: rest length of one segment, read from the asset;
 - `segment_masses(stem)`, `joint_gains(stem)`: read back masses and joint gains;
+- `joint_wrenches(stem)`: joint reaction wrenches, for the stem state's axial compression (`chain` only);
 - `write_kick(stem, angular_velocity)`, `segment_force_setter(stem)`: kick and push for the checks.
 
 Models: `cable` (Newton cable, VBD solver), `chain` (rigid segments with spring joints, PhysX articulation).
