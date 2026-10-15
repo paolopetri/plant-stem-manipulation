@@ -143,11 +143,11 @@ class ObservationsCfg:
         slot_base_rot = ObsTerm(func=mdp.slot_base_rot6d)
         applied_step = ObsTerm(func=mdp.applied_step)
         setpoint_offset = ObsTerm(func=mdp.setpoint_offset)
-        stem_base = ObsTerm(func=mdp.stem_points, params={"arc_lengths": (0.0,), "model": STEM_MODEL})
+        stem_base = ObsTerm(func=mdp.stem_points, params={"arc_lengths": (0.0,)})
         # 5 points up to the tip, plus the same points one policy step earlier (the stem's motion; user, 2026-10-08)
         stem_points = ObsTerm(
             func=mdp.stem_points,
-            params={"arc_lengths": (0.08, 0.16, 0.24, 0.32, 0.40), "model": STEM_MODEL},
+            params={"arc_lengths": (0.08, 0.16, 0.24, 0.32, 0.40)},
             history_length=2,
         )
         target_pos = ObsTerm(func=mdp.generated_commands, params={"command_name": "stem_target"})
@@ -164,7 +164,7 @@ class EventCfg:
     """Base clamping at startup; robot and stem back to their default states on reset, then the stem base moved to a
     random place in the spawn area (upright, at rest; before the target command is resampled)."""
 
-    fix_stem_base = EventTerm(func=mdp.fix_stem_base, mode="startup", params={"model": STEM_MODEL})
+    fix_stem_base = EventTerm(func=mdp.fix_stem_base, mode="startup")
     reset_scene = EventTerm(func=mdp.reset_scene_to_default, mode="reset", params={"reset_joint_targets": True})
     spawn_stem = EventTerm(
         func=mdp.reset_stem_base_uniform,
@@ -189,19 +189,11 @@ class RewardsCfg:
     # on against the side-push stall on the bowl (`height_error` stayed at +3 mm with weight 0); 0.3: weight 1.0 traded
     # sideways accuracy for height (M5 weekend runs 04-05, docs/experiments/2026-10-10-m5-weekend.md)
     height = RewTerm(func=mdp.stem_point_height_tanh, weight=0.3, params={"std": HEIGHT_STD})
-    approach = RewTerm(
-        func=mdp.approach_tanh,
-        weight=0.5,
-        params={"std": APPROACH_STD, "model": STEM_MODEL},
-    )
+    approach = RewTerm(func=mdp.approach_tanh, weight=0.5, params={"std": APPROACH_STD})
     curvature = RewTerm(
         func=mdp.curvature_penalty,
         weight=-1.0,
-        params={
-            "model": STEM_MODEL,
-            "max_curvature": DAMAGE["max_curvature"],
-            "curvature_budget": CURVATURE_BUDGET,
-        },
+        params={"max_curvature": DAMAGE["max_curvature"], "curvature_budget": CURVATURE_BUDGET},
     )
     contact_force = RewTerm(
         func=mdp.contact_force_penalty,
@@ -217,9 +209,7 @@ class TerminationsCfg:
     """Time out; damage limits (curvature, contact force); joint margin. No slot-base bound (user, 2026-10-09)."""
 
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
-    curvature_limit = DoneTerm(
-        func=mdp.curvature_limit, params={"model": STEM_MODEL, "max_curvature": DAMAGE["max_curvature"]}
-    )
+    curvature_limit = DoneTerm(func=mdp.curvature_limit, params={"max_curvature": DAMAGE["max_curvature"]})
     contact_force_limit = DoneTerm(
         func=mdp.contact_force_limit,
         params={"max_force": DAMAGE["max_contact_force"], "sensor_cfg": SceneEntityCfg("stem_contact")},
@@ -241,6 +231,9 @@ class StemPushPositionEnvCfg(ManagerBasedRLEnvCfg):
     events: EventCfg = EventCfg()
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
+    stem_model: str = STEM_MODEL
+    """Stem model the MDP reads the stem through (`mdp.stem_state`) and the base-fixing event uses
+    (`stem_manip.assets.stem.STEM_MODELS`)."""
     git_commit: str = git_commit()
 
     def __post_init__(self):

@@ -67,6 +67,22 @@ def test_stem_point_is_the_tip(cfg: StemPushPositionEnvCfg):
     assert (command.segment_index + 0.5) * segment_length + command.offset == pytest.approx(geometry["length"])
 
 
+def test_stem_model_is_named_once(cfg: StemPushPositionEnvCfg):
+    """The env cfg names the stem model (`chain`, supervisors 2026-10-06); the terms that read the stem take no
+    stem-model or scene-entity params (they read it through the stem state)."""
+    assert cfg.stem_model == "chain"
+    stem_terms = {
+        "stem_base": cfg.observations.policy.stem_base,
+        "stem_points": cfg.observations.policy.stem_points,
+        "approach": cfg.rewards.approach,
+        "curvature": cfg.rewards.curvature,
+        "curvature_limit": cfg.terminations.curvature_limit,
+        "fix_stem_base": cfg.events.fix_stem_base,
+    }
+    for name, term in stem_terms.items():
+        assert not {"model", "asset_cfg", "robot_cfg"} & set(term.params), name
+
+
 def test_episode_length_is_decided(cfg: StemPushPositionEnvCfg):
     assert cfg.episode_length_s == pytest.approx(EPISODE_LENGTH_S, abs=1e-12)
 

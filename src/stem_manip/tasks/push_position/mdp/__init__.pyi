@@ -12,8 +12,6 @@ __all__ = [
     "joint_margin",
     "reset_stem_base_uniform",
     "robot_contact_force",
-    "stem_curvature",
-    "stem_distance_b",
     "stem_point_distance_tanh",
     "stem_point_height_tanh",
     "stem_points",
@@ -36,5 +34,5 @@ from .rewards import (
     stem_point_distance_tanh,
     stem_point_height_tanh,
 )
-from .stem_state import stem_curvature, stem_distance_b, stem_points
+from .stem_state import stem_points
 from .terminations import contact_force_limit, curvature_limit, joint_limit_margin, joint_margin
