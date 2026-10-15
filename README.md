@@ -116,7 +116,7 @@ uv run --extra isaacsim isaaclab play --task StemManip-Push-Position-FR3-v0 --nu
 
 `upload_video.py` reads the wandb run id from the train output, so it needs the run's output saved to a file
 (`... > logs/autotrain/<name>.out 2>&1`). The output is large (about 120 harmless PhysX warnings per env at
-startup: the contact sensor's filter pattern also matches prims that are not rigid bodies).
+startup, "Failed to find rigid body": Isaac Lab's PhysX manager creates a rigid-body view over every prim, `/**`).
 
 ### Autotrain loop (weekend runs)
 
