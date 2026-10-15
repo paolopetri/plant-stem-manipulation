@@ -7,7 +7,14 @@ import sys
 import pytest
 import torch
 
-from stem_manip.utils.quat import quat_apply, quat_conjugate, quat_from_rotvec, quat_mul, rotvec_from_quat
+from stem_manip.utils.quat import (
+    quat_apply,
+    quat_conjugate,
+    quat_from_rotvec,
+    quat_mul,
+    rotation_angle,
+    rotvec_from_quat,
+)
 
 N = 64
 DTYPE = torch.float64
@@ -72,3 +79,13 @@ def test_stem_geometry_import_loads_no_isaaclab():
     code = "import sys, stem_manip.utils.stem_geometry; print([m for m in sys.modules if m.startswith('isaaclab')])"
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
     assert result.stdout.strip() == "[]"
+
+
+def test_rotation_angle_between_orientations():
+    s = math.sqrt(0.5)
+    identity = torch.tensor([[0.0, 0.0, 0.0, 1.0]] * 3)
+    z90 = torch.tensor([0.0, 0.0, s, s])
+    rotated = torch.stack([z90, -z90, torch.tensor([s, 0.0, 0.0, s])])  # -q is the same rotation as q
+    assert rotation_angle(identity, rotated).tolist() == pytest.approx([math.pi / 2] * 3)
+    assert rotation_angle(rotated, rotated).tolist() == pytest.approx([0.0] * 3, abs=1e-6)
+    assert rotation_angle(z90[None], -z90[None]).tolist() == pytest.approx([0.0], abs=1e-6)

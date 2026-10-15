@@ -53,3 +53,9 @@ def rotvec_from_quat(quat: torch.Tensor) -> torch.Tensor:
     # angle / sin(a/2) -> 2 for a -> 0, keeps small and zero rotations exact
     scale = torch.where(sin_half > 1e-6, angle / sin_half.clamp(min=1e-12), 2.0 + angle**2 / 12.0)
     return quat[..., :3] * scale
+
+
+def rotation_angle(quat_from: torch.Tensor, quat_to: torch.Tensor) -> torch.Tensor:
+    """Angle (...,) [rad] in [0, pi] of the rotation from `quat_from` to `quat_to`, unit quaternions (..., 4)
+    (x, y, z, w) in the same frame."""
+    return rotvec_from_quat(quat_mul(quat_to, quat_conjugate(quat_from))).norm(dim=-1)
