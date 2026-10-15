@@ -121,9 +121,9 @@ Task `StemManip-Push-Position-FR3-v0`, cfg in `src/stem_manip/tasks/push_positio
 The **stem point of interest** is given by one arc length from the stem base, set in the env cfg to the stem length:
 the tip (`STEM_POINT_ARC_LENGTH`; the same quantity as the observed points along the stem). Its **target**
 is sampled once per episode around the tip's rest position: sideways in any direction, at the height the tip reaches
-when pushed (the "bowl") or below it, down to the deepest stem shape within a fraction of the curvature limit (C / S
-bends, which need a moment from the fork's slot). Ranges: `StemTipTargetCommandCfg` (`mdp/commands.py`); shape model:
-`stem_manip.utils.stem_target`. At every reset the stem base is moved to a random place in the spawn area
+when pushed sideways (the "bowl") or below it, down to the deepest stem shape within a fraction of the curvature limit
+(a moment or C / S bend from the fork's slot, or pressing the tip down). Ranges: `StemTipTargetCommandCfg`
+(`mdp/commands.py`); shape model (planar elastica) and its rod table: `stem_manip.utils.stem_target`. At every reset the stem base is moved to a random place in the spawn area
 (`STEM_SPAWN_X` / `STEM_SPAWN_Y` in the env cfg); the target is sampled around the new base.
 
 ## Stem interface (keeps the stem model swappable)

@@ -4,12 +4,12 @@ The stem point is given by its arc length from the stem base (task cfg: the stem
 2026-10-08), the same quantity the observations use. The stem is read through the env's stem state
 (`mdp/stem_state.py`): the stem point at its arc length, the stem base at arc length 0.
 At reset the target is sampled around the point's rest position (`stem_manip.utils.stem_target`): horizontal
-distance and direction uniform, height on or below the "bowl" the point reaches when pushed, down to the deepest
-stem shape within `curvature_budget` x `damage.max_curvature` (user, 2026-10-09). The rest position is the
-stem base plus the point's arc length straight up (assumes an upright stem and an upright robot base; a tilted
-stem (#91) needs a change here). The base is read from the clamped segment 0, so it follows the
-spawn randomization (Isaac Lab resets the events before the command manager). The damage limit comes from the stem
-model named in the env cfg (`env.cfg.stem_model`).
+distance and direction uniform, height on or below the "bowl" the point reaches when pushed sideways, down to the
+deepest stem shape within `curvature_budget` x `damage.max_curvature` (user, 2026-10-09; planar elastica, spec
+#160; its rod table is computed once, at startup). The rest position is the stem base plus the point's arc length
+straight up (assumes an upright stem and an upright robot base; a tilted stem (#91) needs a change here). The base
+is read from the clamped segment 0, so it follows the spawn randomization (Isaac Lab resets the events before the
+command manager). The damage limit comes from the stem model named in the env cfg (`env.cfg.stem_model`).
 
 The command is the target position in the robot base frame (num_envs, 3) [m]; metrics `position_error` [m] (stem
 point to target) and `height_error` [m] (its z part, + = above the target). Debug markers: target (red, green
@@ -33,7 +33,7 @@ from isaaclab.utils import configclass
 from isaaclab.utils.math import combine_frame_transforms
 
 from stem_manip.assets.stem import stem_params
-from stem_manip.utils.stem_target import sample_targets
+from stem_manip.utils.stem_target import rod_table, sample_targets
 
 from .stem_state import stem_state
 
@@ -53,6 +53,8 @@ class StemTipTargetCommand(CommandTerm):
         """Arc length of the stem point from the base [m] (for its rest position)."""
         self.max_curvature = cfg.curvature_budget * stem_params(env.cfg.stem_model)["damage"]["max_curvature"]
         """Curvature of the deepest target shape [1/m]."""
+        self.rod_table = rod_table(self.max_curvature * self.arc_length)
+        """Reachable region of the stem point (bowl and deepest shape); `sample_targets` reuses it (cached)."""
         self.target_b = torch.zeros(self.num_envs, 3, device=self.device)
         self.target_w = torch.zeros(self.num_envs, 3, device=self.device)
         self.metrics["position_error"] = torch.zeros(self.num_envs, device=self.device)

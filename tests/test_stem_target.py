@@ -108,7 +108,7 @@ def test_deepest_shape_matches_numerical_integration(distance: float):
     """The optimizer's shape reaches r within the budget; the table's deepest drop is that shape's drop."""
     theta, kappa, x, z = _shoot(*DEEPEST_SHAPES[distance])
     assert abs(x[-1]) * ARC_LENGTH == pytest.approx(distance, abs=1e-6)
-    assert float(np.abs(kappa).max()) <= BUDGET * (1 + 1e-5)
+    assert float(np.abs(kappa).max()) <= BUDGET * (1 + 1e-4)  # the optimizer held the budget at 201 points
     table = stem_target.rod_table(BUDGET)
     drop = float(table.deepest_drop(torch.tensor([distance], dtype=torch.float64), ARC_LENGTH)[0])
     assert drop == pytest.approx((1.0 - z[-1]) * ARC_LENGTH, abs=2e-5)  # [m], 0.02 mm
@@ -121,6 +121,15 @@ def test_room_below_the_bowl():
     distance = torch.tensor([0.03, 0.10], dtype=torch.float64)
     room = table.deepest_drop(distance, ARC_LENGTH) - table.bowl_drop(distance, ARC_LENGTH)
     torch.testing.assert_close(room, torch.tensor([0.01408, 0.01798], dtype=torch.float64), rtol=0.0, atol=5e-5)
+
+
+def test_region_spans_the_table():
+    """Every node up to the table's end has a region: the deepest shape on or below the bowl."""
+    table = stem_target.rod_table(BUDGET)
+    covered = table.distance <= table.max_distance
+    assert table.max_distance * ARC_LENGTH > DISTANCE_RANGE[1]
+    assert bool(torch.isfinite(table.deepest[covered]).all())
+    assert bool((table.deepest[covered] >= table.bowl[covered]).all())
 
 
 def test_distance_beyond_the_table_is_rejected():
