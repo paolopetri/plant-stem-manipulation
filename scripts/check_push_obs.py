@@ -20,7 +20,9 @@ Checks:
 - target in the region: horizontal distance from the tip's rest position in [0.03, 0.10] m, height on or below the
   bowl (the stem pushed sideways at its tip) and above the deepest shape within 0.8 x 5 1/m (both from
   `stem_target.rod_table`, planar elastica), relative to each env's own base; constant during the episode; different
-  between envs; all different after a reset and again in the region around the new base.
+  between envs; all different after a reset and again in the region around the new base;
+- target depth: the command's metric `target_depth` [mm] equals the target's depth below the bowl at its own r
+  computed here (the oracle above), after both resets, within 1e-3 mm.
 Visual check: the target (command marker: red sphere, green within 1 cm of the tip), the tip and the 5 observed
 points (blue spheres, the points drawn by this script); with 4 or more envs the stems stand at different places.
 
@@ -74,6 +76,7 @@ FRAME_TOL = 1e-5  # [m] observed tip vs the tip from the segment poses
 MIN_TIP_PUSH = 0.01  # [m]
 SIDEWAYS_TOL = 1e-3  # [m]
 REGION_TOL = 1e-5  # [m] target vs the bowl and the deepest shape (float32 positions)
+DEPTH_TOL = 1e-3  # [mm] metric `target_depth` vs the depth below the bowl computed here (float32 positions)
 SPAWN_X, SPAWN_Y = (0.50, 0.65), (-0.15, 0.15)  # [m] stem base, robot base frame (user, 2026-10-09)
 
 
@@ -88,6 +91,8 @@ def main() -> None:
         env = gym.make(TASK, cfg=env_cfg).unwrapped
         obs, _ = env.reset()
         sim, device, n = env.sim, env.device, env.num_envs
+        command = env.command_manager.get_term("stem_target")
+        depth_metric = command.metrics["target_depth"].clone()  # [mm], sampled at the reset
         robot, stem = env.scene["robot"], env.scene["stem"]
         model = stem_model(STEM_MODEL)
         geometry = stem_params(STEM_MODEL)["geometry"]
@@ -185,8 +190,9 @@ def main() -> None:
             step()
 
         # -- target: region, constant, different between envs and after a reset
-        def target_region(target: torch.Tensor, base: torch.Tensor) -> tuple[bool, str]:
-            """Target within the decided region around the rest tip above `base`; pass flag and a summary."""
+        def target_region(target: torch.Tensor, base: torch.Tensor) -> tuple[bool, str, torch.Tensor]:
+            """Target within the decided region around the rest tip above `base`; pass flag, a summary and the depth
+            below the bowl [m] per env."""
             tip_rest = base.clone()
             tip_rest[:, 2] += ARC_LENGTHS[-1]
             distance = (target[:, :2] - tip_rest[:, :2]).norm(dim=-1)
@@ -205,10 +211,11 @@ def main() -> None:
                 f"{float(below_bowl.min()) * 1e3:.2f}-{float(below_bowl.max()) * 1e3:.2f} mm (room to the deepest "
                 f"shape {float(room.min()) * 1e3:.2f}-{float(room.max()) * 1e3:.2f} mm)"
             )
-            return ok, info
+            return ok, info, below_bowl
 
         target = targets[0]
-        region_ok, region_info = target_region(target, base_expected)
+        region_ok, region_info, depth = target_region(target, base_expected)
+        depth_error = float((depth_metric - depth * 1e3).abs().max())
         constant = float((torch.stack(targets) - target).abs().max())
         distinct = n == 1 or torch.unique(target, dim=0).shape[0] == n
         bases_distinct = n == 1 or torch.unique(base_expected, dim=0).shape[0] == n
@@ -219,7 +226,8 @@ def main() -> None:
         base_after = obs["policy"][:, BASE].clone()
         root_error = max(root_error, float((base_after - stem_root_b()).norm(dim=-1).max()))
         base_moved = float((base_after - base_expected).norm(dim=-1).min())
-        region_after_ok, region_after_info = target_region(after, base_after)
+        region_after_ok, region_after_info, depth_after = target_region(after, base_after)
+        depth_error = max(depth_error, float((command.metrics["target_depth"] - depth_after * 1e3).abs().max()))
 
         results = {
             "shapes": (obs_shape == (n, OBS_DIM) and finite, f"observation {obs_shape}, all finite: {finite}"),
@@ -264,6 +272,11 @@ def main() -> None:
                 f"{region_info}; after the reset, around the new base: {region_after_info}; changed during the "
                 f"episode by {constant:.1e} m; distinct between envs: {distinct}; resampled at reset: "
                 f"{bool(((after - target).norm(dim=-1) > 1e-6).all())}",
+            ),
+            "target depth": (
+                depth_error < DEPTH_TOL,
+                f"metric target_depth vs the depth below the bowl computed here: largest difference "
+                f"{depth_error:.1e} mm (tol {DEPTH_TOL:.0e} mm); env 0 {float(depth_metric[0]):.2f} mm",
             ),
         }
         print(f"\n=== check_push_obs ({n} envs, push {args_cli.push_force} N on segment {TIP_SEGMENT}) ===")

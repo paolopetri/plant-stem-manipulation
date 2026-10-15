@@ -12,7 +12,9 @@ is read from the clamped segment 0, so it follows the spawn randomization (Isaac
 command manager). The damage limit comes from the stem model named in the env cfg (`env.cfg.stem_model`).
 
 The command is the target position in the robot base frame (num_envs, 3) [m]; metrics `position_error` [m] (stem
-point to target) and `height_error` [m] (its z part, + = above the target). Debug markers: target (red, green
+point to target), `height_error` [m] (its z part, + = above the target) and `target_depth` [mm] (the target below the
+bowl at its own r, from the sampler's rod table; constant in the episode). Metrics are logged, never observed.
+Debug markers: target (red, green
 within `success_distance`) and the stem point (blue).
 Verify: `scripts/check_push_obs.py`.
 """
@@ -61,6 +63,7 @@ class StemTipTargetCommand(CommandTerm):
         # tip z - target z [m], + = tip above the target: a policy that pushes with a prong's side only stalls on the
         # bowl above deep targets (user, 2026-10-09)
         self.metrics["height_error"] = torch.zeros(self.num_envs, device=self.device)
+        self.metrics["target_depth"] = torch.zeros(self.num_envs, device=self.device)
 
     def __str__(self) -> str:
         return (
@@ -81,9 +84,13 @@ class StemTipTargetCommand(CommandTerm):
         base = stem_state(self._env).points_b((0.0,))[:, 0]
         rest = base[env_ids]  # stem base (clamped segment 0)
         rest[:, 2] += self.arc_length  # upright stem: the point's rest position straight above the base
-        self.target_b[env_ids] = sample_targets(
+        target = sample_targets(
             rest, self.arc_length, self.cfg.distance_range, self.cfg.angle_range, self.max_curvature
         )
+        self.target_b[env_ids] = target
+        distance = (target[:, :2] - rest[:, :2]).norm(dim=-1)
+        below_bowl = rest[:, 2] - self.rod_table.bowl_drop(distance, self.arc_length) - target[:, 2]  # [m]
+        self.metrics["target_depth"][env_ids] = below_bowl * 1e3
         # world frame for the markers: the first render after a reset comes before the next `_update_metrics`
         self.target_w[env_ids] = self._to_world(self.target_b[env_ids], env_ids)
 
