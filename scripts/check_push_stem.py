@@ -19,12 +19,13 @@ Checks (#77; decided values fixed here, not read from the cfg):
 - clamp inactive at normal push forces: during the normal push the clamp never acts (position or orientation), and
   the largest contact force reaches at least 1.4 N (it covers the normal push forces measured, 0.8-1.4 N;
   2026-10-08);
-- hard push: the contact force stays <= 4 N (clamp 4 mm x K_p 1000; user, 2026-10-08) at every physics step from
-  first contact on, in two rows: until blocked (the setpoint runs ahead of the tool; the clamp has not engaged yet),
-  and blocked (the clamp holds the position setpoint at every physics step of the last 20 policy steps). The
+- hard push, blocked (the clamp holds the position setpoint at every physics step of the last 20 policy steps): the
+  contact force, as a mean over each policy step (the reading of the contact-force limit), stays <= 4.2 N (clamp
+  4 mm x K_p 1000 = 4 N, + 5 %; user, 2026-10-15);
+- no chatter: over the blocked policy steps that mean varies by at most 0.2 N (user, 2026-10-15);
+- hard push until blocked (INFO, not bounded; user, 2026-10-15): the largest contact force from first contact until
+  the clamp holds (approach and impact: the setpoint runs ahead of the tool, so the damping adds to the spring). The
   contact-force limit (a damage limit, 5 N) is lifted for this phase so that the blocked state is reached;
-- no chatter: in the blocked window the contact force varies by at most 0.2 N (5 % of the bound) over its physics
-  steps (check design, not a decided value);
 - no reset in any phase (the task's terminations stay active, except the lifted contact-force limit).
 
 Usage (from the repo root; headless unless a visualizer is requested):
@@ -57,14 +58,15 @@ from stem_manip.utils.stem_geometry import point_pose
 
 TASK = "StemManip-Push-Position-FR3-v0"
 # decided values (#77; user, 2026-10-08)
-MAX_FORCE = 4.0  # [N] spring bound: setpoint clamp 4 mm x K_p 1000
+# [N] blocked: policy-step mean <= spring bound 4 mm x K_p 1000 = 4 N, + 5 % (user, 2026-10-15)
+MAX_FORCE = 4.2
 CLAMP_OFFSET = 4e-3  # [m] setpoint clamp (2026-10-08)
 NORMAL_FORCE = 1.4  # [N] upper end of the measured normal push forces (0.8-1.4 N)
 MIN_TIP_DEFLECTION = 0.01  # [m] as check_stem.py
 REST_TOL = 1e-3  # [m] as check_contact.py
 REST_TIME = 3.0  # [s] wait after pulling back, as check_contact.py
 # check design (not decided values)
-CHATTER_TOL = 0.05 * MAX_FORCE  # [N] largest spread of the contact force over the blocked window
+CHATTER_TOL = 0.2  # [N] largest spread of the policy-step mean over the blocked steps (user, 2026-10-15)
 BLOCKED_STEPS = 20  # policy steps at the end of the hard push
 HARD_STEPS = 120  # policy steps of the hard push from 1 cm before contact
 CONTACT_THRESHOLD = 1e-3  # [N] first contact (as check_contact.py)
@@ -223,17 +225,17 @@ def main() -> None:
         window_forces = torch.cat(window_forces, dim=1)  # (n, BLOCKED_STEPS x decimation)
         window_stretch = torch.cat(window_stretch, dim=1)
         held = bool(((window_stretch - CLAMP_OFFSET).abs() < 1e-6).all())  # held: setpoint at the clamp's bound
-        spread = float((window_forces.max(dim=1).values - window_forces.min(dim=1).values).max())
         window_means = window_forces.unflatten(1, (BLOCKED_STEPS, -1)).mean(dim=-1)  # mean over each policy step
+        spread = float((window_means.max(dim=1).values - window_means.min(dim=1).values).max())
         tool_x = term.slot_base_pose()[0][:, 0]
-        results["hard push: force <= 4 N until blocked"] = (
-            max(behind, before) < REACH_TOL and touched and transient_force <= MAX_FORCE,
+        results["hard push: until blocked"] = (
+            max(behind, before) < REACH_TOL and touched,
             f"drive behind {behind * 1e3:.2f} mm, before contact {before * 1e3:.2f} mm off; largest contact force "
-            f"from first contact to the blocked window {transient_force:.3f} N (bound {MAX_FORCE} N); largest mean "
-            f"over a policy step over the whole push {step_mean:.3f} N (damage limit {damage_limit} N, lifted here)",
+            f"from first contact to the blocked window {transient_force:.3f} N (not bounded); largest mean over a "
+            f"policy step over the whole push {step_mean:.3f} N (damage limit {damage_limit} N, lifted here)",
         )
-        results["hard push: blocked, force <= 4 N"] = (
-            held and float(window_forces.max()) <= MAX_FORCE,
+        results["hard push: blocked, force <= 4.2 N"] = (
+            held and float(window_means.max()) <= MAX_FORCE,
             f"clamp held at every physics step of the last {BLOCKED_STEPS} policy steps: {held} (setpoint-tool "
             f"distance {float(window_stretch.min()) * 1e3:.4f}-{float(window_stretch.max()) * 1e3:.4f} mm); contact "
             f"force {float(window_forces.min()):.3f}-{float(window_forces.max()):.3f} N (mean over a policy step "
@@ -243,12 +245,12 @@ def main() -> None:
         )
         results["hard push: no chatter"] = (
             held and spread <= CHATTER_TOL,
-            f"blocked: largest spread of the contact force in one env {spread:.3f} N (tol {CHATTER_TOL:.2f} N)",
+            f"blocked: largest spread of the policy-step mean in one env {spread:.3f} N (tol {CHATTER_TOL:.2f} N)",
         )
         results["no reset"] = (not resets, f"resets: {resets[:5] or 'none'}")
         print(f"\n=== check_push_stem ({n} envs) ===")
         env.close()
-        check_report.finish(results)
+        check_report.finish(results, checked=[name for name in results if name != "hard push: until blocked"])
 
 
 if __name__ == "__main__":

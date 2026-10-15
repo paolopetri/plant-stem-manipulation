@@ -29,8 +29,9 @@ Checks:
 - setpoint clamp: at every physics step of the move down, the setpoint the law uses is at most 4 mm from the tool; while
   the tool is blocked by the ground (last `BLOCKED_STEPS` policy steps) exactly 4 mm;
 - contact force at the ground: a contact sensor on the fork (net force, check only; the task's sensor is on the
-  stem) at every physics step of the move down stays <= 4 N (the clamp's spring bound, 4 mm x K_p 1000; #77) and is
-  > 0 while blocked; over the blocked window it varies by at most 0.2 N (no chatter; check design, 5 % of the bound);
+  stem). While blocked (last `BLOCKED_STEPS` policy steps), its mean over each policy step is > 0 and <= 4.2 N (the
+  clamp's spring bound 4 mm x K_p 1000 = 4 N, + 5 %) and varies by at most 0.2 N (no chatter); the impact before is
+  reported, not bounded (user, 2026-10-15; #77);
 - restart after contact: lifting off the ground, the applied step changes by at most 0.08 mm per policy step;
 - applied step within the caps (3.2 mm, 1.44 deg) in every phase;
 - slot-base observations = independent kinematics, after every policy step of every phase (incl. the clamp): the
@@ -132,8 +133,9 @@ LIMITS_ERRORS = (
 FIRST_STEP, FIRST_ROT_STEP = 8e-5, 0.000349  # [m], [rad] step-change limits 0.08 mm (2026-10-08) / 0.02 deg
 CAP_STEP, CAP_ROT_STEP = 0.0032, 0.02513  # [m], [rad] speed caps 10 cm/s (2026-10-08) / 45 deg/s (2026-10-07)
 CLAMP_OFFSET = 4e-3  # [m] setpoint clamp, 4 N at K_p 1000 (2026-10-08)
-CLAMP_FORCE = 4.0  # [N] spring bound of the clamp, 4 mm x K_p 1000 (2026-10-08)
-CHATTER_TOL = 0.05 * CLAMP_FORCE  # [N] largest spread of the contact force while blocked (check design, #77)
+# [N] blocked: policy-step mean <= spring bound 4 mm x K_p 1000 = 4 N, + 5 % (user, 2026-10-15)
+CLAMP_FORCE = 4.2
+CHATTER_TOL = 0.2  # [N] largest spread of the policy-step mean while blocked (user, 2026-10-15)
 CLAMP_ROT_OFFSET = 0.05236  # [rad] orientation clamp, 3 deg (2026-10-08)
 SLOT_BASE_POS_TOL, SLOT_BASE_ROT_TOL = (
     1e-5,
@@ -410,9 +412,8 @@ def main() -> None:
         stretches = torch.stack(stretches)  # (DOWN_STEPS, n)
         blocked = stretches[-BLOCKED_STEPS:]
         ground_forces = torch.stack(ground_forces)  # (DOWN_STEPS, n, decimation)
-        blocked_forces = ground_forces[-BLOCKED_STEPS:].transpose(0, 1).flatten(start_dim=1)  # (n, window)
-        ground_spread = float((blocked_forces.max(dim=1).values - blocked_forces.min(dim=1).values).max())
         blocked_means = ground_forces[-BLOCKED_STEPS:].mean(dim=-1)  # (BLOCKED_STEPS, n): mean over each policy step
+        ground_spread = float((blocked_means.max(dim=0).values - blocked_means.min(dim=0).values).max())
         clamp_margin = margin
         slot_base_height = term.slot_base_pose()[0][:, 2]
         # -- restart after contact: lift; the applied step changes by at most the step-change limit
@@ -488,14 +489,13 @@ def main() -> None:
                 f"{float(slot_base_height.max()) * 1e3:.1f} mm; joint margin {clamp_margin:.2f} rad",
             ),
             "contact force at the ground": (
-                float(ground_forces.max()) <= CLAMP_FORCE
-                and float(blocked_forces.min()) > 0.0
+                float(blocked_means.max()) <= CLAMP_FORCE
+                and float(blocked_means.min()) > 0.0
                 and ground_spread <= CHATTER_TOL,
-                f"moving down into the ground: largest fork contact force {float(ground_forces.max()):.3f} N (bound "
-                f"{CLAMP_FORCE:.0f} N); while blocked {float(blocked_forces.min()):.3f}-"
-                f"{float(blocked_forces.max()):.3f} N (mean over a policy step {float(blocked_means.min()):.3f}-"
-                f"{float(blocked_means.max()):.3f} N), largest spread in one env {ground_spread:.3f} N "
-                f"(tol {CHATTER_TOL:.2f} N)",
+                f"while blocked: mean over a policy step {float(blocked_means.min()):.3f}-"
+                f"{float(blocked_means.max()):.3f} N (bound {CLAMP_FORCE} N), largest spread in one env "
+                f"{ground_spread:.3f} N (tol {CHATTER_TOL:.2f} N); impact (not bounded): largest fork contact force "
+                f"{float(ground_forces.max()):.3f} N at a physics step",
             ),
             "restart after contact": (
                 bool((lift_change <= FIRST_STEP + 1e-6).all()),
