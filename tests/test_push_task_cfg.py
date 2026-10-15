@@ -42,8 +42,11 @@ REWARDS = {
     "curvature": (mdp.curvature_penalty, -1.0, {"curvature_budget": 0.8}),  # quadratic above 0.8 x the limit
     "contact_force": (mdp.contact_force_penalty, -1.0, {"threshold": 2.0}),  # quadratic above 2 N
     "action_rate": (mdp.action_rate_l2, -0.01, {}),
-    "terminated": (mdp.is_terminated, -10.0, {}),  # early terminations only (not the time out)
+    # early terminations only, not the time out; about -5 per termination at dt 0.032 s (user, 2026-10-15)
+    "terminated": (mdp.is_terminated, -150.0, {}),
 }
+POLICY_DT = 0.032  # [s] 16 physics steps of 2 ms (31.25 Hz)
+TERMINATION_PENALTY = -4.8  # in effect per termination: weight x policy dt (about -5; user, 2026-10-15)
 TERMINATIONS = ["time_out", "curvature_limit", "contact_force_limit", "joint_margin"]  # no slot-base bound (user)
 MIN_JOINT_MARGIN = 0.25  # [rad] distance to any FR3 joint limit (the sweeps' rule)
 EPISODE_LENGTH_S = 15.0  # [s] approach and push (user, 2026-10-09)
@@ -149,6 +152,12 @@ def test_robot_base_frame_is_env_frame(cfg: StemPushPositionEnvCfg):
     """The spawn area is given in the robot base frame and written in the env frame: the two must coincide."""
     assert cfg.scene.robot.init_state.pos == pytest.approx((0.0, 0.0, 0.0), abs=1e-12)
     assert cfg.scene.robot.init_state.rot == pytest.approx((0.0, 0.0, 0.0, 1.0), abs=1e-12)  # (x, y, z, w)
+
+
+def test_termination_penalty_in_effect(cfg: StemPushPositionEnvCfg):
+    """The reward manager scales a term by the policy dt: the termination penalty costs about -5 per termination."""
+    assert cfg.sim.dt * cfg.decimation == pytest.approx(POLICY_DT, rel=1e-9)
+    assert cfg.rewards.terminated.weight * cfg.sim.dt * cfg.decimation == pytest.approx(TERMINATION_PENALTY, rel=1e-9)
 
 
 def test_reward_terms_are_decided(cfg: StemPushPositionEnvCfg):
