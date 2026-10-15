@@ -64,6 +64,9 @@ def main() -> None:
     except FileNotFoundError:
         print(f"gpu_slot: command not found: {command[0]}", file=sys.stderr)
         sys.exit(127)
+    except PermissionError:
+        print(f"gpu_slot: command not executable: {command[0]}", file=sys.stderr)
+        sys.exit(126)
 
 
 if __name__ == "__main__":

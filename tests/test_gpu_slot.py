@@ -12,7 +12,7 @@ SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "gpu_slot.py"
 
 
 def _start(lock_dir: Path, name: str, seconds: float, status: int) -> subprocess.Popen:
-    """Run a shell command through the script that logs its start and end time to `<name>.start` / `<name>.end`."""
+    """Start a shell command through the script; it logs its start and end time to `<name>.start` / `<name>.end`."""
     log = lock_dir / name
     cmd = f"date +%s.%N > {log}.start; sleep {seconds}; date +%s.%N > {log}.end; exit {status}"
     return subprocess.Popen([sys.executable, str(SCRIPT), "--lock-dir", str(lock_dir), "sh", "-c", cmd])
