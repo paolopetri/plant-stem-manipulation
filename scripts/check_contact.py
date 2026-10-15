@@ -1,7 +1,7 @@
 """Contact check: the FR3 with `fork_v2` pushes the `chain` stem in PhysX (robot and stem in one solver).
 
-The robot follows a straight tool-tip path at constant speed with differential IK on the body `fork_v2` +
-`tool_tip_offset("fork_v2")`; the stem is moved only by contact with the fork. The fork is horizontal (flange
+The robot follows a straight slot-base path at constant speed with differential IK on the body `fork_v2` +
+`slot_base_offset("fork_v2")`; the stem is moved only by contact with the fork. The fork is horizontal (flange
 pointing down) at `PUSH_HEIGHT`, its slot pointing along `FORK_YAW` (45 deg between world +x and +y: the arm then
 stays behind the fork; pushing along +y, the stem's top touched the wrist). Tests (`--test`):
 - `slot`: the stem slides into the slot (8 mm wide at the bottom) and is pushed 5 cm beyond first contact;
@@ -20,7 +20,7 @@ first joint divided by its lever arm.
 Checks (`slot`, `side`; `slot_far` checks only the first three and the last):
 - robot base at the env origin, unrotated (the tool pose is in the base frame and the path in the env frame):
   within 1e-5 m and 1e-5 rad (float32 rounding of the env origins);
-- start pose reached: tool tip within 1 mm of the start;
+- start pose reached: slot base within 1 mm of the start;
 - only the fork touches the stem: no contact with the arm links during the whole test, and no contact at all
   before the push;
 - contact where expected: first contact within 3 mm of the position where the fork touches the stem surface;
@@ -43,7 +43,7 @@ from isaaclab.app import add_launcher_args, launch_simulation
 
 parser = argparse.ArgumentParser(description="Contact check: the FR3 with fork_v2 pushes the chain stem.")
 parser.add_argument("--test", choices=["slot", "side", "slot_far"], default="slot", help="Which push.")
-parser.add_argument("--speed", type=float, default=0.05, help="Tool-tip speed during the push [m/s].")
+parser.add_argument("--speed", type=float, default=0.05, help="Slot-base speed during the push [m/s].")
 parser.add_argument(
     "--slow_motion", type=float, default=1.0, help="With a viewer: play this many times slower than real time."
 )
@@ -58,19 +58,19 @@ import torch
 import isaaclab.sim as sim_utils
 from isaaclab.utils.math import quat_apply_inverse, quat_from_matrix
 
-from stem_manip.assets.fr3 import fr3_cfg, tool_tip_offset
+from stem_manip.assets.fr3 import fr3_cfg, slot_base_offset
 from stem_manip.assets.stem import stem_model, stem_params
-from stem_manip.tasks.push_position.mdp.tool_tip import ToolTipKinematics
+from stem_manip.tasks.push_position.mdp.slot_base import SlotBaseKinematics
 from stem_manip.utils import check_report, stem_geometry, stem_reference
 
-PUSH_HEIGHT = 0.30  # [m] tool-tip height = height of the push on the stem
+PUSH_HEIGHT = 0.30  # [m] slot-base height = height of the push on the stem
 FORK_YAW = math.radians(45.0)  # direction of the fork (tool x) in the ground plane, from world +x
-CLEAR_HEIGHT = 0.55  # [m] tool-tip height for the move over the stem's tip (stem length 0.4 m)
+CLEAR_HEIGHT = 0.55  # [m] slot-base height for the move over the stem's tip (stem length 0.4 m)
 BACKOFF = 0.10  # [m] the robot goes down this far behind the start
 APPROACH_SPEED = 0.10  # [m/s] mean speed of the legs to the start
-PRONG_REACH = 0.17  # [m] the fork's collision mesh reaches this far beyond the tool tip along tool x
+PRONG_REACH = 0.17  # [m] the fork's collision mesh reaches this far beyond the slot base along tool x
 PRONG_FACE = 0.022  # [m] outer face of a prong from the slot centre line, 10 cm along the fork (collision mesh)
-SIDE_CONTACT_AT = 0.10  # [m] side push: stem this far along the fork from the tool tip
+SIDE_CONTACT_AT = 0.10  # [m] side push: stem this far along the fork from the slot base
 APPROACH_GAP = 0.03  # [m] gap between fork and stem at the start
 PUSH_DEPTH = {"slot": 0.05, "side": 0.05, "slot_far": 0.15}  # [m] fork travel beyond the stem surface
 MOVE_TIME, SETTLE_TIME, HOLD_TIME, REST_TIME = 3.0, 1.0, 1.5, 3.0  # [s] (MOVE_TIME: to the point over the stem)
@@ -107,7 +107,7 @@ def main() -> None:
         start_offset = contact_offset + APPROACH_GAP
     else:
         push_dir = fork_dir
-        contact_offset = radius  # the tool tip (slot bottom) touches the stem surface
+        contact_offset = radius  # the slot base (slot bottom) touches the stem surface
         path_origin = (stem_x, stem_y)
         start_offset = contact_offset + PRONG_REACH + APPROACH_GAP
 
@@ -174,9 +174,9 @@ def main() -> None:
         base_offset = float((robot.data.root_pos_w.torch[0] - origin).norm())
         base_rotation = 2.0 * float(robot.data.root_quat_w.torch[0, :3].norm())
 
-        # differential IK on the tool tip
+        # differential IK on the slot base
         arm_joints = list(range(7))
-        tool = ToolTipKinematics(robot, "fork_v2", tool_tip_offset("fork_v2"), arm_joints)
+        tool = SlotBaseKinematics(robot, "fork_v2", slot_base_offset("fork_v2"), arm_joints)
         tool_pose = tool.pose
         ik = DifferentialIKController(
             DifferentialIKControllerCfg(command_type="pose", use_relative_mode=False, ik_method="dls"), 1, device
@@ -290,7 +290,7 @@ def main() -> None:
                 f"offset {base_offset:.1e} m (tol {BASE_POS_TOL:.0e}), rotation {base_rotation:.1e} rad "
                 f"(tol {BASE_ROT_TOL:.0e})",
             ),
-            "start pose reached": (start_error < START_TOL, f"tool tip {start_error * 1e3:.2f} mm from the start"),
+            "start pose reached": (start_error < START_TOL, f"slot base {start_error * 1e3:.2f} mm from the start"),
             "only the fork touches the stem": (
                 not arm and approach_contact == 0.0,
                 f"arm links (max force) {arm or 'none'}; max contact force before the push {approach_contact:.3f} N",

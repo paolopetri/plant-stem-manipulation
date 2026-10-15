@@ -5,10 +5,10 @@
 # ///
 """Sanity check of the built URDF: print the tool values, then show the robot in the browser.
 
-Prints the tool_tip pose and the end-effector inertial as they ended up in the URDF (compare with
+Prints the slot_base pose and the end-effector inertial as they ended up in the URDF (compare with
 end_effectors/<ee>/<ee>.yaml),
 then serves a viewer at http://localhost:8080 with joint sliders, visual/collision toggles and
-axes for fr3_link8 and tool_tip (red = x, green = y, blue = z).
+axes for fr3_link8 and slot_base (red = x, green = y, blue = z).
 
 Usage:
   uv run view_urdf.py --ee fork_v2
@@ -28,14 +28,14 @@ import yourdfpy
 from viser.extras import ViserUrdf
 
 ROOT = Path(__file__).resolve().parent
-FRAMES = ("fr3_link8", "tool_tip")
+FRAMES = ("fr3_link8", "slot_base")
 
 
 def print_check(urdf: yourdfpy.URDF, ee: str) -> None:
     np.set_printoptions(formatter={"float": lambda v: f"{v: .6g}"})
-    T = urdf.get_transform("tool_tip", "fr3_link8")
-    print(f"tool_tip xyz in fr3_link8: {T[:3, 3]}")
-    print(f"tool_tip x axis: {T[:3, 0]}  z axis: {T[:3, 2]}")
+    T = urdf.get_transform("slot_base", "fr3_link8")
+    print(f"slot_base xyz in fr3_link8: {T[:3, 3]}")
+    print(f"slot_base x axis: {T[:3, 0]}  z axis: {T[:3, 2]}")
     inertial = urdf.link_map[ee].inertial
     print(f"{ee} mass: {inertial.mass}  com: {inertial.origin[:3, 3]}")
     print(f"{ee} inertia:\n{inertial.inertia}")

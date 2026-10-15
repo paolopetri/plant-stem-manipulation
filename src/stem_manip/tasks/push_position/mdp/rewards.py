@@ -3,7 +3,7 @@
 - Task: distance of the stem point (the tip) to the target, `1 - tanh(d / std)`, coarse (5 cm) and fine (1 cm);
   height error alone (`stem_point_height_tanh`: against a side-push optimum, a prong's
   side only reaches the bowl above deep targets). Same point as the command's `position_error`.
-- Approach: `1 - tanh(d / std)` of the tool tip's distance to the nearest point on the stem (exploration: the task
+- Approach: `1 - tanh(d / std)` of the slot base's distance to the nearest point on the stem (exploration: the task
   terms are flat until the fork touches the stem; saturates in contact, does not say where to push).
 - Damage below the hard limits: curvature, quadratic above `soft_fraction` x `damage.max_curvature`; contact force
   of the robot on the stem (largest single contact), quadratic above a free threshold. Twist and tension once their
@@ -23,7 +23,7 @@ import torch
 from isaaclab.managers import SceneEntityCfg
 
 from .contact import robot_contact_force
-from .observations import tool_tip_pos
+from .observations import slot_base_pos
 from .stem_state import stem_curvature, stem_distance_b
 
 if TYPE_CHECKING:
@@ -61,8 +61,8 @@ def approach_tanh(
     asset_cfg: SceneEntityCfg = SceneEntityCfg("stem"),
     robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
 ) -> torch.Tensor:
-    """`1 - tanh(d / std)` of the tool tip's distance d to the stem's centre line [m], in (0, 1]."""
-    tip_b = tool_tip_pos(env, body_name, offset, robot_cfg)
+    """`1 - tanh(d / std)` of the slot base's distance d to the stem's centre line [m], in (0, 1]."""
+    tip_b = slot_base_pos(env, body_name, offset, robot_cfg)
     return 1.0 - torch.tanh(stem_distance_b(env, tip_b.unsqueeze(1), model, asset_cfg, robot_cfg)[:, 0] / std)
 
 

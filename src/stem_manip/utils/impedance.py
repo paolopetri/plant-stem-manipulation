@@ -5,7 +5,7 @@ real FR3 (libfranka torque loop), so that the policy sees the same controller on
 the sweep that chose the values: docs/overleaf_folder/open_questions/impedance_action_study.tex.
 
 Conventions: all poses, velocities and Jacobians in the robot base frame; quaternions (x, y, z, w); batched over
-the first dimension (num_envs). The Jacobian is the geometric Jacobian of the tool tip, (n, 6, num_joints), rows
+the first dimension (num_envs). The Jacobian is the geometric Jacobian of the slot base, (n, 6, num_joints), rows
 linear velocity then angular velocity.
 """
 
@@ -196,8 +196,8 @@ def cartesian_impedance_torque(
     Coriolis term is added on the real robot from libfranka's model (not available from the simulator).
 
     Args:
-        jacobian: tool-tip geometric Jacobian (n, 6, m). pos, quat: tool-tip pose (n, 3), (n, 4).
-        twist: tool-tip linear and angular velocity (n, 6). q, dq: joint positions and velocities (n, m).
+        jacobian: slot-base geometric Jacobian (n, 6, m). pos, quat: slot-base pose (n, 3), (n, 4).
+        twist: slot-base linear and angular velocity (n, 6). q, dq: joint positions and velocities (n, m).
         target_pos, target_vel, target_quat: target position (n, 3), velocity (n, 3), orientation (n, 4).
         k_pos [N/m], k_rot [N m/rad], k_ns [N m/rad]: stiffnesses. q_ns: null-space rest posture (n, m).
         damping: task-space damping matrix (n, 6, 6), e.g. `apparent_mass_damping`; None = Franka's 2 sqrt(K).

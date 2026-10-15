@@ -20,7 +20,7 @@ SETTINGS = rollout_compare.Settings(task="T", num_envs=2, steps=3, seed=1, devic
 
 def recording(**overrides: torch.Tensor) -> dict:
     terms = {
-        "zero/obs/tool_tip_pos": torch.arange(24, dtype=torch.float32).reshape(4, 2, 3),
+        "zero/obs/slot_base_pos": torch.arange(24, dtype=torch.float32).reshape(4, 2, 3),
         "zero/reward/distance_fine": torch.full((3, 2), 0.5),
         "zero/termination/time_out": torch.tensor([[False, False], [False, True], [True, True]]),
     }
@@ -32,7 +32,7 @@ def test_identical_recordings_pass():
     rows = rollout_compare.compare(recording(), recording())
     assert set(rows) == {
         "settings",
-        "zero/obs/tool_tip_pos",
+        "zero/obs/slot_base_pos",
         "zero/reward/distance_fine",
         "zero/termination/time_out",
     }
@@ -46,7 +46,7 @@ def test_differing_term_fails_and_is_named():
     assert check_report.report(rows) is False
     ok, info = rows["zero/reward/distance_fine"]
     assert not ok and "0.25" in info
-    assert rows["zero/obs/tool_tip_pos"][0] and rows["zero/termination/time_out"][0]
+    assert rows["zero/obs/slot_base_pos"][0] and rows["zero/termination/time_out"][0]
 
 
 def test_termination_flip_fails():
@@ -64,10 +64,10 @@ def test_difference_within_tolerance_passes():
 
 
 def test_missing_term_or_other_shape_fails():
-    b = recording(**{"zero/obs/tool_tip_pos": torch.zeros(4, 2, 2)})
+    b = recording(**{"zero/obs/slot_base_pos": torch.zeros(4, 2, 2)})
     del b["terms"]["zero/reward/distance_fine"]
     rows = rollout_compare.compare(recording(), b)
-    assert not rows["zero/obs/tool_tip_pos"][0]
+    assert not rows["zero/obs/slot_base_pos"][0]
     assert not rows["zero/reward/distance_fine"][0]
 
 

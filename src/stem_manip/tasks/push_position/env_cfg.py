@@ -3,8 +3,8 @@
 - Scene: FR3 + fork (`stem_manip.assets.fr3.fr3_cfg("fork_v2")`), stem (`stem_model(name).stem_cfg()` from
   `stem_manip.assets.stem`), ground. Stem model `chain`: robot and stem in one PhysX scene (as in
   `scripts/check_contact.py`).
-- Actions: relative tool-tip pose (position and rotation step, robot base frame), executed by Franka's Cartesian
-  impedance law (`mdp.ToolTipImpedanceAction`, the same controller as on the real FR3); robot in torque mode.
+- Actions: relative slot-base pose (position and rotation step, robot base frame), executed by Franka's Cartesian
+  impedance law (`mdp.SlotBaseImpedanceAction`, the same controller as on the real FR3); robot in torque mode.
 - Managers from `mdp/` (commands, observations, rewards, terminations, events); weights and ranges as cfg fields.
 - The stem point (segment index + offset, the tip) is a task-cfg field (`CommandsCfg`); the curvature limit comes from
   `assets/stem/stem.yaml`.
@@ -29,14 +29,14 @@ from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors import ContactSensorCfg
 from isaaclab.utils import configclass
 
-from stem_manip.assets.fr3 import fr3_cfg, tool_tip_offset
+from stem_manip.assets.fr3 import fr3_cfg, slot_base_offset
 from stem_manip.assets.stem import stem_model, stem_params
 
 from . import mdp
 
 STEM_MODEL = "chain"
 END_EFFECTOR = "fork_v2"
-# Start pose (user, 2026-10-09): fork horizontal, pointing forward, tool tip at
+# Start pose (user, 2026-10-09): fork horizontal, pointing forward, slot base at
 # (0.40, 0, 0.50) m in the base frame, 10 cm above the stem tip and behind the stem area, so that less of the episode
 # goes into the approach. Joint angles solved once with differential IK (2026-10-09); smallest distance to a joint
 # limit 0.58 rad (joint 4).
@@ -52,7 +52,7 @@ START_JOINT_POS = {
 
 # Stem spawn area (user, 2026-10-09): the stem base is reset uniformly within this rectangle on the lab's plate in front
 # of the robot (58 x 58 cm at the mounting-surface height, x 0.075-0.655 m, y +-0.29 m), robot base frame [m]. Near
-# edge from joint 4's limit (margin >= 0.25 rad with the fork horizontal: tool tip at x >= 0.40 m at the stem-tip
+# edge from joint 4's limit (margin >= 0.25 rad with the fork horizontal: slot base at x >= 0.40 m at the stem-tip
 # height and >= 0.45 m lower down, and a target up to 10 cm towards the robot), far edge from the plate. Assumes robot
 # base frame = env frame (robot root at the env origin, not rotated). The plate is not modelled as geometry (infinite
 # ground plane); the fork may leave it.
@@ -67,7 +67,7 @@ DISTANCE_STD = (0.05, 0.01)  # [m] stem tip to target: coarse (targets 3-10 cm a
 # drop up to ~15 mm + up to 8.3 mm deeper); the side-push gap of 0-8.3 mm lies on this tanh's slope, and larger
 # height errors occur only before the push, where the 3-D coarse term already gives the gradient.
 HEIGHT_STD = 0.003
-APPROACH_STD = 0.1  # [m] tool tip to the nearest stem point (start: the fork is 0.2-0.4 m from the stem)
+APPROACH_STD = 0.1  # [m] slot base to the nearest stem point (start: the fork is 0.2-0.4 m from the stem)
 CURVATURE_SOFT_FRACTION = 0.8  # curvature penalty above 0.8 x the limit (= the targets' curvature budget)
 # [N] contact penalty above it, on the largest single contact (normal pushes 0.8-1.4 N measured; clamp bound 4 N)
 CONTACT_FREE_FORCE = 2.0
@@ -107,14 +107,14 @@ class StemPushSceneCfg(InteractiveSceneCfg):
 
 @configclass
 class ActionsCfg:
-    """Relative tool-tip pose (at most `max_step` / `max_rot_step` per policy step), Franka's Cartesian
+    """Relative slot-base pose (at most `max_step` / `max_rot_step` per policy step), Franka's Cartesian
     impedance law."""
 
-    tool_tip = mdp.ToolTipImpedanceActionCfg(
+    slot_base = mdp.SlotBaseImpedanceActionCfg(
         asset_name="robot",
         joint_names=ARM_JOINTS,
         body_name=END_EFFECTOR,
-        tool_offset=tool_tip_offset(END_EFFECTOR),
+        tool_offset=slot_base_offset(END_EFFECTOR),
     )
 
 
@@ -128,18 +128,18 @@ class CommandsCfg:
 
 @configclass
 class ObservationsCfg:
-    """Policy observations, 57 values in this order: tool tip (position 3, orientation 6, applied step 6, target
+    """Policy observations, 57 values in this order: slot base (position 3, orientation 6, applied step 6, target
     offset 6), stem base 3, 5 stem points of the previous and the current policy step 30 (oldest first), target 3.
     All positions in the robot base frame [m]. The stem-state terms (`mdp/stem_state.py`) are to be changed to what
     the perception delivers; no contact forces (decision 2026-10-06)."""
 
     @configclass
     class PolicyCfg(ObsGroup):
-        tool_tip_pos = ObsTerm(
-            func=mdp.tool_tip_pos, params={"body_name": END_EFFECTOR, "offset": tool_tip_offset(END_EFFECTOR)}
+        slot_base_pos = ObsTerm(
+            func=mdp.slot_base_pos, params={"body_name": END_EFFECTOR, "offset": slot_base_offset(END_EFFECTOR)}
         )
-        tool_tip_rot = ObsTerm(
-            func=mdp.tool_tip_rot6d, params={"body_name": END_EFFECTOR, "offset": tool_tip_offset(END_EFFECTOR)}
+        slot_base_rot = ObsTerm(
+            func=mdp.slot_base_rot6d, params={"body_name": END_EFFECTOR, "offset": slot_base_offset(END_EFFECTOR)}
         )
         applied_step = ObsTerm(func=mdp.applied_step)
         target_offset = ObsTerm(func=mdp.target_offset)
@@ -196,7 +196,7 @@ class RewardsCfg:
             "std": APPROACH_STD,
             "model": STEM_MODEL,
             "body_name": END_EFFECTOR,
-            "offset": tool_tip_offset(END_EFFECTOR),
+            "offset": slot_base_offset(END_EFFECTOR),
         },
     )
     curvature = RewTerm(
@@ -219,7 +219,7 @@ class RewardsCfg:
 
 @configclass
 class TerminationsCfg:
-    """Time out; damage limits (curvature, contact force); joint margin. No tool-tip bound (user, 2026-10-09)."""
+    """Time out; damage limits (curvature, contact force); joint margin. No slot-base bound (user, 2026-10-09)."""
 
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
     curvature_limit = DoneTerm(

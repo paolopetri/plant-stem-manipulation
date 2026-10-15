@@ -1,7 +1,7 @@
 """Package-level checks that run without the simulator.
 
 Covers: the package imports, Isaac Lab finds our tasks through the entry point, and the FR3 asset config
-resolves its files and the tool_tip offset from the end-effector yaml.
+resolves its files and the slot_base offset from the end-effector yaml.
 """
 
 import math
@@ -11,7 +11,7 @@ import numpy as np
 import yaml
 
 from stem_manip.assets import REPO_ASSETS_DIR
-from stem_manip.assets.fr3 import BUILD_DIR, EE_DIR, fr3_cfg, tool_tip_offset
+from stem_manip.assets.fr3 import BUILD_DIR, EE_DIR, fr3_cfg, slot_base_offset
 
 
 def test_tasks_package_imports():
@@ -65,10 +65,10 @@ def _quat_xyzw_to_matrix(q: tuple[float, float, float, float]) -> np.ndarray:
     )
 
 
-def test_tool_tip_offset_matches_yaml():
-    """tool_tip_offset returns the yaml position and a quaternion (x, y, z, w) equal to the yaml rpy."""
-    tip = yaml.safe_load((EE_DIR / "fork_v2" / "fork_v2.yaml").read_text())["tool_tip"]
-    pos, rot = tool_tip_offset("fork_v2")
+def test_slot_base_offset_matches_yaml():
+    """slot_base_offset returns the yaml position and a quaternion (x, y, z, w) equal to the yaml rpy."""
+    tip = yaml.safe_load((EE_DIR / "fork_v2" / "fork_v2.yaml").read_text())["slot_base"]
+    pos, rot = slot_base_offset("fork_v2")
 
     np.testing.assert_allclose(pos, tip["xyz"], atol=1e-9)
     assert math.isclose(float(np.linalg.norm(rot)), 1.0, abs_tol=1e-9)

@@ -2,7 +2,7 @@
 
 Uses the env of `StemManip-Push-Position-FR3-v0` itself (its action term: Franka's Cartesian impedance law with an
 integrated target, speed cap, step-change limit and target-offset clamp), with the stem moved out of reach behind the
-robot. Each env first drives the tool tip to its own start point (the 8 corners of the box below, the 8 corners of the
+robot. Each env first drives the slot base to its own start point (the 8 corners of the box below, the 8 corners of the
 far box at the stem-tip height, plus the env's start pose; step-change limit and clamp switched off for this) and
 holds. Two modes:
 - default: translation moves (`--steps` full steps along +x, -x, +y, -y, +z, -z, and reversals +x then -x etc., whose
@@ -21,7 +21,7 @@ action_limits_problem.tex (decisions 2026-10-07):
 - overshoot past the target's final position, along the last direction (<= 5 mm); end error after the hold (<= 1 mm);
 - the fork's tilt from its orientation at the start of the move (<= 1 deg).
 Rotation moves: following error (angle to the target orientation, <= 2 deg), overshoot past the target's final
-orientation about the last axis (<= 2 deg), tool-tip drift while turning (the position target does not move, <= 2 mm);
+orientation about the last axis (<= 2 deg), slot-base drift while turning (the position target does not move, <= 2 mm);
 the end error is reported.
 Joint limits (user, 2026-10-08): there the arm, not the controller, limits the motion, so these moves are reported but
 not counted in pass/fail: default mode, start points within 0.25 rad of a joint limit after settling ("near joint
@@ -71,9 +71,9 @@ from stem_manip.tasks.push_position.env_cfg import StemPushPositionEnvCfg
 from stem_manip.utils.impedance import rotvec_between
 
 TASK = "StemManip-Push-Position-FR3-v0"
-BOX_X, BOX_Y, BOX_Z = (0.35, 0.60), (-0.20, 0.20), (0.20, 0.45)  # [m] tool-tip start points, robot base frame
+BOX_X, BOX_Y, BOX_Z = (0.35, 0.60), (-0.20, 0.20), (0.20, 0.45)  # [m] slot-base start points, robot base frame
 # far edge (2026-10-09): spawn area up to x 0.65 m plus targets up to 10 cm beyond, at the stem-tip height
-FAR_X, FAR_Y, FAR_Z = (0.60, 0.75), (-0.25, 0.25), (0.30, 0.45)  # [m] tool-tip start points, robot base frame
+FAR_X, FAR_Y, FAR_Z = (0.60, 0.75), (-0.25, 0.25), (0.30, 0.45)  # [m] slot-base start points, robot base frame
 KNOWN_LIMIT = {(0.75, y, z) for y in FAR_Y for z in FAR_Z}  # fail without inertia feedforward (user, 2026-10-09)
 BOX_CENTER = (0.475, 0.0, 0.325)  # [m] full-speed moves in x and y head towards it (both boxes)
 START_POSE = (0.40, 0.0, 0.50)  # [m] the env's start pose
@@ -108,7 +108,7 @@ def main() -> None:
     # no joint-margin reset: the sweep reports moves near a joint limit itself (a reset start point would never reach
     # its start, and go_to_starts would loop forever)
     env_cfg.terminations.joint_margin = None
-    action_cfg = env_cfg.actions.tool_tip
+    action_cfg = env_cfg.actions.slot_base
     for name, value in (
         ("max_step", args_cli.max_step),
         ("max_rot_step", args_cli.max_rot_step),
@@ -127,7 +127,7 @@ def main() -> None:
         env = gym.make(TASK, cfg=env_cfg).unwrapped
         env.reset()
         device, n = env.device, env.num_envs
-        term = env.action_manager.get_term("tool_tip")
+        term = env.action_manager.get_term("slot_base")
         cfg = term.cfg
         start_t = torch.tensor(starts, device=device)
         start_quat = term.target_quat().clone()  # the start pose's orientation, kept at every start point
@@ -172,7 +172,7 @@ def main() -> None:
             """Full action along per-env directions (n, 3) for a number of policy steps each, then a zero hold.
 
             Returns per env (n,): largest following error, overshoot past the final target along the last direction,
-            end error, the tilt (translation) or tool-tip drift (rotation), and the smallest joint margin.
+            end error, the tilt (translation) or slot-base drift (rotation), and the smallest joint margin.
             """
             pos0, quat0 = term.tool_pose()[0].clone(), term.target_quat().clone()
             follow, side = torch.zeros(n, device=device), torch.zeros(n, device=device)

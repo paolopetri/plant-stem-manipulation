@@ -1,43 +1,43 @@
 """Env check for stage 1 (`StemManip-Push-Position-FR3-v0`): the env steps, and the fork follows the actions.
 
-Creates the env with a few envs, resets it and drives the tool tip with constant actions (same in every env):
+Creates the env with a few envs, resets it and drives the slot base with constant actions (same in every env):
 hold (zero action), then full translation along +x, +y, +z, each for `--steps` policy steps and followed by a hold;
 then a full rotation about the vertical (+z) for `--steps` policy steps and a hold. Then, each after a reset to the
 start pose: a full +y translation and a full rotation about +z from rest (step limits), and a move +x followed by a
 full move down (-z) into the ground and a lift (target clamp, restart after contact). The action term (6-D:
 translation and rotation step, robot base frame) is Franka's Cartesian impedance law with an
-integrated target, speed cap, step-change limit and target-offset clamp (`mdp.ToolTipImpedanceAction`). With the
+integrated target, speed cap, step-change limit and target-offset clamp (`mdp.SlotBaseImpedanceAction`). With the
 step-change limit the target ramps up at the start of a move and brakes during the hold.
 The controller is tested without the stem: the spawn area is switched off and the stem stands out of the fork's reach
 behind the robot (`STEM_AWAY`); the clamp test pushes the fork into the ground instead.
 Checks:
 - shapes: observation (num_envs, 57) and action (num_envs, 6), all observations finite;
-- start pose: tool tip within 5 mm of (0.40, 0, 0.50) m and within 1 deg of its orientation at reset after the hold;
-- holds still: the tool tip moves less than 1 mm during the last half of the hold;
+- start pose: slot base within 5 mm of (0.40, 0, 0.50) m and within 1 deg of its orientation at reset after the hold;
+- holds still: the slot base moves less than 1 mm during the last half of the hold;
 - follows the actions: following error (largest distance to the target over the move and the hold; at the end of
   a policy step the interpolated target equals the step's end target) <= 2 mm; the tool passes the target's final
   position by at most 5 mm and ends within 1 mm of it; sideways drift < 2 mm; orientation within 1 deg throughout.
   The final target is the target after the clamp; that every commanded step was executed follows from the following
   error: had the clamp shortened a step, target and tool would be 4 mm apart at the end of that policy step;
-- follows the rotation: about +z, angle following <= 2 deg, overshoot past the final target <= 2 deg, tool-tip
+- follows the rotation: about +z, angle following <= 2 deg, overshoot past the final target <= 2 deg, slot-base
   drift while turning <= 2 mm, end within 1 deg of the target after the hold;
 - step limits: from rest the first step is exactly 0.08 mm (+y translation) and 0.02 deg (rotation about +z), and
   the step then reaches the caps 3.2 mm and 1.44 deg;
 - follows at full speed: over the +y ramp (incl. `FULL_SPEED_STEPS` steps at the cap, 10 cm/s) following error
-  <= 2 mm; over the rotation ramp (up to 45 deg/s) angle following <= 2 deg and tool-tip drift <= 2 mm (the moves
+  <= 2 mm; over the rotation ramp (up to 45 deg/s) angle following <= 2 deg and slot-base drift <= 2 mm (the moves
   above stay below the caps because of the step-change limit);
 - target clamp: at every physics step of the move down, the target the law uses is at most 4 mm from the tool; while
   the tool is blocked by the ground (last `BLOCKED_STEPS` policy steps) exactly 4 mm;
 - restart after contact: lifting off the ground, the applied step changes by at most 0.08 mm per policy step;
 - applied step within the caps (3.2 mm, 1.44 deg) in every phase;
-- tool-tip observations = independent kinematics, after every policy step of every phase (incl. the clamp): the
-  observed tool-tip position and orientation (first two columns of its rotation matrix) equal the tool tip from the
-  measured joint angles via the FR3 Denavit-Hartenberg parameters and the yaml's tool_tip
+- slot-base observations = independent kinematics, after every policy step of every phase (incl. the clamp): the
+  observed slot-base position and orientation (first two columns of its rotation matrix) equal the slot base from the
+  measured joint angles via the FR3 Denavit-Hartenberg parameters and the yaml's slot_base
   (`stem_manip.utils.fr3_reference`, no code shared with the observations); the observed applied step x the decided
   caps equals the step the decided limits (cap, step-change limit) give for the action, computed here (independent,
   but only in the policy steps where the clamp did not act; the row reports n of N), and the target's motion over the
   policy step (self-consistency only: the target is the action term's own state); the observed target offset x the
-  decided bounds (4 mm, 3 deg) equals the target minus that tool tip. Tolerance 1e-5 m and 1e-5 rad (user,
+  decided bounds (4 mm, 3 deg) equals the target minus that slot base. Tolerance 1e-5 m and 1e-5 rad (user,
   2026-10-14): both sides use the same nominal kinematics, so only float32 rounding remains (about 1e-6 over the
   chain); 10x margin.
 The expected limits are the decided values (option B1), not the cfg's: with an override flag those checks fail.
@@ -82,12 +82,12 @@ from isaaclab.utils.math import matrix_from_quat
 import stem_manip.tasks  # noqa: F401  (registers the task)
 from stem_manip.tasks.push_position.env_cfg import StemPushPositionEnvCfg
 from stem_manip.utils import check_report
-from stem_manip.utils.fr3_reference import rotvec_from_matrix, tool_tip_pose
+from stem_manip.utils.fr3_reference import rotvec_from_matrix, slot_base_pose
 from stem_manip.utils.impedance import rotvec_between
 
 TASK = "StemManip-Push-Position-FR3-v0"
 STEM_AWAY = (-0.8, 0.8, 0.0)  # [m] stem base, out of the fork's reach behind the robot (as in sweep_action_poses.py)
-START_POS = (0.40, 0.0, 0.50)  # [m] tool tip of the start pose (env_cfg.START_JOINT_POS)
+START_POS = (0.40, 0.0, 0.50)  # [m] slot base of the start pose (env_cfg.START_JOINT_POS)
 START_TOL = 5e-3  # [m]
 ORIENTATION_TOL = math.radians(1.0)
 HOLD_TOL = 1e-3  # [m]
@@ -96,10 +96,10 @@ OVERSHOOT_TOL = 5e-3  # [m]
 END_TOL = 1e-3  # [m] after the hold following a move
 DRIFT_TOL = 2e-3  # [m]
 ROT_FOLLOW_TOL, ROT_OVERSHOOT_TOL, ROT_DRIFT_TOL = math.radians(2.0), math.radians(2.0), 2e-3  # user, 2026-10-07
-OBS_DIM = 57  # tool tip: position 3, orientation 6, applied step 6, target offset 6; stem base 3, 5 stem points x 2
+OBS_DIM = 57  # slot base: position 3, orientation 6, applied step 6, target offset 6; stem base 3, 5 stem points x 2
 OBS_TIP_POS, OBS_TIP_ROT = slice(0, 3), slice(3, 9)  # decided layout (user, 2026-10-08), not read from the cfg
 OBS_STEP_POS, OBS_STEP_ROT, OBS_OFFSET_POS, OBS_OFFSET_ROT = slice(9, 12), slice(12, 15), slice(15, 18), slice(18, 21)
-# tool-tip observation vs independent value: rows of the check; the ROT ones in rad, the others in m
+# slot-base observation vs independent value: rows of the check; the ROT ones in rad, the others in m
 TIP_ERRORS = (
     "position",
     "orientation",
@@ -126,7 +126,7 @@ FIRST_STEP, FIRST_ROT_STEP = 8e-5, 0.000349  # [m], [rad] step-change limits 0.0
 CAP_STEP, CAP_ROT_STEP = 0.0032, 0.02513  # [m], [rad] speed caps 10 cm/s (2026-10-08) / 45 deg/s (2026-10-07)
 CLAMP_OFFSET = 4e-3  # [m] target clamp, 4 N at K_p 1000 (2026-10-08)
 CLAMP_ROT_OFFSET = 0.05236  # [rad] orientation clamp, 3 deg (2026-10-08)
-TIP_POS_TOL, TIP_ROT_TOL = 1e-5, 1e-5  # [m], [rad] tool-tip obs vs independent kinematics (user, 2026-10-14)
+TIP_POS_TOL, TIP_ROT_TOL = 1e-5, 1e-5  # [m], [rad] slot-base obs vs independent kinematics (user, 2026-10-14)
 JOINT_MARGIN_MIN = 0.25  # [rad] closer to a joint limit, a check is invalid (user, 2026-10-08)
 # clamp test path (test setup, not a criterion): +x first, so that the way down stays clear of joint 4's limit
 # (DOWN_STEPS leaves the blocked window well after the tool has reached the ground)
@@ -145,18 +145,18 @@ def main() -> None:
     env_cfg.events.spawn_stem = None  # the fork must not touch the stem: no spawn area, stem out of reach
     env_cfg.scene.stem.init_state.pos = STEM_AWAY
     if args_cli.rot_stiffness is not None:
-        env_cfg.actions.tool_tip.stiffness_rot = args_cli.rot_stiffness
+        env_cfg.actions.slot_base.stiffness_rot = args_cli.rot_stiffness
     if args_cli.max_step is not None:
-        env_cfg.actions.tool_tip.max_step = args_cli.max_step
+        env_cfg.actions.slot_base.max_step = args_cli.max_step
     if args_cli.max_rot_step is not None:
-        env_cfg.actions.tool_tip.max_rot_step = args_cli.max_rot_step
+        env_cfg.actions.slot_base.max_rot_step = args_cli.max_rot_step
     if args_cli.damping is not None:
-        env_cfg.actions.tool_tip.damping = args_cli.damping
+        env_cfg.actions.slot_base.damping = args_cli.damping
     with launch_simulation(env_cfg, args_cli):
         env = gym.make(TASK, cfg=env_cfg).unwrapped
         obs, _ = env.reset()
         sim, device, n = env.sim, env.device, env.num_envs
-        term = env.action_manager.get_term("tool_tip")
+        term = env.action_manager.get_term("slot_base")
         quat_ref = term.tool_pose()[1].clone()  # start orientation, held while the rotation action is zero
 
         def angle_between(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
@@ -176,7 +176,7 @@ def main() -> None:
         margin = math.inf  # smallest distance to a joint limit [rad] since the last `window()`
         max_applied = [0.0, 0.0]  # largest applied translation [m] and rotation [rad] step over all phases
         fk_joint_ids = robot.find_joints([f"fr3_joint{i}" for i in range(1, 8)], preserve_order=True)[0]
-        # largest difference of each tool-tip observation from its independent value [m or rad]
+        # largest difference of each slot-base observation from its independent value [m or rad]
         obs_errors = dict.fromkeys(TIP_ERRORS, 0.0)
         obs_checked, limits_checked = 0, 0  # policy steps compared (limits: steps where the clamp did not act)
         max_target_offset = 0.0  # largest observed target offset (position part, normalized), to show the clamp's range
@@ -192,14 +192,14 @@ def main() -> None:
             wanted = limit(action.clamp(-1.0, 1.0) * cap, cap)
             return limit(prev + limit(wanted - prev, change), cap)
 
-        def tool_tip_obs_errors(
+        def slot_base_obs_errors(
             policy: torch.Tensor, target_before: torch.Tensor, target_quat_before: torch.Tensor, action: torch.Tensor
         ) -> dict[str, torch.Tensor]:
-            """Differences (n,) of the tool-tip slices of `policy` from the independent kinematics, from the target's
+            """Differences (n,) of the slot-base slices of `policy` from the independent kinematics, from the target's
             motion since (`target_before`, `target_quat_before`) and from the step the limits give for `action`
             (`TIP_ERRORS`, see the module docstring). Then sets `expected_step` to the step actually applied (the
             target's motion, after the clamp), from which the next step's limits start."""
-            tip = tool_tip_pose(robot.data.joint_pos.torch[:, fk_joint_ids], term.cfg.body_name)
+            tip = slot_base_pose(robot.data.joint_pos.torch[:, fk_joint_ids], term.cfg.body_name)
             tip_pos, tip_rot = tip[:, :3, 3], tip[:, :3, :3]
             obs = policy.double()
             target = term.target().double()
@@ -235,7 +235,7 @@ def main() -> None:
             target_before, target_quat_before = term.target().clone(), term.target_quat().clone()
             obs, _, _, _, _ = env.step(action.repeat(n, 1))
             finite = finite and bool(torch.isfinite(obs["policy"]).all())
-            errors = tool_tip_obs_errors(obs["policy"], target_before, target_quat_before, action)
+            errors = slot_base_obs_errors(obs["policy"], target_before, target_quat_before, action)
             free = ~term.clamp_held().any(dim=-1)  # where the clamp acted, the limits' step is not the applied one
             for name, error in errors.items():
                 error = error[free] if name in LIMITS_ERRORS else error
@@ -333,7 +333,7 @@ def main() -> None:
         # grows by the step-change limit until the cap
         def ramp(axis: int, n_steps: int) -> tuple[torch.Tensor, torch.Tensor, float, dict[str, torch.Tensor]]:
             """Full action on `axis` from rest; returns the first and last applied step, the joint margin and the
-            largest following error, angle following and tool-tip drift over the ramp."""
+            largest following error, angle following and slot-base drift over the ramp."""
             restart()
             window()
             action = torch.zeros(6, device=device)
@@ -407,12 +407,12 @@ def main() -> None:
             ),
             "start pose": (
                 start_error < START_TOL and hold_angle < ORIENTATION_TOL,
-                f"tool tip {start_error * 1e3:.1f} mm from {START_POS}, orientation {math.degrees(hold_angle):.2f} deg "
-                f"(at reset: {[round(float(v), 3) for v in pos0[0]]} m)",
+                f"slot base {start_error * 1e3:.1f} mm from {START_POS}, "
+                f"orientation {math.degrees(hold_angle):.2f} deg (at reset: {[round(float(v), 3) for v in pos0[0]]} m)",
             ),
             "holds still": (
                 hold_move < HOLD_TOL,
-                f"tool tip moved {hold_move * 1e3:.2f} mm in the 2nd half of the hold",
+                f"slot base moved {hold_move * 1e3:.2f} mm in the 2nd half of the hold",
             ),
             "follows the actions": (
                 follows and max_angle < ORIENTATION_TOL and moves_margin >= JOINT_MARGIN_MIN,
@@ -445,7 +445,7 @@ def main() -> None:
                 and min(ramp_margin, rot_ramp_margin) >= JOINT_MARGIN_MIN,
                 f"+y ramp to {CAP_STEP / env.step_dt * 100:.0f} cm/s ({FULL_SPEED_STEPS} steps at the cap): following "
                 f"{float(ramp_follow['pos'].max()) * 1e3:.2f} mm; rotation ramp to 45 deg/s: angle following "
-                f"{math.degrees(float(rot_ramp_follow['angle'].max())):.2f} deg, tool-tip drift "
+                f"{math.degrees(float(rot_ramp_follow['angle'].max())):.2f} deg, slot-base drift "
                 f"{float(rot_ramp_follow['drift'].max()) * 1e3:.2f} mm",
             ),
             "target clamp": (
@@ -454,7 +454,7 @@ def main() -> None:
                 and clamp_margin >= JOINT_MARGIN_MIN,
                 f"moving down into the ground: largest target-tool distance {float(stretches.max()) * 1e3:.4f} mm "
                 f"(bound {CLAMP_OFFSET * 1e3:.1f} mm), while blocked {float(blocked.min()) * 1e3:.4f}-"
-                f"{float(blocked.max()) * 1e3:.4f} mm, tool tip at z {float(tip_height.min()) * 1e3:.1f}-"
+                f"{float(blocked.max()) * 1e3:.4f} mm, slot base at z {float(tip_height.min()) * 1e3:.1f}-"
                 f"{float(tip_height.max()) * 1e3:.1f} mm; joint margin {clamp_margin:.2f} rad",
             ),
             "restart after contact": (
@@ -470,7 +470,7 @@ def main() -> None:
             ),
         }
         tip_ok = all(error < (TIP_ROT_TOL if name in ROT_ERRORS else TIP_POS_TOL) for name, error in obs_errors.items())
-        results["tool-tip observations = independent kinematics"] = (
+        results["slot-base observations = independent kinematics"] = (
             tip_ok and obs_checked > 0 and limits_checked > 0,
             f"largest differences over {obs_checked} policy steps (limits: only the {limits_checked} of "
             f"{obs_checked} steps without the clamp): "
@@ -492,7 +492,7 @@ def main() -> None:
             rot_ok,
             f"about +z, {math.degrees(float(turned.min())):.1f} deg at up to {math.degrees(rot_speed):.2f} deg/step: "
             f"following {math.degrees(float(rot_follow.max())):.2f} deg, overshoot "
-            f"{math.degrees(float(rot_overshoot.clamp(min=0).max())):.2f} deg, tool-tip drift "
+            f"{math.degrees(float(rot_overshoot.clamp(min=0).max())):.2f} deg, slot-base drift "
             f"{float(tip_drift.max()) * 1e3:.2f} mm, end {math.degrees(float(rot_end.max())):.2f} deg; joint margin "
             f"{rot_margin:.2f} rad",
         )

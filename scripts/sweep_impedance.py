@@ -14,8 +14,8 @@ is small). Joint armature: the motors' reflected inertia from the FR3 URDF (`--a
 none, and without it the simulated joints are far lighter than the real ones). Robot gravity is off in simulation
 (the real robot compensates it). v_d = 0 except for `plai_ff`.
 
-Variants (how one policy action, a tool-tip displacement per policy step at 31.25 Hz, becomes the target):
-- `rel_current`: target = measured tool tip + action, held over the policy step (Isaac Lab's relative OSC
+Variants (how one policy action, a slot-base displacement per policy step at 31.25 Hz, becomes the target):
+- `rel_current`: target = measured slot base + action, held over the policy step (Isaac Lab's relative OSC
   action, FrankaTwin);
 - `plai`: target = previous target + action, held (IndustReal's policy-level action integrator);
 - `plai_ff`: as `plai`, but the target moves linearly through the policy step and its velocity is fed forward
@@ -29,11 +29,11 @@ forward: 10 cm back to the start, then 17 cm prong reach + 3 cm gap until the sl
 push; hold 1.5 s.
 
 Reported per env (`RESULT` lines and a table):
-- `lag_ss`: mean distance between the tool tip and the commanded path over the last quarter of the free move
+- `lag_ss`: mean distance between the slot base and the commanded path over the last quarter of the free move
   (steady following);
-- `lag`: largest distance between the tool tip and the commanded path at the same time, during the free move;
-- `overshoot`: how far the tool tip passes the end of the free move;
-- `err_free`: tool tip to commanded end point after the 1 s hold (free space);
+- `lag`: largest distance between the slot base and the commanded path at the same time, during the free move;
+- `overshoot`: how far the slot base passes the end of the free move;
+- `err_free`: slot base to commanded end point after the 1 s hold (free space);
 - `err_push`: the same at the end of the push hold (the stem pushes back on the fork);
 - `F_max`: largest contact force fork -> stem [N]; `kappa_max`: largest stem curvature [1/m] (limit in stem.yaml).
 
@@ -83,18 +83,18 @@ import torch
 import isaaclab.sim as sim_utils
 from isaaclab.utils.math import quat_from_matrix
 
-from stem_manip.assets.fr3 import fr3_cfg, tool_tip_offset
+from stem_manip.assets.fr3 import fr3_cfg, slot_base_offset
 from stem_manip.assets.stem import stem_model, stem_params
-from stem_manip.tasks.push_position.mdp.tool_tip import ToolTipKinematics
+from stem_manip.tasks.push_position.mdp.slot_base import SlotBaseKinematics
 from stem_manip.utils import stem_geometry
 from stem_manip.utils.impedance import apparent_mass_damping, cartesian_impedance_torque, limit_torque_rate
 
-PUSH_HEIGHT = 0.30  # [m] tool-tip height
+PUSH_HEIGHT = 0.30  # [m] slot-base height
 FORK_YAW = math.radians(45.0)  # fork direction in the ground plane (as check_contact)
 CLEAR_HEIGHT = 0.55  # [m] approach over the stem's tip
 BACKOFF = 0.10  # [m] the approach goes down this far behind the start
 APPROACH_SPEED = 0.10  # [m/s]
-PRONG_REACH = 0.17  # [m] fork collision mesh beyond the tool tip along tool x
+PRONG_REACH = 0.17  # [m] fork collision mesh beyond the slot base along tool x
 APPROACH_GAP = 0.03  # [m] gap between fork and stem at the start
 FREE_MOVE = 0.10  # [m] straight back, away from the stem
 PUSH_DEPTH = 0.05  # [m] fork travel beyond the stem surface
@@ -125,7 +125,7 @@ def main() -> None:
     num_envs = len(combos)
 
     push_dir = (math.cos(FORK_YAW), math.sin(FORK_YAW), 0.0)
-    start_offset = radius + PRONG_REACH + APPROACH_GAP  # stem axis to tool tip at the start, along the push
+    start_offset = radius + PRONG_REACH + APPROACH_GAP  # stem axis to slot base at the start, along the push
 
     def on_path(distance: float) -> tuple[float, float, float]:
         return (stem_x + distance * push_dir[0], stem_y + distance * push_dir[1], PUSH_HEIGHT)
@@ -193,7 +193,7 @@ def main() -> None:
                 f"rotation {base_rotation:.1e} rad (tol {BASE_ROT_TOL:.0e})"
             )
         arm = list(range(7))
-        tool = ToolTipKinematics(robot, "fork_v2", tool_tip_offset("fork_v2"), arm)
+        tool = SlotBaseKinematics(robot, "fork_v2", slot_base_offset("fork_v2"), arm)
         tool_pose, tool_jacobian = tool.pose, tool.jacobian
         ik = DifferentialIKController(
             DifferentialIKControllerCfg(command_type="pose", use_relative_mode=False, ik_method="dls"), n, device
@@ -280,7 +280,7 @@ def main() -> None:
             advance()
 
         # commanded path c(t) per env: back FREE_MOVE, hold, forward FREE_MOVE + gap + depth, hold
-        forward = FREE_MOVE + PRONG_REACH + APPROACH_GAP + PUSH_DEPTH  # tool tip (slot bottom) 5 cm past contact
+        forward = FREE_MOVE + PRONG_REACH + APPROACH_GAP + PUSH_DEPTH  # slot base (slot bottom) 5 cm past contact
         t_back, t_fwd = FREE_MOVE / speed, forward / speed
         segments = [(t_back, -FREE_MOVE), (HOLD_FREE, 0.0), (t_fwd, forward), (HOLD_PUSH, 0.0)]
         t_ends = torch.cumsum(torch.stack([torch.as_tensor(d, device=device).expand(n) for d, _ in segments]), 0)

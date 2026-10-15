@@ -5,7 +5,7 @@ script records a short rollout of `StemManip-Push-Position-FR3-v0` before the re
 recorded after it:
 - `record <out>`: seeds the env (`--seed`, also the seed of every reset) and runs three rollouts: `--steps` policy
   steps of zero actions, `--steps` of uniform random actions in [-1, 1] (a torch generator seeded with `--seed`),
-  and a scripted push (stem base fixed at `PUSH_STEM_BASE`, the tool tip along `PUSH_PLAN`: twice behind the stem,
+  and a scripted push (stem base fixed at `PUSH_STEM_BASE`, the slot base along `PUSH_PLAN`: twice behind the stem,
   down, then through the stem axis at full speed). The push makes the contact force, the contact-force and
   curvature penalties non-zero and `curvature_limit` and `contact_force_limit` fire; if one of these stays 0 / never
   fires, `record` fails (exit status 1) naming it and saves nothing. It saves every policy
@@ -37,7 +37,7 @@ import time
 from pathlib import Path
 
 TASK = "StemManip-Push-Position-FR3-v0"
-# push rollout: stem base (world x, y) [m], as in check_push_terms.py; tool-tip waypoints relative to the stem base
+# push rollout: stem base (world x, y) [m], as in check_push_terms.py; slot-base waypoints relative to the stem base
 # (robot base frame) [m] and the policy steps spent on each. Two pushes, each from behind the stem at the start
 # height, down, then toward 0.15 m beyond the stem axis at full speed: at 0.15 m height the stem bends until
 # `curvature_limit` fires and resets the envs; at 0.10 m (stiffer, the curvature stays below the soft limit) the
@@ -100,7 +100,7 @@ def record() -> None:
         env = gym.make(TASK, cfg=env_cfg).unwrapped
         n, device = env.num_envs, env.device
         action_dim = env.action_manager.total_action_dim
-        tool_cfg = env.action_manager.get_term("tool_tip").cfg
+        tool_cfg = env.action_manager.get_term("slot_base").cfg
         slices = rollout.obs_term_slices(
             env.observation_manager.active_terms["policy"], env.observation_manager.group_obs_term_dim["policy"]
         )
@@ -139,7 +139,7 @@ def record() -> None:
             generator = torch.Generator(device=device).manual_seed(args_cli.seed)
             run(agent, args_cli.steps, lambda _obs, a=agent, g=generator: rollout.agent_action(a, n, action_dim, g))
 
-        # push: the stem base at PUSH_STEM_BASE, the tool tip along PUSH_PLAN (relative to the stem base).
+        # push: the stem base at PUSH_STEM_BASE, the slot base along PUSH_PLAN (relative to the stem base).
         # The `spawn_stem` event cfg params are updated in place; this works because the event manager reads the
         # params at call time (each reset), not when the env is built.
         params = env.event_manager.get_term_cfg("spawn_stem").params
@@ -155,7 +155,7 @@ def record() -> None:
             # steering from the policy observations: valid because observation corruption is off
             # (`enable_corruption = False` in push_position env_cfg) and both terms are in the robot base frame
             goal = obs[:, slices["stem_base"]] + plan[leg][0]
-            return rollout.toward(obs[:, slices["tool_tip_pos"]], goal, tool_cfg.max_step, tool_cfg.max_step_change)
+            return rollout.toward(obs[:, slices["slot_base_pos"]], goal, tool_cfg.max_step, tool_cfg.max_step_change)
 
         run("push", PUSH_STEPS, push)
         missing = rollout_compare.never_nonzero(terms, PUSH_REQUIRED)

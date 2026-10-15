@@ -3,7 +3,7 @@
 Creates the env with a few envs and holds the fork still at its start pose (zero action; the fork does not touch the
 stem). Phases: rest (the stem settles), push (a constant sideways force on the tip segment, +x in the world frame),
 release, then a reset. The observation is read by its decided layout (user, 2026-10-08):
-tool tip 21 | stem base 3 | 5 stem points of the previous policy step 15 | the same 5 points now 15 | target 3,
+slot base 21 | stem base 3 | 5 stem points of the previous policy step 15 | the same 5 points now 15 | target 3,
 all positions in the robot base frame [m]; the points at arc lengths 0.08, 0.16, 0.24, 0.32, 0.40 m (the last one is
 the tip, the stem point the policy controls).
 Checks:

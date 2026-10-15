@@ -4,7 +4,7 @@
   of the robot on the stem (mean over the policy step) above `damage.max_contact_force`. Twist and tension once
   their limits are set (#81, #82).
 - Joint margin: any FR3 joint closer than `min_margin` to its limit (the real FR3 stops with a reflex there).
-- Time out: Isaac Lab's `time_out`. No tool-tip workspace bound (user, 2026-10-09: it would limit the motion too
+- Time out: Isaac Lab's `time_out`. No slot-base workspace bound (user, 2026-10-09: it would limit the motion too
   much; the time out and the speed cap bound an episode).
 
 Each term is shown to fire in `scripts/check_push_terms.py`.

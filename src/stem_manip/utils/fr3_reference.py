@@ -1,9 +1,9 @@
-"""Reference tool-tip kinematics for the checks: FR3 forward kinematics from the datasheet and the yaml tool tip.
+"""Reference slot-base kinematics for the checks: FR3 forward kinematics from the datasheet and the yaml slot base.
 
-Independent of the tool-tip code of the task (`mdp/observations.py`, `mdp/actions.py`, the URDF/USD and
-`stem_manip.assets.fr3.tool_tip_offset`) on purpose: the checks compare the task's tool-tip pose with it, so the
+Independent of the slot-base code of the task (`mdp/observations.py`, `mdp/actions.py`, the URDF/USD and
+`stem_manip.assets.fr3.slot_base_offset`) on purpose: the checks compare the task's slot-base pose with it, so the
 task's code must not use it. Joint angles -> fr3_link8 (flange) pose via Franka's modified Denavit-Hartenberg
-parameters (Craig), then the end-effector yaml's `tool_tip` (xyz, URDF rpy), which the yaml gives in the fr3_link8
+parameters (Craig), then the end-effector yaml's `slot_base` (xyz, URDF rpy), which the yaml gives in the fr3_link8
 frame. Torch only, float64; poses as 4x4 matrices in the fr3_link0 (robot base) frame.
 Used by `scripts/check_fr3.py` and `scripts/check_push_env.py`. Tests: `tests/test_fr3_reference.py`.
 """
@@ -65,27 +65,27 @@ def rpy_matrix(rpy: Sequence[float]) -> torch.Tensor:
     return rz @ ry @ rx
 
 
-def tool_tip_in_flange(ee: str) -> torch.Tensor:
-    """Tool-tip pose (4, 4) in the fr3_link8 frame, from `tool_tip` of assets/fr3/end_effectors/<ee>/<ee>.yaml.
+def slot_base_in_flange(ee: str) -> torch.Tensor:
+    """Slot-base pose (4, 4) in the fr3_link8 frame, from `slot_base` of assets/fr3/end_effectors/<ee>/<ee>.yaml.
 
-    Raises ValueError unless the yaml's `mount` is the identity: the yaml gives `tool_tip` in the fr3_link8 frame,
+    Raises ValueError unless the yaml's `mount` is the identity: the yaml gives `slot_base` in the fr3_link8 frame,
     the URDF builder (and so the task) puts it under the end-effector body; the two agree only with an identity mount.
     """
     path = REPO_ASSETS_DIR / "fr3" / "end_effectors" / ee / f"{ee}.yaml"
     description = yaml.safe_load(path.read_text())
     mount = description["mount"]
     if any(v != 0 for v in (*mount["xyz"], *mount["rpy"])):
-        raise ValueError(f"{path.name}: mount {mount} is not the identity; tool_tip in fr3_link8 no longer holds")
-    tip = description["tool_tip"]
+        raise ValueError(f"{path.name}: mount {mount} is not the identity; slot_base in fr3_link8 no longer holds")
+    tip = description["slot_base"]
     pose = torch.eye(4, dtype=DTYPE)
     pose[:3, :3] = rpy_matrix(tip["rpy"])
     pose[:3, 3] = torch.tensor(tip["xyz"], dtype=DTYPE)
     return pose
 
 
-def tool_tip_pose(q: torch.Tensor, ee: str) -> torch.Tensor:
-    """Tool-tip pose (n, 4, 4) in the fr3_link0 frame for the joint angles q (n, 7) [rad] and end-effector `ee`."""
-    return flange_pose(q) @ tool_tip_in_flange(ee).to(q.device)
+def slot_base_pose(q: torch.Tensor, ee: str) -> torch.Tensor:
+    """Slot-base pose (n, 4, 4) in the fr3_link0 frame for the joint angles q (n, 7) [rad] and end-effector `ee`."""
+    return flange_pose(q) @ slot_base_in_flange(ee).to(q.device)
 
 
 def rotvec_from_matrix(rot: torch.Tensor) -> torch.Tensor:

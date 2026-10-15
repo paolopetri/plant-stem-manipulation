@@ -6,7 +6,7 @@ speed cap and acceleration limit revised 2026-10-08 after the full-speed sweep a
 
 import pytest
 
-from stem_manip.tasks.push_position.mdp.actions_cfg import ToolTipImpedanceActionCfg
+from stem_manip.tasks.push_position.mdp.actions_cfg import SlotBaseImpedanceActionCfg
 
 DECIDED = {
     "max_step": 0.0032,  # [m] speed cap 10 cm/s at 31.25 Hz (2026-10-08; 20 cm/s needs 21 cm to reach)
@@ -23,4 +23,4 @@ DECIDED = {
 @pytest.mark.parametrize("field", DECIDED)
 def test_cfg_default_is_decided_value(field: str):
     """Each limit and gain of the cfg defaults to the decided value."""
-    assert getattr(ToolTipImpedanceActionCfg(), field) == pytest.approx(DECIDED[field], rel=1e-9)
+    assert getattr(SlotBaseImpedanceActionCfg(), field) == pytest.approx(DECIDED[field], rel=1e-9)

@@ -32,7 +32,7 @@ confirm the controller and to tell us about the lab's FR3 setup (end of this sec
 \subsection{What we use}
 \label{sec:controller-what}
 
-\paragraph{Action.} Every policy step (31.25\,Hz) the policy outputs a displacement of the tool tip (at most
+\paragraph{Action.} Every policy step (31.25\,Hz) the policy outputs a displacement of the slot base (at most
 3.2\,mm, i.e.\ 10\,cm/s) and a rotation of the fork (rotation vector, at most 1.44$^\circ$, i.e.\ 45$^\circ$/s), both in
 the robot's base frame. The step may change by at most 0.08\,mm (0.02$^\circ$) from one policy step to the next, which
 limits the acceleration to 0.08\,m/s$^2$ (20$^\circ$/s$^2$) and with it the lag (Section~\ref{sec:al}). The steps are
@@ -51,7 +51,7 @@ tool and its velocity is the tool's. The fork starts horizontal; its orientation
        + \tau_\text{Coriolis},
   \label{eq:impedance}
 \end{equation}
-a spring and damper that pull the tool tip $x$ to its target $x_d$ and its orientation to the target orientation
+a spring and damper that pull the slot base $x$ to its target $x_d$ and its orientation to the target orientation
 ($e_o$: orientation error), plus a weak spring that keeps the elbow of the redundant arm near its rest posture. This is the law of
 Franka's example controllers~\cite{libfranka,frankaros}, with one change: Franka sets the damping to
 $D = 2\sqrt{K}$, which is critically damped only for a tool of 1\,kg. The arm's inertia felt at the tool,
@@ -102,7 +102,7 @@ lagged 0.2\,s behind its targets and has no counterpart on the real robot.
 
 Criterion for ``the step is followed'': while moving, the tool trails the commanded path by at most 2\,mm, and it
 overshoots the end point by at most 5\,mm (fork tilt at most 1$^\circ$); while turning, the angle lags and overshoots
-by at most 2$^\circ$ and the tool tip moves by at most 2\,mm. Every step is eventually executed: after a
+by at most 2$^\circ$ and the slot base moves by at most 2\,mm. Every step is eventually executed: after a
 hold the tool is within 0.5\,mm of the commanded end point in all tests.
 
 \begin{table}[h]
@@ -122,7 +122,7 @@ hold the tool is within 0.5\,mm of the commanded end point in all tests.
 
 \begin{table}[h]
   \centering
-  \caption{Largest step: 9 start points over the workspace (tool tip at $x$ 0.35--0.60\,m, $y \pm 0.20$\,m, $z$
+  \caption{Largest step: 9 start points over the workspace (slot base at $x$ 0.35--0.60\,m, $y \pm 0.20$\,m, $z$
   0.20--0.45\,m, and the start pose), 6\,cm moves along $\pm x, \pm y, \pm z$, worst case. Two points close to
   the robot and low ($x$ 0.35\,m, $z$ 0.20\,m) are within 0.2\,rad of the elbow's joint limit and are listed
   separately.}
@@ -139,12 +139,12 @@ hold the tool is within 0.5\,mm of the commanded end point in all tests.
 
   \bigskip
 
-  \caption{Rotation step: 20$^\circ$ turns about the base axes at the same 9 points, worst case. The tool tip should
+  \caption{Rotation step: 20$^\circ$ turns about the base axes at the same 9 points, worst case. The slot base should
   stay in place while the fork turns.}
   \label{tab:controller-rotation}
   \begin{tabular}{rrrrr}
     \toprule
-    Step           & Speed               & angle following & angle overshoot & tool-tip drift \\
+    Step           & Speed               & angle following & angle overshoot & slot-base drift \\
     \midrule
     0.25$^\circ$ & 7.8$^\circ$/s & 0.7$^\circ$ & 1.0$^\circ$ & 1.7\,mm \\
     0.30$^\circ$ & 9.4$^\circ$/s & 1.1$^\circ$ & 1.1$^\circ$ & 2.1\,mm \\
@@ -159,7 +159,7 @@ hold the tool is within 0.5\,mm of the commanded end point in all tests.
         to 7\,mm in the directions where the arm feels heavy; damping by the apparent mass removes most of it.
   \item The simulated FR3 initially had no motor inertia. Without it the arm oscillated and pressed the stem with
         5\,N instead of 0.85\,N; at the wrist the motor inertia is about 100 times the link inertia.
-  \item Turning the fork moves the tool tip: the law treats position and orientation as independent springs, but
+  \item Turning the fork moves the slot base: the law treats position and orientation as independent springs, but
         the arm's dynamics couple them. With the criterion (tip drift $\le 2$\,mm, angles $\le 2^\circ$) the first
         design limited rotations to 7.8$^\circ$/s. The acceleration limit (Section~\ref{sec:al}) now allows
         45$^\circ$/s within the criterion. Decoupling rotation and translation by inertia feedforward

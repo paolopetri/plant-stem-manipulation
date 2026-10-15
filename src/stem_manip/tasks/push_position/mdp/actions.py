@@ -1,6 +1,6 @@
-"""Action term: relative tool-tip pose (position and rotation step), executed by Franka's Cartesian impedance law.
+"""Action term: relative slot-base pose (position and rotation step), executed by Franka's Cartesian impedance law.
 
-The policy outputs a tool-tip translation and rotation per policy step (robot base frame); the term integrates them
+The policy outputs a slot-base translation and rotation per policy step (robot base frame); the term integrates them
 into a target pose (IndustReal's policy-level action integrator) and, every physics step, computes the joint torques
 with the same law the real FR3 will run (`stem_manip.utils.impedance`). Per policy step the step's size is capped
 (speed), its change from the previous step is limited (acceleration: keeps the tracking error small), and the target
@@ -32,23 +32,23 @@ from stem_manip.utils.impedance import (
     substep_command,
 )
 
-from .actions_cfg import ToolTipImpedanceActionCfg
-from .tool_tip import ToolTipKinematics
+from .actions_cfg import SlotBaseImpedanceActionCfg
+from .slot_base import SlotBaseKinematics
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
 
 
-class ToolTipImpedanceAction(ActionTerm):
-    """Relative tool-tip pose action with a Cartesian impedance controller (see the module docstring)."""
+class SlotBaseImpedanceAction(ActionTerm):
+    """Relative slot-base pose action with a Cartesian impedance controller (see the module docstring)."""
 
-    cfg: ToolTipImpedanceActionCfg
+    cfg: SlotBaseImpedanceActionCfg
     _asset: Articulation
 
-    def __init__(self, cfg: ToolTipImpedanceActionCfg, env: ManagerBasedEnv):
+    def __init__(self, cfg: SlotBaseImpedanceActionCfg, env: ManagerBasedEnv):
         super().__init__(cfg, env)
         self._joint_ids, _ = self._asset.find_joints(cfg.joint_names)
-        self._tool = ToolTipKinematics(self._asset, cfg.body_name, cfg.tool_offset, self._joint_ids)
+        self._tool = SlotBaseKinematics(self._asset, cfg.body_name, cfg.tool_offset, self._joint_ids)
 
         n, device = self.num_envs, self.device
         self._q_ns = self._asset.data.default_joint_pos.torch[:, self._joint_ids].clone()
@@ -82,7 +82,7 @@ class ToolTipImpedanceAction(ActionTerm):
         return self._step
 
     def tool_pose(self) -> tuple[torch.Tensor, torch.Tensor]:
-        """Tool-tip position (n, 3) and orientation (n, 4) in the robot base frame."""
+        """Slot-base position (n, 3) and orientation (n, 4) in the robot base frame."""
         return self._tool.pose()
 
     def target(self) -> torch.Tensor:

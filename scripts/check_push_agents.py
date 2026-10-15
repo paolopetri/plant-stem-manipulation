@@ -1,15 +1,15 @@
 """Env check for stage 1 (`StemManip-Push-Position-FR3-v0`): zero, random and clamp agent, shapes and value ranges.
 
 Runs the task as Isaac Lab's `isaaclab zero_agent` / `random_agent` do (zero actions; uniform random actions in
-[-1, 1], seeded), and a scripted clamp agent that moves the tool tip sideways, away from the stem, and then drives it
+[-1, 1], seeded), and a scripted clamp agent that moves the slot base sideways, away from the stem, and then drives it
 down into the ground (as the clamp test of `check_push_env.py`), so that the target clamp holds; each for
 `--episodes` episodes, checking every policy step. The expected values are the decided ones, fixed here, not read
 from the cfg:
-- shapes: observation (num_envs, 57), action (num_envs, 6); terms tool_tip_pos 3, tool_tip_rot 6, applied_step 6,
+- shapes: observation (num_envs, 57), action (num_envs, 6); terms slot_base_pos 3, slot_base_rot 6, applied_step 6,
   target_offset 6, stem_base 3, stem_points 30 (5 points, previous and current policy step), target_pos 3;
 - finite: observations, rewards, terminated / truncated flags;
-- tool_tip_rot: both columns unit length and orthogonal (1e-4);
-- after every reset: tool tip within 5 mm of the start pose (0.40, 0, 0.50) m and within 1 deg (rotation angle) of
+- slot_base_rot: both columns unit length and orthogonal (1e-4);
+- after every reset: slot base within 5 mm of the start pose (0.40, 0, 0.50) m and within 1 deg (rotation angle) of
   the orientation at the first reset (tolerances of `check_push_env.py`);
 - target_offset: position part and rotation part each of norm <= 1 (target clamp 4 mm / 3 deg, 2026-10-08); each
   may exceed 1 by one physics step of tool motion at its speed cap (position +0.05, `OFFSET_TOL`; rotation +0.03,
@@ -27,7 +27,7 @@ from the cfg:
 - rewards (weighted, per step): distance / height / approach terms in [0, weight], penalties <= 0;
 - every reset comes with a done flag (episode length counts up by one, or restarts after terminated / truncated).
 Zero agent in addition: only the time out fires, exactly at step 469 (15 s / 32 ms) of every episode in every env;
-the tool tip stays within 2 mm of its reset position (lag criterion of the action sweep); curvature, contact and
+the slot base stays within 2 mm of its reset position (lag criterion of the action sweep); curvature, contact and
 action-rate penalties 0. Random agent: the terminations that fire are reported (counts per term), not checked.
 Clamp agent: the clamp holds the position target in at least one env-step, so that the exemption and the
 target_offset bound are exercised (the random agent rarely engages the clamp).
@@ -75,8 +75,8 @@ TASK = "StemManip-Push-Position-FR3-v0"
 # decided values
 OBS_DIM, ACTION_DIM = 57, 6
 TERM_DIMS = {
-    "tool_tip_pos": 3,
-    "tool_tip_rot": 6,
+    "slot_base_pos": 3,
+    "slot_base_rot": 6,
     "applied_step": 6,
     "target_offset": 6,
     "stem_base": 3,
@@ -85,9 +85,9 @@ TERM_DIMS = {
 }
 ARC_LENGTHS = (0.08, 0.16, 0.24, 0.32, 0.40)  # [m] observed stem points (2026-10-08)
 EPISODE_STEPS = 469  # 15 s / (16 x 2 ms), rounded up (user, 2026-10-09)
-START_POS = (0.40, 0.0, 0.50)  # [m] tool tip of the start pose (user, 2026-10-09)
+START_POS = (0.40, 0.0, 0.50)  # [m] slot base of the start pose (user, 2026-10-09)
 START_TOL, START_ANGLE_TOL = 5e-3, 1.0  # [m], [deg] as in check_push_env.py
-HOLD_TOL = 2e-3  # [m] zero agent: tool tip vs its reset position (lag criterion of the action sweep)
+HOLD_TOL = 2e-3  # [m] zero agent: slot base vs its reset position (lag criterion of the action sweep)
 SPAWN_X, SPAWN_Y = (0.50, 0.65), (-0.15, 0.15)  # [m] stem spawn area (user, 2026-10-09)
 AREA_TOL, GROUND_TOL = 1e-6, 1e-3  # [m] as in check_push_obs.py
 ARC_TOL = 1e-3  # [m]
@@ -110,7 +110,7 @@ ROT_OFFSET_TOL = ROT_SPEED_CAP * PHYSICS_DT / CLAMP_ROT_OFFSET
 # clamp holds. At that reach the way down stays clear of the joint-margin termination (straight down from the start
 # pose, at x 0.40-0.45 m and y 0, it fires); a diagonal way down bends tall stems.
 CLAMP_SIDE, CLAMP_GOAL = (0.40, 0.40, 0.50), (0.40, 0.40, -0.10)  # [m] robot base frame
-CLAMP_SIDE_TOL = 0.01  # [m] in y: the tool tip has reached the side, go down
+CLAMP_SIDE_TOL = 0.01  # [m] in y: the slot base has reached the side, go down
 PROGRESS_EVERY = 100  # [policy steps]
 
 
@@ -130,7 +130,7 @@ def main() -> None:
         obs_names = env.observation_manager.active_terms["policy"]
         obs_dims = dict(zip(obs_names, env.observation_manager.group_obs_term_dim["policy"], strict=True))
         slices = rollout.obs_term_slices(obs_names, obs_dims.values())
-        action_term = env.action_manager.get_term("tool_tip")
+        action_term = env.action_manager.get_term("slot_base")
         results: dict[str, tuple[bool, str]] = {}
         results["shapes"] = (
             {k: math.prod(v) for k, v in obs_dims.items()} == TERM_DIMS
@@ -154,7 +154,7 @@ def main() -> None:
 
         for agent in args_cli.agents:
             obs = env.reset()[0]["policy"]
-            rot_ref = obs[:, slices["tool_tip_rot"]].clone()  # orientation at the first reset
+            rot_ref = obs[:, slices["slot_base_rot"]].clone()  # orientation at the first reset
             fails: dict[str, list[str]] = {}
             stats = {"step_out": 0.0, "offset": 0.0, "unit": 0.0, "arc": -1.0, "hold": 0.0, "start": 0.0, "angle": 0.0}
             clamp_count = [0, 0]  # env-steps where the clamp held the position / orientation target
@@ -174,9 +174,9 @@ def main() -> None:
                 if len(ids) == 0:
                     return
                 o = obs[ids]
-                err = float((o[:, slices["tool_tip_pos"]] - start_pos).norm(dim=-1).max())
+                err = float((o[:, slices["slot_base_pos"]] - start_pos).norm(dim=-1).max())
                 # angle between the orientations: trace(R_ref^T R) = 1 + 2 cos(angle); third column = x cross y
-                rot, ref = o[:, slices["tool_tip_rot"]], rot_ref[ids]
+                rot, ref = o[:, slices["slot_base_rot"]], rot_ref[ids]
                 trace = sum(
                     (a * b).sum(-1)
                     for a, b in (
@@ -202,7 +202,7 @@ def main() -> None:
                     fail("stem base in the spawn area", f"step {step}: {base[~inside].tolist()}")
 
             check_reset(obs, torch.arange(n, device=device), 0)
-            reset_pos = obs[:, slices["tool_tip_pos"]].clone()
+            reset_pos = obs[:, slices["slot_base_pos"]].clone()
             prev_obs = obs.clone()
             steps = args_cli.episodes * EPISODE_STEPS + 2
             print(f"[INFO] {agent} agent: {steps} steps, {n} envs", flush=True)
@@ -216,7 +216,7 @@ def main() -> None:
                 steps_run = step
                 frame_start = time.perf_counter()
                 if agent == "clamp":
-                    tool_pos = obs[:, slices["tool_tip_pos"]]
+                    tool_pos = obs[:, slices["slot_base_pos"]]
                     at_side = ((tool_pos[:, 1] - CLAMP_SIDE[1]).abs() < CLAMP_SIDE_TOL).unsqueeze(-1)
                     goal = torch.where(at_side, clamp_goal, clamp_side)
                     action = rollout.toward(tool_pos, goal, CAP_STEP, STEP_CHANGE)
@@ -238,7 +238,7 @@ def main() -> None:
                     fail("shapes", f"step {step}: obs {tuple(obs.shape)}")
 
                 # ranges of every step
-                rot = obs[:, slices["tool_tip_rot"]]
+                rot = obs[:, slices["slot_base_rot"]]
                 unit = torch.stack(
                     (rot[:, :3].norm(dim=-1) - 1, rot[:, 3:].norm(dim=-1) - 1, (rot[:, :3] * rot[:, 3:]).sum(-1)),
                     dim=-1,
@@ -296,16 +296,16 @@ def main() -> None:
                     expected_out = step % EPISODE_STEPS == 0
                     if early.any() or not bool((term_flags["time_out"] == expected_out).all()):
                         fail("zero agent: only the time out, at step 469", f"step {step}")
-                    hold = (obs[kept, slices["tool_tip_pos"]] - reset_pos[kept]).norm(dim=-1)
+                    hold = (obs[kept, slices["slot_base_pos"]] - reset_pos[kept]).norm(dim=-1)
                     stats["hold"] = max(stats["hold"], float(hold.max()) if kept.any() else 0.0)
                     if (hold > HOLD_TOL).any():
-                        fail("zero agent: tool tip holds", f"step {step}: {hold.max() * 1e3:.2f} mm")
+                        fail("zero agent: slot base holds", f"step {step}: {hold.max() * 1e3:.2f} mm")
                     for name in ZERO_PENALTIES:
                         if (step_reward[:, reward_names.index(name)] != 0).any():
                             fail("zero agent: penalties 0", f"step {step}: {name}")
 
                 check_reset(obs, ids, step)
-                reset_pos[ids] = obs[ids, slices["tool_tip_pos"]]
+                reset_pos[ids] = obs[ids, slices["slot_base_pos"]]
                 prev_obs = obs.clone()
                 if step % PROGRESS_EVERY == 0:
                     print(
@@ -331,7 +331,7 @@ def main() -> None:
                 "reset only with a done flag",
             ]
             if agent == "zero":
-                checks += ["zero agent: only the time out, at step 469", "zero agent: tool tip holds",
+                checks += ["zero agent: only the time out, at step 469", "zero agent: slot base holds",
                            "zero agent: penalties 0"]  # fmt: skip
             if agent == "clamp":
                 checks.append("clamp holds")
@@ -347,7 +347,7 @@ def main() -> None:
                 f"{clamp_count[0]} / {clamp_count[1]} env-steps (position / orientation)",
                 "clamp holds": f"position in {clamp_count[0]} env-steps",
                 "stem points within their arc length": f"max excess {stats['arc'] * 1e3:.3f} mm",
-                "zero agent: tool tip holds": f"max {stats['hold'] * 1e3:.3f} mm",
+                "zero agent: slot base holds": f"max {stats['hold'] * 1e3:.3f} mm",
             }
             for check in checks:
                 found = fails.get(check, [])
@@ -355,7 +355,7 @@ def main() -> None:
                 if found:
                     info = f"{info} {len(found)} failing steps, first: {found[:3]}".strip()
                 results[f"{agent}: {check}"] = (not found, info or "ok")
-            results[f"{agent}: tool_tip_rot unit and orthogonal"] = (
+            results[f"{agent}: slot_base_rot unit and orthogonal"] = (
                 stats["unit"] <= UNIT_TOL,
                 f"max deviation {stats['unit']:.1e}",
             )
