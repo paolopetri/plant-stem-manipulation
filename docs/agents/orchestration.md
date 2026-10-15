@@ -8,11 +8,7 @@ Open sub-issues of the parent whose blockers are all closed (`Blocked by` line o
 
 ## Worktrees
 
-Each agent gets its own git worktree: `worktrees.md`.
-
-## GPU
-
-At most two agents run Isaac Sim at the same time (checks, not training runs); stagger their launches by about a minute (shared shader cache).
+Each agent gets its own git worktree; setup, the GPU limit and merging: `worktrees.md`. `gh` workarounds: `issue-tracker.md`.
 
 ## Agent prompt
 
@@ -27,12 +23,6 @@ At most two agents run Isaac Sim at the same time (checks, not training runs); s
 2. Run `/code-review` against `main`; show the user the agent's summary and the findings.
 3. Send only the findings the user approves back to the agent; record the decision on the ticket.
 4. Merge after the user's OK and green CI (below), then comment one line on the parent issue.
-
-## gh and git
-
-- Issue and PR views: `gh issue view N --json title,body,comments`; plain `gh issue view` and `gh pr edit` fail (Projects classic). Set PR bodies with `gh api -X PATCH repos/paolopetri/plant-stem-manipulation/pulls/N -F body=@<file>`.
-- Merge: remove the worktree first (`worktrees.md`), then `gh pr merge N --squash`, delete the remote and local branch, `git pull --ff-only` on `main`.
-- Check the main checkout's branch with `git branch --show-current` before branch operations; the session-start git snapshot can be stale.
 
 ## End
 

@@ -18,6 +18,11 @@ Before any `uv run` in the worktree:
 3. Own `.venv`: `uv sync --extra isaacsim --extra rsl-rl --extra wandb --extra video`. A `.venv` is never shared between worktrees (the editable install points at one tree).
 4. Simulation runs need `OMNI_KIT_ACCEPT_EULA=YES`.
 
+## GPU
+
+At most two sessions run Isaac Sim at the same time (checks, not training runs); stagger their launches by about a minute (shared shader cache).
+
 ## Merge
 
-Remove the worktree first (`git worktree remove -f -f <path>`, from the main checkout), then merge the PR as usual.
+From the main checkout: remove the worktree first (`git worktree remove -f -f <path>`), then `gh pr merge N --squash`, delete the remote and local branch, `git pull --ff-only` on `main`.
+Check the main checkout's branch with `git branch --show-current` before branch operations; the session-start git snapshot can be stale.
