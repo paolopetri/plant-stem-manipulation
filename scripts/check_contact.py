@@ -31,10 +31,14 @@ Checks (`slot`, `side`; `slot_far` checks only the first three and the last):
 - springs back: the stem tip is back within 1 mm after the fork has pulled back.
 Reported: the stem point in the slot base frame (slot depth).
 
+`--video` renders offscreen from a fixed camera (the viewer's start view) and writes
+`videos/check_contact_<test>.mp4` at about 30 fps, `--slow_motion` times slower than real time.
+
 Usage (from the repo root; headless unless a visualizer is requested, e.g. `--viz kit --slow_motion 3`):
     uv run --extra isaacsim python scripts/check_contact.py --test slot
     uv run --extra isaacsim python scripts/check_contact.py --test side
     uv run --extra isaacsim python scripts/check_contact.py --test slot_far --viz kit --slow_motion 3
+    uv run --extra isaacsim --extra video python scripts/check_contact.py --test slot_far --video --slow_motion 3
 """
 
 import argparse
@@ -45,12 +49,19 @@ parser = argparse.ArgumentParser(description="Contact check: the FR3 with fork_v
 parser.add_argument("--test", choices=["slot", "side", "slot_far"], default="slot", help="Which push.")
 parser.add_argument("--speed", type=float, default=0.05, help="Slot-base speed during the push [m/s].")
 parser.add_argument(
-    "--slow_motion", type=float, default=1.0, help="With a viewer: play this many times slower than real time."
+    "--slow_motion",
+    type=float,
+    default=1.0,
+    help="With a viewer or --video: play this many times slower than real time.",
 )
+parser.add_argument("--video", action="store_true", help="Write an mp4 from a fixed camera to videos/.")
 add_launcher_args(parser)
 args_cli = parser.parse_args()
+if args_cli.video:
+    args_cli.enable_cameras = True
 
 import math
+import os
 import time
 
 import torch
@@ -75,6 +86,9 @@ APPROACH_GAP = 0.03  # [m] gap between fork and stem at the start
 PUSH_DEPTH = {"slot": 0.05, "side": 0.05, "slot_far": 0.15}  # [m] fork travel beyond the stem surface
 MOVE_TIME, SETTLE_TIME, HOLD_TIME, REST_TIME = 3.0, 1.0, 1.5, 3.0  # [s] (MOVE_TIME: to the point over the stem)
 RENDER_DT = 1.0 / 30.0  # [s] simulated time between rendered frames with a viewer
+CAMERA_EYE, CAMERA_TARGET = (1.2, -0.9, 0.7), (0.45, 0.0, 0.25)  # [m] viewer start view and video camera, world
+VIDEO_FPS = 30  # target; the written rate is exact for an integer number of physics steps per frame
+VIDEO_SIZE = (1280, 720)  # [px] width, height
 START_TOL = 1e-3  # [m]
 ONSET_TOL = 3e-3  # [m]
 FOLLOW_REL_TOL = 0.10
@@ -126,7 +140,7 @@ def main() -> None:
         from isaaclab.assets import AssetBaseCfg
         from isaaclab.controllers import DifferentialIKController, DifferentialIKControllerCfg
         from isaaclab.scene import InteractiveScene, InteractiveSceneCfg
-        from isaaclab.sensors import ContactSensorCfg
+        from isaaclab.sensors import CameraCfg, ContactSensorCfg
         from isaaclab.sim import SimulationContext
         from isaaclab.utils import configclass
 
@@ -134,7 +148,7 @@ def main() -> None:
 
         @configclass
         class ContactSceneCfg(InteractiveSceneCfg):
-            """Ground, light, FR3 with fork_v2, chain stem, contact sensors on the stem segments."""
+            """Ground, light, FR3 with fork_v2, chain stem, contact sensors on the stem segments, video camera."""
 
             ground = AssetBaseCfg(prim_path="/World/ground", spawn=sim_utils.GroundPlaneCfg())
             light = AssetBaseCfg(
@@ -149,9 +163,21 @@ def main() -> None:
                 prim_path="{ENV_REGEX_NS}/Stem/seg_.*",
                 filter_prim_paths_expr=[f"{{ENV_REGEX_NS}}/Robot/.*{link}" for link in robot_links],
             )
+            video_camera = (
+                CameraCfg(
+                    prim_path="/World/VideoCamera",
+                    width=VIDEO_SIZE[0],
+                    height=VIDEO_SIZE[1],
+                    data_types=["rgb"],
+                    spawn=sim_utils.PinholeCameraCfg(focal_length=15.0),  # [mm] whole arm in view
+                )
+                if args_cli.video
+                else None
+            )
 
         sim = SimulationContext(sim_cfg)
-        sim.set_camera_view(eye=(1.2, -0.9, 0.7), target=(0.45, 0.0, 0.25))
+        viewer = sim.is_rendering  # before the scene: a camera sensor makes is_rendering true without a viewer
+        sim.set_camera_view(eye=CAMERA_EYE, target=CAMERA_TARGET)
         scene = InteractiveScene(ContactSceneCfg(num_envs=1, env_spacing=2.0))
         sim.reset()
         robot, stem = scene["robot"], scene["stem"]
@@ -190,6 +216,15 @@ def main() -> None:
 
         render_every = max(1, round(RENDER_DT / sim_dt))
         clock = {"steps": 0, "frame_start": time.perf_counter()}
+        # video: one frame every 1 / (VIDEO_FPS * slow_motion) s of simulated time
+        video_every = max(1, round(1.0 / (VIDEO_FPS * args_cli.slow_motion * sim_dt)))
+        video_fps = 1.0 / (video_every * sim_dt * args_cli.slow_motion)
+        frames = []
+        if args_cli.video:
+            camera = scene["video_camera"]
+            camera.set_world_poses_from_view(
+                torch.tensor([CAMERA_EYE], device=device), torch.tensor([CAMERA_TARGET], device=device)
+            )
         max_arm_contact = torch.zeros(len(robot_links), device=device)  # per link, whole test
         approach_contact = 0.0  # any contact with the robot before the push
 
@@ -205,7 +240,10 @@ def main() -> None:
                 fork_force = float(fork_sensor.data.force_matrix_w.torch[0].sum(dim=(0, 1)).norm())
                 approach_contact = max(approach_contact, fork_force, float(arm_force.max()))
             clock["steps"] += 1
-            if sim.is_rendering and clock["steps"] % render_every == 0:
+            if args_cli.video and clock["steps"] % video_every == 0:
+                sim.render()
+                frames.append(camera.data.output["rgb"].torch[0].cpu().numpy())
+            if viewer and clock["steps"] % render_every == 0:
                 sim.render()
                 frame_time = args_cli.slow_motion * render_every * sim_dt
                 time.sleep(max(0.0, frame_time - (time.perf_counter() - clock["frame_start"])))
@@ -340,6 +378,13 @@ def main() -> None:
             f"along the fork {in_slot_base[0] * 1e3:+.1f} mm, "
             f"sideways {in_slot_base[1] * 1e3:+.1f} mm, vertical {in_slot_base[2] * 1e3:+.1f} mm"
         )
+        if args_cli.video:
+            from moviepy.editor import ImageSequenceClip
+
+            path = os.path.join("videos", f"check_contact_{args_cli.test}.mp4")
+            os.makedirs("videos", exist_ok=True)
+            ImageSequenceClip(frames, fps=video_fps).write_videofile(path, codec="libx264", audio=False, logger=None)
+            print(f"[INFO] video: {len(frames)} frames at {video_fps:.2f} fps, {len(frames) / video_fps:.1f} s, {path}")
         check_report.finish(results, checked=checked)
 
 
