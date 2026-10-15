@@ -126,7 +126,7 @@ def main() -> None:
             poses = model.segment_poses(stem)
             tip = to_base(point_pose(poses, TIP_SEGMENT, 0.5 * segment_length)[:, None, :3])[:, 0]
             error = tip - command.command
-            tool = action_term.tool_pose()[0]
+            slot_base = action_term.slot_base_pose()[0]
             stem_b = to_base(stem_points(poses, dense, segment_length))
             data = sensor.data
             force = data.normal_force_matrix_w_history.torch + data.friction_force_matrix_w_history.torch
@@ -136,11 +136,11 @@ def main() -> None:
                 d=error.norm(dim=-1),
                 d_fine=(error * error.new_tensor([1.0, 1.0, FINE_Z_SCALE])).norm(dim=-1),
                 dz=error[:, 2],
-                approach_d=(stem_b - tool[:, None]).norm(dim=-1).min(dim=-1).values,
+                approach_d=(stem_b - slot_base[:, None]).norm(dim=-1).min(dim=-1).values,
                 curvature=joint_curvature(poses, lengths),
                 force=force.norm(dim=-1).flatten(start_dim=2).max(dim=-1).values.mean(dim=1),  # largest single contact
                 margin=torch.minimum(q - limits[..., 0], limits[..., 1] - q).min(dim=-1).values,
-                tool=tool,
+                slot_base=slot_base,
             )
             # the height term's unweighted value, evaluated here at the same state
             height_cfg = env.reward_manager.get_term_cfg("height")
@@ -232,7 +232,7 @@ def main() -> None:
 
         def toward(goal: torch.Tensor, speed: float = 1.0) -> torch.Tensor:
             """Action that moves the slot base toward `goal` (n, 3), robot base frame (`rollout.toward`)."""
-            return rollout.toward(action_term.tool_pose()[0], goal, max_step, max_step_change, speed)
+            return rollout.toward(action_term.slot_base_pose()[0], goal, max_step, max_step_change, speed)
 
         def place_stem(fixed: bool) -> None:
             """Stem base at STEM_BASE for the scripted phases, or the spawn area of the training."""
@@ -248,15 +248,15 @@ def main() -> None:
             Returns whether every env reached the goal without a reset, and a summary."""
             reset = False
             waypoint = goal.clone()
-            waypoint[:, 2] = action_term.tool_pose()[0][:, 2]
+            waypoint[:, 2] = action_term.slot_base_pose()[0][:, 2]
             for target in (waypoint, goal):
                 for _ in range(max_steps):
-                    if (action_term.tool_pose()[0] - target).norm(dim=-1).max() < 1e-3:
+                    if (action_term.slot_base_pose()[0] - target).norm(dim=-1).max() < 1e-3:
                         break
                     reset |= bool(step(toward(target)).any())
             for _ in range(15):  # settle
                 reset |= bool(step(toward(goal)).any())
-            distance = float((action_term.tool_pose()[0] - goal).norm(dim=-1).max())
+            distance = float((action_term.slot_base_pose()[0] - goal).norm(dim=-1).max())
             return distance < REACH_TOL and not reset, f"drive to the goal: {distance * 1e3:.2f} mm off, reset: {reset}"
 
         def goal_behind(height: float) -> torch.Tensor:
@@ -325,7 +325,7 @@ def main() -> None:
                 goal = goal_behind(PUSH_HEIGHT)
                 goal[:, 0] = contact_x - 0.01  # at full speed until 1 cm before contact (the prongs pass the stem)
                 for _ in range(200):
-                    if (action_term.tool_pose()[0] - goal).norm(dim=-1).max() < 1e-3:
+                    if (action_term.slot_base_pose()[0] - goal).norm(dim=-1).max() < 1e-3:
                         break
                     step(toward(goal))
                 goal[:, 0] = contact_x + PUSH_DEPTH
@@ -335,7 +335,7 @@ def main() -> None:
                     max_force = max(max_force, float(snap["force"].max()))
                     max_penalty = max(max_penalty, float(recorded["contact_force"].max()))
                     max_curv = max(max_curv, float(snap["curvature"].max()))
-                    if (snap["tool"][:, 0] >= goal[:, 0] - 1e-3).all():
+                    if (snap["slot_base"][:, 0] >= goal[:, 0] - 1e-3).all():
                         break
                 approach_contact = float(recorded["approach"].min())
                 approach_d = stem_reference.slot_approach_distance(
@@ -436,7 +436,7 @@ def main() -> None:
                     step(action)
                     margins.append(float(snap["margin"].min()))
                     if recorded["joint_margin"].any():
-                        fired = (k, float(snap["tool"][:, 2].mean()), bool(recorded["joint_margin"].all()))
+                        fired = (k, float(snap["slot_base"][:, 2].mean()), bool(recorded["joint_margin"].all()))
                         break
                 ok = fired is not None and fired[2] and margins[-1] < MIN_MARGIN and min(margins[:-1]) >= MIN_MARGIN
                 results["joint margin"] = (

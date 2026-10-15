@@ -59,7 +59,7 @@ def slot_base_jacobian(
     base_quat_inv = quat_inv(root_quat_w)
     base_rot = matrix_from_quat(base_quat_inv)  # world -> base
     jacobian = torch.cat((base_rot @ body_jacobian_w[:, :3], base_rot @ body_jacobian_w[:, 3:]), dim=1)
-    # shift the linear rows from the body origin to the slot base: v_tip = v_body + w x r = v_body - [r]x w
+    # shift the linear rows from the body origin to the slot base: v_slot_base = v_body + w x r = v_body - [r]x w
     body_quat_b = quat_mul(base_quat_inv, body_quat_w)
     lever = quat_apply(body_quat_b, offset_pos)
     jacobian[:, :3] += torch.bmm(-skew_symmetric_matrix(lever), jacobian[:, 3:])

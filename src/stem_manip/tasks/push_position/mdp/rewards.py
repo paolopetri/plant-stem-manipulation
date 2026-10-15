@@ -62,8 +62,8 @@ def approach_tanh(
     robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
 ) -> torch.Tensor:
     """`1 - tanh(d / std)` of the slot base's distance d to the stem's centre line [m], in (0, 1]."""
-    tip_b = slot_base_pos(env, body_name, offset, robot_cfg)
-    return 1.0 - torch.tanh(stem_distance_b(env, tip_b.unsqueeze(1), model, asset_cfg, robot_cfg)[:, 0] / std)
+    slot_base_b = slot_base_pos(env, body_name, offset, robot_cfg)
+    return 1.0 - torch.tanh(stem_distance_b(env, slot_base_b.unsqueeze(1), model, asset_cfg, robot_cfg)[:, 0] / std)
 
 
 def curvature_penalty(

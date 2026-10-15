@@ -174,17 +174,17 @@ def main() -> None:
             Returns per env (n,): largest following error, overshoot past the final target along the last direction,
             end error, the tilt (translation) or slot-base drift (rotation), and the smallest joint margin.
             """
-            pos0, quat0 = term.tool_pose()[0].clone(), term.target_quat().clone()
+            pos0, quat0 = term.slot_base_pose()[0].clone(), term.target_quat().clone()
             follow, side = torch.zeros(n, device=device), torch.zeros(n, device=device)
             margin = torch.full((n,), math.inf, device=device)
-            held = []  # tool positions (orientations) during the hold
+            held = []  # slot base positions (orientations) during the hold
             schedule = [d for d, k in segments for _ in range(k)] + [None] * hold
             for d in schedule:
                 action = torch.zeros(n, 6, device=device)
                 if d is not None:
                     action[:, slice(3, 6) if rotation else slice(0, 3)] = d
                 env.step(action)
-                pos, quat = term.tool_pose()
+                pos, quat = term.slot_base_pose()
                 if rotation:
                     follow = torch.maximum(follow, angle_between(quat, term.target_quat()))
                     side = torch.maximum(side, (pos - pos0).norm(dim=-1))
@@ -198,11 +198,11 @@ def main() -> None:
             if rotation:
                 end = term.target_quat().clone()
                 overshoot = torch.stack([(rotvec_between(q, end) * last).sum(-1) for q in held]).max(dim=0).values
-                end_error = angle_between(term.tool_pose()[1], end)
+                end_error = angle_between(term.slot_base_pose()[1], end)
             else:
                 end = term.target().clone()
                 overshoot = torch.stack([((p - end) * last).sum(-1) for p in held]).max(dim=0).values
-                end_error = (term.tool_pose()[0] - end).norm(dim=-1)
+                end_error = (term.slot_base_pose()[0] - end).norm(dim=-1)
             return {
                 "follow": follow,
                 "overshoot": overshoot.clamp(min=0.0),
@@ -212,7 +212,7 @@ def main() -> None:
             }
 
         go_to_starts()
-        settle = (term.tool_pose()[0] - start_t).norm(dim=-1)
+        settle = (term.slot_base_pose()[0] - start_t).norm(dim=-1)
         margin_min, margin_joint = joint_margin()
 
         def unit(direction: tuple[int, int, int]) -> torch.Tensor:
@@ -306,7 +306,7 @@ def main() -> None:
             )
             + " ---"
         )
-        print(f"{'start point [m]':<22} {'follow':>14} {'overshoot':>14} {'end':>7} {'tip drift':>14}")
+        print(f"{'start point [m]':<22} {'follow':>14} {'overshoot':>14} {'end':>7} {'slot-base drift':>14}")
         print(f"{'':<22} {'deg (dir)':>14} {'deg (dir)':>14} {'deg':>7} {'mm (dir)':>14}")
         for i, start in enumerate(starts):
             follow, follow_dir = worst(rot_results, "follow", i)

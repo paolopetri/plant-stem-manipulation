@@ -41,18 +41,18 @@ def slot_base_offset(ee: str) -> tuple[tuple[float, float, float], tuple[float, 
     Returns (pos, rot) with rot as quaternion (x, y, z, w), the Isaac Lab 3.0 convention.
     Pass it as OffsetCfg(pos=pos, rot=rot) with body name `ee`, e.g. to the IK action or a FrameTransformer.
     """
-    tip = yaml.safe_load((EE_DIR / ee / f"{ee}.yaml").read_text())["slot_base"]
+    slot_base = yaml.safe_load((EE_DIR / ee / f"{ee}.yaml").read_text())["slot_base"]
     # URDF rpy: fixed-axis roll, pitch, yaw -> R = Rz(yaw) Ry(pitch) Rx(roll)
-    cr, sr = math.cos(tip["rpy"][0] / 2), math.sin(tip["rpy"][0] / 2)
-    cp, sp = math.cos(tip["rpy"][1] / 2), math.sin(tip["rpy"][1] / 2)
-    cy, sy = math.cos(tip["rpy"][2] / 2), math.sin(tip["rpy"][2] / 2)
+    cr, sr = math.cos(slot_base["rpy"][0] / 2), math.sin(slot_base["rpy"][0] / 2)
+    cp, sp = math.cos(slot_base["rpy"][1] / 2), math.sin(slot_base["rpy"][1] / 2)
+    cy, sy = math.cos(slot_base["rpy"][2] / 2), math.sin(slot_base["rpy"][2] / 2)
     rot = (
         sr * cp * cy - cr * sp * sy,
         cr * sp * cy + sr * cp * sy,
         cr * cp * sy - sr * sp * cy,
         cr * cp * cy + sr * sp * sy,
     )
-    return tuple(float(v) for v in tip["xyz"]), rot
+    return tuple(float(v) for v in slot_base["xyz"]), rot
 
 
 def motor_armature(ee: str) -> dict[str, float]:

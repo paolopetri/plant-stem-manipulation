@@ -114,7 +114,7 @@ class ActionsCfg:
         asset_name="robot",
         joint_names=ARM_JOINTS,
         body_name=END_EFFECTOR,
-        tool_offset=slot_base_offset(END_EFFECTOR),
+        slot_base_offset=slot_base_offset(END_EFFECTOR),
     )
 
 

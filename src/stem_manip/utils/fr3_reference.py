@@ -76,10 +76,10 @@ def slot_base_in_flange(ee: str) -> torch.Tensor:
     mount = description["mount"]
     if any(v != 0 for v in (*mount["xyz"], *mount["rpy"])):
         raise ValueError(f"{path.name}: mount {mount} is not the identity; slot_base in fr3_link8 no longer holds")
-    tip = description["slot_base"]
+    slot_base = description["slot_base"]
     pose = torch.eye(4, dtype=DTYPE)
-    pose[:3, :3] = rpy_matrix(tip["rpy"])
-    pose[:3, 3] = torch.tensor(tip["xyz"], dtype=DTYPE)
+    pose[:3, :3] = rpy_matrix(slot_base["rpy"])
+    pose[:3, 3] = torch.tensor(slot_base["xyz"], dtype=DTYPE)
     return pose
 
 

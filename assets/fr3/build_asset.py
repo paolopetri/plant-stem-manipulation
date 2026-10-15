@@ -124,7 +124,7 @@ def check_config(cfg: dict, path: Path) -> None:
 
 def add_tool(robot: ET.Element, name: str, cfg: dict, tool_dir: Path, mesh_out: Path) -> None:
     parent = cfg["parent_link"]
-    tip = cfg["slot_base"]
+    slot_base = cfg["slot_base"]
 
     links = {link.get("name") for link in robot.findall("link")}
     joints = {j.get("name") for j in robot.findall("joint")}
@@ -180,7 +180,7 @@ def add_tool(robot: ET.Element, name: str, cfg: dict, tool_dir: Path, mesh_out: 
     tj = ET.SubElement(robot, "joint", name=f"{SLOT_BASE}_joint", type="fixed")
     ET.SubElement(tj, "parent", link=name)
     ET.SubElement(tj, "child", link=SLOT_BASE)
-    add_origin(tj, tip["xyz"], tip["rpy"])
+    add_origin(tj, slot_base["xyz"], slot_base["rpy"])
 
 
 # --------------------------------------------------------------------------- main

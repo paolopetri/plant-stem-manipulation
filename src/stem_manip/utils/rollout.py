@@ -30,12 +30,12 @@ def agent_action(agent: str, num_envs: int, action_dim: int, generator: torch.Ge
 
 
 def toward(
-    tool_pos: torch.Tensor, goal: torch.Tensor, max_step: float, max_step_change: float, speed: float = 1.0
+    slot_base_pos: torch.Tensor, goal: torch.Tensor, max_step: float, max_step_change: float, speed: float = 1.0
 ) -> torch.Tensor:
-    """Slot-base action (n, 6) that moves the slot base from `tool_pos` toward `goal` (n, 3) at most `speed` x the step
-    cap `max_step`, and brakes in time for the step-change limit `max_step_change` (stopping distance s^2 / (2 ds) at
-    step s); rotation part 0. The limits are those of `SlotBaseImpedanceActionCfg`."""
-    offset = goal - tool_pos
+    """Slot-base action (n, 6) that moves the slot base from `slot_base_pos` toward `goal` (n, 3) at most `speed` x
+    the step cap `max_step`, and brakes in time for the step-change limit `max_step_change` (stopping distance
+    s^2 / (2 ds) at step s); rotation part 0. The limits are those of `SlotBaseImpedanceActionCfg`."""
+    offset = goal - slot_base_pos
     distance = offset.norm(dim=-1, keepdim=True)
     size = torch.sqrt(2.0 * max_step_change * distance).clamp(max=speed * max_step)
     action = torch.zeros(goal.shape[0], 6, dtype=goal.dtype, device=goal.device)

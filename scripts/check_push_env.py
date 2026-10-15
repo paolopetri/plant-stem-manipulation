@@ -97,10 +97,13 @@ END_TOL = 1e-3  # [m] after the hold following a move
 DRIFT_TOL = 2e-3  # [m]
 ROT_FOLLOW_TOL, ROT_OVERSHOOT_TOL, ROT_DRIFT_TOL = math.radians(2.0), math.radians(2.0), 2e-3  # user, 2026-10-07
 OBS_DIM = 57  # slot base: position 3, orientation 6, applied step 6, target offset 6; stem base 3, 5 stem points x 2
-OBS_TIP_POS, OBS_TIP_ROT = slice(0, 3), slice(3, 9)  # decided layout (user, 2026-10-08), not read from the cfg
+OBS_SLOT_BASE_POS, OBS_SLOT_BASE_ROT = (
+    slice(0, 3),
+    slice(3, 9),
+)  # decided layout (user, 2026-10-08), not read from the cfg
 OBS_STEP_POS, OBS_STEP_ROT, OBS_OFFSET_POS, OBS_OFFSET_ROT = slice(9, 12), slice(12, 15), slice(15, 18), slice(18, 21)
 # slot-base observation vs independent value: rows of the check; the ROT ones in rad, the others in m
-TIP_ERRORS = (
+SLOT_BASE_ERRORS = (
     "position",
     "orientation",
     "applied step = target motion (self-consistency)",
@@ -126,7 +129,10 @@ FIRST_STEP, FIRST_ROT_STEP = 8e-5, 0.000349  # [m], [rad] step-change limits 0.0
 CAP_STEP, CAP_ROT_STEP = 0.0032, 0.02513  # [m], [rad] speed caps 10 cm/s (2026-10-08) / 45 deg/s (2026-10-07)
 CLAMP_OFFSET = 4e-3  # [m] target clamp, 4 N at K_p 1000 (2026-10-08)
 CLAMP_ROT_OFFSET = 0.05236  # [rad] orientation clamp, 3 deg (2026-10-08)
-TIP_POS_TOL, TIP_ROT_TOL = 1e-5, 1e-5  # [m], [rad] slot-base obs vs independent kinematics (user, 2026-10-14)
+SLOT_BASE_POS_TOL, SLOT_BASE_ROT_TOL = (
+    1e-5,
+    1e-5,
+)  # [m], [rad] slot-base obs vs independent kinematics (user, 2026-10-14)
 JOINT_MARGIN_MIN = 0.25  # [rad] closer to a joint limit, a check is invalid (user, 2026-10-08)
 # clamp test path (test setup, not a criterion): +x first, so that the way down stays clear of joint 4's limit
 # (DOWN_STEPS leaves the blocked window well after the tool has reached the ground)
@@ -157,7 +163,7 @@ def main() -> None:
         obs, _ = env.reset()
         sim, device, n = env.sim, env.device, env.num_envs
         term = env.action_manager.get_term("slot_base")
-        quat_ref = term.tool_pose()[1].clone()  # start orientation, held while the rotation action is zero
+        quat_ref = term.slot_base_pose()[1].clone()  # start orientation, held while the rotation action is zero
 
         def angle_between(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
             """Angle between orientations a and b (n, 4) [rad] (axis-angle of a b^-1; exact also near 0)."""
@@ -177,7 +183,7 @@ def main() -> None:
         max_applied = [0.0, 0.0]  # largest applied translation [m] and rotation [rad] step over all phases
         fk_joint_ids = robot.find_joints([f"fr3_joint{i}" for i in range(1, 8)], preserve_order=True)[0]
         # largest difference of each slot-base observation from its independent value [m or rad]
-        obs_errors = dict.fromkeys(TIP_ERRORS, 0.0)
+        obs_errors = dict.fromkeys(SLOT_BASE_ERRORS, 0.0)
         obs_checked, limits_checked = 0, 0  # policy steps compared (limits: steps where the clamp did not act)
         max_target_offset = 0.0  # largest observed target offset (position part, normalized), to show the clamp's range
         expected_step = torch.zeros(n, 6, device=device)  # applied step [m, rad] expected from the action and limits
@@ -197,10 +203,10 @@ def main() -> None:
         ) -> dict[str, torch.Tensor]:
             """Differences (n,) of the slot-base slices of `policy` from the independent kinematics, from the target's
             motion since (`target_before`, `target_quat_before`) and from the step the limits give for `action`
-            (`TIP_ERRORS`, see the module docstring). Then sets `expected_step` to the step actually applied (the
+            (`SLOT_BASE_ERRORS`, see the module docstring). Then sets `expected_step` to the step actually applied (the
             target's motion, after the clamp), from which the next step's limits start."""
-            tip = slot_base_pose(robot.data.joint_pos.torch[:, fk_joint_ids], term.cfg.body_name)
-            tip_pos, tip_rot = tip[:, :3, 3], tip[:, :3, :3]
+            slot_base = slot_base_pose(robot.data.joint_pos.torch[:, fk_joint_ids], term.cfg.body_name)
+            slot_base_pos, slot_base_rot = slot_base[:, :3, 3], slot_base[:, :3, :3]
             obs = policy.double()
             target = term.target().double()
             target_rot = matrix_from_quat(term.target_quat()).double()
@@ -208,18 +214,18 @@ def main() -> None:
             step_pos, step_rot = obs[:, OBS_STEP_POS] * CAP_STEP, obs[:, OBS_STEP_ROT] * CAP_ROT_STEP
             limits_pos = limited(action[:3].expand(n, 3), expected_step[:, :3], CAP_STEP, FIRST_STEP).double()
             limits_rot = limited(action[3:].expand(n, 3), expected_step[:, 3:], CAP_ROT_STEP, FIRST_ROT_STEP).double()
-            tip_rot6d = torch.cat((tip_rot[..., 0], tip_rot[..., 1]), dim=-1)
-            offset_rot = rotvec_from_matrix(target_rot @ tip_rot.transpose(1, 2))
+            slot_base_rot6d = torch.cat((slot_base_rot[..., 0], slot_base_rot[..., 1]), dim=-1)
+            offset_rot = rotvec_from_matrix(target_rot @ slot_base_rot.transpose(1, 2))
             errors = {
-                "position": (obs[:, OBS_TIP_POS] - tip_pos).norm(dim=-1),
-                "orientation": (obs[:, OBS_TIP_ROT] - tip_rot6d).abs().amax(dim=-1),
+                "position": (obs[:, OBS_SLOT_BASE_POS] - slot_base_pos).norm(dim=-1),
+                "orientation": (obs[:, OBS_SLOT_BASE_ROT] - slot_base_rot6d).abs().amax(dim=-1),
                 "applied step = target motion (self-consistency)": (step_pos - (target - target_before.double())).norm(
                     dim=-1
                 ),
                 "applied rotation = target turn (self-consistency)": (step_rot - turned).norm(dim=-1),
                 "applied step = limits (independent)": (step_pos - limits_pos).norm(dim=-1),
                 "applied rotation = limits (independent)": (step_rot - limits_rot).norm(dim=-1),
-                "target offset": (obs[:, OBS_OFFSET_POS] * CLAMP_OFFSET - (target - tip_pos)).norm(dim=-1),
+                "target offset": (obs[:, OBS_OFFSET_POS] * CLAMP_OFFSET - (target - slot_base_pos)).norm(dim=-1),
                 "target rotation offset": (obs[:, OBS_OFFSET_ROT] * CLAMP_ROT_OFFSET - offset_rot).norm(dim=-1),
             }
             expected_step[:] = torch.cat((target - target_before.double(), turned), dim=-1).to(expected_step.dtype)
@@ -250,21 +256,21 @@ def main() -> None:
             max_applied[0] = max(max_applied[0], float(applied[:, :3].norm(dim=-1).max()))
             max_applied[1] = max(max_applied[1], float(applied[:, 3:].norm(dim=-1).max()))
             if track_tilt:
-                max_angle = max(max_angle, float(angle_to_fixed(term.tool_pose()[1]).max()))
+                max_angle = max(max_angle, float(angle_to_fixed(term.slot_base_pose()[1]).max()))
             if sim.is_rendering:
                 time.sleep(max(0.0, step_time - (time.perf_counter() - frame_start)))
                 frame_start = time.perf_counter()
 
         obs_shape, action_shape = tuple(obs["policy"].shape), tuple(env.action_manager.action.shape)
-        pos0 = term.tool_pose()[0].clone()
+        pos0 = term.slot_base_pose()[0].clone()
 
         # -- hold: zero action
         zero = torch.zeros(6, device=device)
         for i in range(args_cli.steps):
             step(zero)
             if i == args_cli.steps // 2 - 1:
-                pos_mid = term.tool_pose()[0].clone()
-        pos_hold, quat_hold = (v.clone() for v in term.tool_pose())
+                pos_mid = term.slot_base_pose()[0].clone()
+        pos_hold, quat_hold = (v.clone() for v in term.slot_base_pose())
         hold_move = float((pos_hold - pos_mid).norm(dim=-1).max())
         start_error = float((pos_hold - torch.tensor(START_POS, device=device)).norm(dim=-1).max())
         hold_angle = float(angle_to_fixed(quat_hold).max())
@@ -275,17 +281,17 @@ def main() -> None:
         for axis in range(3):
             action = torch.zeros(6, device=device)
             action[axis] = 1.0
-            start = term.tool_pose()[0].clone()
+            start = term.slot_base_pose()[0].clone()
             follow = torch.zeros(n, device=device)
-            positions = []  # tool positions during the hold
+            positions = []  # slot base positions during the hold
             for i in range(args_cli.steps + args_cli.hold_steps):
                 step(action if i < args_cli.steps else zero)
-                follow = torch.maximum(follow, (term.tool_pose()[0] - term.target()).norm(dim=-1))
+                follow = torch.maximum(follow, (term.slot_base_pose()[0] - term.target()).norm(dim=-1))
                 if i >= args_cli.steps:
-                    positions.append(term.tool_pose()[0][:, axis].clone())
+                    positions.append(term.slot_base_pose()[0][:, axis].clone())
             end = term.target().clone()  # final target (the target brakes during the hold)
             overshoot = (torch.stack(positions) - end[:, axis]).max(dim=0).values
-            pos = term.tool_pose()[0]
+            pos = term.slot_base_pose()[0]
             delta = pos - start
             drift = torch.cat([delta[:, :axis], delta[:, axis + 1 :]], dim=1).norm(dim=-1)
             moves.append(
@@ -303,21 +309,21 @@ def main() -> None:
         rotate[5] = 1.0
         moves_margin = margin
         window()
-        tip_start = term.tool_pose()[0].clone()
-        rot_follow, tip_drift = torch.zeros(n, device=device), torch.zeros(n, device=device)
+        slot_base_start = term.slot_base_pose()[0].clone()
+        rot_follow, slot_base_drift = torch.zeros(n, device=device), torch.zeros(n, device=device)
         rot_speed = 0.0  # largest applied rotation step [rad]
-        quats = []  # tool orientations during the hold
+        quats = []  # slot base orientations during the hold
         for i in range(args_cli.steps + args_cli.hold_steps):
             step(rotate if i < args_cli.steps else zero, track_tilt=False)
-            tip_drift = torch.maximum(tip_drift, (term.tool_pose()[0] - tip_start).norm(dim=-1))
-            rot_follow = torch.maximum(rot_follow, angle_between(term.tool_pose()[1], term.target_quat()))
+            slot_base_drift = torch.maximum(slot_base_drift, (term.slot_base_pose()[0] - slot_base_start).norm(dim=-1))
+            rot_follow = torch.maximum(rot_follow, angle_between(term.slot_base_pose()[1], term.target_quat()))
             rot_speed = max(rot_speed, float(term.processed_actions[:, 3:].norm(dim=-1).max()))
             if i >= args_cli.steps:
-                quats.append(term.tool_pose()[1].clone())
+                quats.append(term.slot_base_pose()[1].clone())
         target_end = term.target_quat().clone()
         # overshoot: rotation from the final target to the tool, about +z (the turning direction)
         rot_overshoot = torch.stack([rotvec_between(q, target_end)[:, 2] for q in quats]).max(0).values
-        rot_end = angle_between(term.tool_pose()[1], target_end)
+        rot_end = angle_between(term.slot_base_pose()[1], target_end)
         turned = angle_between(target_end, quat_ref)
 
         rot_margin = margin
@@ -339,15 +345,15 @@ def main() -> None:
             action = torch.zeros(6, device=device)
             action[axis] = 1.0
             taken = []
-            tip_start = term.tool_pose()[0].clone()
+            slot_base_start = term.slot_base_pose()[0].clone()
             follow = {k: torch.zeros(n, device=device) for k in ("pos", "angle", "drift")}
             for _ in range(n_steps):
                 step(action, track_tilt=False)
                 taken.append(term.processed_actions.clone())
-                pos, quat = term.tool_pose()
+                pos, quat = term.slot_base_pose()
                 follow["pos"] = torch.maximum(follow["pos"], (pos - term.target()).norm(dim=-1))
                 follow["angle"] = torch.maximum(follow["angle"], angle_between(quat, term.target_quat()))
-                follow["drift"] = torch.maximum(follow["drift"], (pos - tip_start).norm(dim=-1))
+                follow["drift"] = torch.maximum(follow["drift"], (pos - slot_base_start).norm(dim=-1))
             return taken[0], taken[-1], margin, follow
 
         ramp_steps = math.ceil(CAP_STEP / FIRST_STEP) + FULL_SPEED_STEPS
@@ -366,7 +372,7 @@ def main() -> None:
         apply_actions = term.apply_actions
 
         def apply_and_measure() -> None:
-            pos = term.tool_pose()[0].clone()  # the pose the law sees in this physics step
+            pos = term.slot_base_pose()[0].clone()  # the pose the law sees in this physics step
             apply_actions()
             stretch.copy_(torch.maximum(stretch, (term.command_pose()[0] - pos).norm(dim=-1)))
 
@@ -384,7 +390,7 @@ def main() -> None:
         stretches = torch.stack(stretches)  # (DOWN_STEPS, n)
         blocked = stretches[-BLOCKED_STEPS:]
         clamp_margin = margin
-        tip_height = term.tool_pose()[0][:, 2]
+        slot_base_height = term.slot_base_pose()[0][:, 2]
         # -- restart after contact: lift; the applied step changes by at most the step-change limit
         prev = term.processed_actions[:, :3].clone()
         lift_change = torch.zeros(n, device=device)
@@ -454,8 +460,8 @@ def main() -> None:
                 and clamp_margin >= JOINT_MARGIN_MIN,
                 f"moving down into the ground: largest target-tool distance {float(stretches.max()) * 1e3:.4f} mm "
                 f"(bound {CLAMP_OFFSET * 1e3:.1f} mm), while blocked {float(blocked.min()) * 1e3:.4f}-"
-                f"{float(blocked.max()) * 1e3:.4f} mm, slot base at z {float(tip_height.min()) * 1e3:.1f}-"
-                f"{float(tip_height.max()) * 1e3:.1f} mm; joint margin {clamp_margin:.2f} rad",
+                f"{float(blocked.max()) * 1e3:.4f} mm, slot base at z {float(slot_base_height.min()) * 1e3:.1f}-"
+                f"{float(slot_base_height.max()) * 1e3:.1f} mm; joint margin {clamp_margin:.2f} rad",
             ),
             "restart after contact": (
                 bool((lift_change <= FIRST_STEP + 1e-6).all()),
@@ -469,22 +475,25 @@ def main() -> None:
                 f"{math.degrees(CAP_ROT_STEP):.2f} deg)",
             ),
         }
-        tip_ok = all(error < (TIP_ROT_TOL if name in ROT_ERRORS else TIP_POS_TOL) for name, error in obs_errors.items())
+        slot_base_ok = all(
+            error < (SLOT_BASE_ROT_TOL if name in ROT_ERRORS else SLOT_BASE_POS_TOL)
+            for name, error in obs_errors.items()
+        )
         results["slot-base observations = independent kinematics"] = (
-            tip_ok and obs_checked > 0 and limits_checked > 0,
+            slot_base_ok and obs_checked > 0 and limits_checked > 0,
             f"largest differences over {obs_checked} policy steps (limits: only the {limits_checked} of "
             f"{obs_checked} steps without the clamp): "
             + ", ".join(
                 f"{name} {error:.1e} rad" if name in ROT_ERRORS else f"{name} {error * 1e3:.5f} mm"
                 for name, error in obs_errors.items()
             )
-            + f" (tol {TIP_POS_TOL * 1e3:.2f} mm, {TIP_ROT_TOL:.0e} rad); largest observed target offset "
+            + f" (tol {SLOT_BASE_POS_TOL * 1e3:.2f} mm, {SLOT_BASE_ROT_TOL:.0e} rad); largest observed target offset "
             f"{max_target_offset:.3f} of the bound",
         )
         rot_ok = (
             float(rot_follow.max()) <= ROT_FOLLOW_TOL
             and float(rot_overshoot.clamp(min=0).max()) <= ROT_OVERSHOOT_TOL
-            and float(tip_drift.max()) <= ROT_DRIFT_TOL
+            and float(slot_base_drift.max()) <= ROT_DRIFT_TOL
             and float(rot_end.max()) <= ORIENTATION_TOL
             and rot_margin >= JOINT_MARGIN_MIN
         )
@@ -493,8 +502,8 @@ def main() -> None:
             f"about +z, {math.degrees(float(turned.min())):.1f} deg at up to {math.degrees(rot_speed):.2f} deg/step: "
             f"following {math.degrees(float(rot_follow.max())):.2f} deg, overshoot "
             f"{math.degrees(float(rot_overshoot.clamp(min=0).max())):.2f} deg, slot-base drift "
-            f"{float(tip_drift.max()) * 1e3:.2f} mm, end {math.degrees(float(rot_end.max())):.2f} deg; joint margin "
-            f"{rot_margin:.2f} rad",
+            f"{float(slot_base_drift.max()) * 1e3:.2f} mm, end {math.degrees(float(rot_end.max())):.2f} deg; "
+            f"joint margin {rot_margin:.2f} rad",
         )
         print(f"\n=== check_push_env ({n} envs, policy at {1 / env.step_dt:.2f} Hz, damping {term.cfg.damping}) ===")
         env.close()

@@ -67,10 +67,10 @@ def _quat_xyzw_to_matrix(q: tuple[float, float, float, float]) -> np.ndarray:
 
 def test_slot_base_offset_matches_yaml():
     """slot_base_offset returns the yaml position and a quaternion (x, y, z, w) equal to the yaml rpy."""
-    tip = yaml.safe_load((EE_DIR / "fork_v2" / "fork_v2.yaml").read_text())["slot_base"]
+    slot_base = yaml.safe_load((EE_DIR / "fork_v2" / "fork_v2.yaml").read_text())["slot_base"]
     pos, rot = slot_base_offset("fork_v2")
 
-    np.testing.assert_allclose(pos, tip["xyz"], atol=1e-9)
+    np.testing.assert_allclose(pos, slot_base["xyz"], atol=1e-9)
     assert math.isclose(float(np.linalg.norm(rot)), 1.0, abs_tol=1e-9)
     # Compare as rotation matrices, computed independently from the rpy and from the quaternion.
-    np.testing.assert_allclose(_quat_xyzw_to_matrix(rot), _rpy_to_matrix(*tip["rpy"]), atol=1e-9)
+    np.testing.assert_allclose(_quat_xyzw_to_matrix(rot), _rpy_to_matrix(*slot_base["rpy"]), atol=1e-9)

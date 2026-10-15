@@ -216,10 +216,10 @@ def main() -> None:
                 steps_run = step
                 frame_start = time.perf_counter()
                 if agent == "clamp":
-                    tool_pos = obs[:, slices["slot_base_pos"]]
-                    at_side = ((tool_pos[:, 1] - CLAMP_SIDE[1]).abs() < CLAMP_SIDE_TOL).unsqueeze(-1)
+                    slot_base_pos = obs[:, slices["slot_base_pos"]]
+                    at_side = ((slot_base_pos[:, 1] - CLAMP_SIDE[1]).abs() < CLAMP_SIDE_TOL).unsqueeze(-1)
                     goal = torch.where(at_side, clamp_goal, clamp_side)
-                    action = rollout.toward(tool_pos, goal, CAP_STEP, STEP_CHANGE)
+                    action = rollout.toward(slot_base_pos, goal, CAP_STEP, STEP_CHANGE)
                 else:
                     action = rollout.agent_action(agent, n, ACTION_DIM, generator)
                 obs_dict, reward, terminated, truncated, _ = env.step(action)

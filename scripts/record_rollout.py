@@ -100,7 +100,7 @@ def record() -> None:
         env = gym.make(TASK, cfg=env_cfg).unwrapped
         n, device = env.num_envs, env.device
         action_dim = env.action_manager.total_action_dim
-        tool_cfg = env.action_manager.get_term("slot_base").cfg
+        slot_base_cfg = env.action_manager.get_term("slot_base").cfg
         slices = rollout.obs_term_slices(
             env.observation_manager.active_terms["policy"], env.observation_manager.group_obs_term_dim["policy"]
         )
@@ -155,7 +155,9 @@ def record() -> None:
             # steering from the policy observations: valid because observation corruption is off
             # (`enable_corruption = False` in push_position env_cfg) and both terms are in the robot base frame
             goal = obs[:, slices["stem_base"]] + plan[leg][0]
-            return rollout.toward(obs[:, slices["slot_base_pos"]], goal, tool_cfg.max_step, tool_cfg.max_step_change)
+            return rollout.toward(
+                obs[:, slices["slot_base_pos"]], goal, slot_base_cfg.max_step, slot_base_cfg.max_step_change
+            )
 
         run("push", PUSH_STEPS, push)
         missing = rollout_compare.never_nonzero(terms, PUSH_REQUIRED)

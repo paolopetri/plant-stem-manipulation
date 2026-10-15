@@ -176,14 +176,14 @@ def main() -> None:
 
         start_t, down_t, over_t, u = (per_env(v).repeat(n, 1) for v in (start, down, over, push_dir))
         fork_dir, side_dir = push_dir, (math.sin(FORK_YAW), -math.cos(FORK_YAW), 0.0)
-        tool_quat = quat_from_matrix(per_env([fork_dir, side_dir, (0.0, 0.0, -1.0)]).T.unsqueeze(0)).repeat(n, 1)
+        slot_base_quat = quat_from_matrix(per_env([fork_dir, side_dir, (0.0, 0.0, -1.0)]).T.unsqueeze(0)).repeat(n, 1)
 
         default_joint_pos = robot.data.default_joint_pos.torch.clone()
         robot.write_joint_position_to_sim_index(position=default_joint_pos)
         robot.write_joint_velocity_to_sim_index(velocity=torch.zeros_like(default_joint_pos))
         robot.set_joint_position_target_index(target=default_joint_pos)
 
-        # the tool pose is in the robot base frame, the path in the env frame: each base must be its env origin,
+        # the slot base pose is in the robot base frame, the path in the env frame: each base must be its env origin,
         # unrotated (rotation angle ~ 2 |q_xyz|, sign-independent)
         base_offset = float((robot.data.root_pos_w.torch - origins).norm(dim=-1).max())
         base_rotation = 2.0 * float(robot.data.root_quat_w.torch[:, :3].norm(dim=-1).max())
@@ -193,8 +193,8 @@ def main() -> None:
                 f"rotation {base_rotation:.1e} rad (tol {BASE_ROT_TOL:.0e})"
             )
         arm = list(range(7))
-        tool = SlotBaseKinematics(robot, "fork_v2", slot_base_offset("fork_v2"), arm)
-        tool_pose, tool_jacobian = tool.pose, tool.jacobian
+        slot_base = SlotBaseKinematics(robot, "fork_v2", slot_base_offset("fork_v2"), arm)
+        slot_base_pose, slot_base_jacobian = slot_base.pose, slot_base.jacobian
         ik = DifferentialIKController(
             DifferentialIKControllerCfg(command_type="pose", use_relative_mode=False, ik_method="dls"), n, device
         )
@@ -215,26 +215,26 @@ def main() -> None:
 
         # -- approach with the joint PD and differential IK (as check_contact), then settle
         def ik_step(target_pos: torch.Tensor, target_quat: torch.Tensor) -> None:
-            pos, quat = tool_pose()
+            pos, quat = slot_base_pose()
             ik.set_command(torch.cat([target_pos, target_quat], dim=-1))
-            joint_pos = ik.compute(pos, quat, tool_jacobian(), robot.data.joint_pos.torch[:, arm])
+            joint_pos = ik.compute(pos, quat, slot_base_jacobian(), robot.data.joint_pos.torch[:, arm])
             robot.set_joint_position_target_index(target=joint_pos, joint_ids=arm)
             advance()
 
-        pos0, quat0 = (v.clone() for v in tool_pose())
-        sign = torch.where((quat0 * tool_quat).sum(-1, keepdim=True) >= 0, 1.0, -1.0)
+        pos0, quat0 = (v.clone() for v in slot_base_pose())
+        sign = torch.where((quat0 * slot_base_quat).sum(-1, keepdim=True) >= 0, 1.0, -1.0)
         move_steps = round(MOVE_TIME / sim_dt)
         for i in range(move_steps):
             s = 0.5 - 0.5 * math.cos(math.pi * (i + 1) / move_steps)
-            quat = quat0 + s * (sign * tool_quat - quat0)
+            quat = quat0 + s * (sign * slot_base_quat - quat0)
             ik_step(pos0 + s * (over_t - pos0), quat / quat.norm(dim=-1, keepdim=True))
         for leg_start, leg_end in ((over_t, down_t), (down_t, start_t)):
             leg_steps = round(float((leg_end - leg_start)[0].norm()) / APPROACH_SPEED / sim_dt)
             for i in range(leg_steps):
                 s = 0.5 - 0.5 * math.cos(math.pi * (i + 1) / leg_steps)
-                ik_step(leg_start + s * (leg_end - leg_start), tool_quat)
+                ik_step(leg_start + s * (leg_end - leg_start), slot_base_quat)
         for _ in range(round(SETTLE_TIME / sim_dt)):
-            ik_step(start_t, tool_quat)
+            ik_step(start_t, slot_base_quat)
 
         # -- switch the arm to torque control (Franka's impedance law below)
         robot.write_joint_stiffness_to_sim_index(stiffness=0.0, joint_ids=arm)
@@ -246,8 +246,8 @@ def main() -> None:
 
         def impedance_step(x_d: torch.Tensor, v_d: torch.Tensor) -> None:
             nonlocal tau_prev
-            pos, quat = tool_pose()
-            jacobian = tool_jacobian()
+            pos, quat = slot_base_pose()
+            jacobian = slot_base_jacobian()
             q, dq = robot.data.joint_pos.torch[:, arm], robot.data.joint_vel.torch[:, arm]
             twist = torch.bmm(jacobian, dq.unsqueeze(-1)).squeeze(-1)
             tau = torch.empty(n, 7, device=device)
@@ -267,7 +267,7 @@ def main() -> None:
                     dq[ids],
                     x_d[ids],
                     v_d[ids],
-                    tool_quat[ids],
+                    slot_base_quat[ids],
                     float(gain),
                     k_rot,
                     k_ns,
@@ -313,7 +313,7 @@ def main() -> None:
         for step_i in range(total_steps):
             t = step_i * sim_dt
             if step_i % DECIMATION == 0:  # policy step: the displacement it wants over the next policy step
-                pos_now = tool_pose()[0]
+                pos_now = slot_base_pose()[0]
                 action = commanded(t + policy_dt)[0] - commanded(t)[0]
                 target_prev = torch.where(is_rel.unsqueeze(-1), pos_now, x_d)
                 x_d = target_prev + action
@@ -322,7 +322,7 @@ def main() -> None:
             v_d = torch.where(is_ff.unsqueeze(-1), action / policy_dt, torch.zeros_like(action))
             impedance_step(x_d_now, v_d)
 
-            pos = tool_pose()[0]
+            pos = slot_base_pose()[0]
             path, phase = commanded(t + sim_dt)
             in_free = phase == 0
             lag = torch.where(in_free, torch.maximum(lag, (pos - path).norm(dim=-1)), lag)
@@ -338,7 +338,7 @@ def main() -> None:
             poses = stem_module.segment_poses(stem)
             kappa_max = torch.maximum(kappa_max, stem_geometry.joint_curvature(poses, segment_lengths).amax(-1))
         lag_steady = lag_sum / lag_count.clamp(min=1)
-        err_push = (tool_pose()[0] - commanded(float(t_ends[-1].max()))[0]).norm(dim=-1)
+        err_push = (slot_base_pose()[0] - commanded(float(t_ends[-1].max()))[0]).norm(dim=-1)
 
         print(
             f"\n=== sweep_impedance ({n} envs; damping {args_cli.damping}, K_o {k_rot} N m/rad, k_ns {k_ns}; "

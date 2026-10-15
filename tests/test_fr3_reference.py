@@ -50,8 +50,8 @@ def test_slot_base_at_the_start_pose():
 def test_slot_base_is_the_yaml_frame_in_the_flange():
     """fork_v2: slot base at (0.039952, -0.039952, 0.0125) m in fr3_link8, turned -45 deg about the flange axis."""
     q = torch.tensor([START_Q], dtype=DTYPE)
-    flange, tip = flange_pose(q)[0], slot_base_pose(q, "fork_v2")[0]
-    in_flange = torch.linalg.inv(flange) @ tip
+    flange, slot_base = flange_pose(q)[0], slot_base_pose(q, "fork_v2")[0]
+    in_flange = torch.linalg.inv(flange) @ slot_base
     assert torch.allclose(in_flange[:3, 3], torch.tensor([0.039952, -0.039952, 0.0125], dtype=DTYPE), atol=1e-12)
     assert torch.allclose(in_flange[:3, :3], _rotz(-0.785398), atol=1e-12)
 

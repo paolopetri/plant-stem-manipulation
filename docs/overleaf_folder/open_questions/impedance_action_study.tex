@@ -20,7 +20,7 @@ are not; action spaces that keep the tracking error small transfer better~\cite{
 agility (Section~\ref{sec:al}). This section proposes the controller, the form of the commands, and how large a step
 may be.
 
-\paragraph{Summary.} The policy commands small steps of the tool's position and orientation. They are executed by
+\paragraph{Summary.} The policy commands small steps of the slot base's position and orientation. They are executed by
 Franka's Cartesian impedance controller, with one change in the damping, and the \emph{same} controller with the
 \emph{same} values runs in simulation and on the real FR3 (Section~\ref{sec:controller-what}). Successful sim-to-real
 work on Franka robots does the same~\cite{tang2023industreal,frankatwin}. In simulation the tool follows the
@@ -36,10 +36,10 @@ confirm the controller and to tell us about the lab's FR3 setup (end of this sec
 3.2\,mm, i.e.\ 10\,cm/s) and a rotation of the fork (rotation vector, at most 1.44$^\circ$, i.e.\ 45$^\circ$/s), both in
 the robot's base frame. The step may change by at most 0.08\,mm (0.02$^\circ$) from one policy step to the next, which
 limits the acceleration to 0.08\,m/s$^2$ (20$^\circ$/s$^2$) and with it the lag (Section~\ref{sec:al}). The steps are
-applied to the \emph{previous target} pose, not to the measured tool pose (IndustReal's policy-level action
+applied to the \emph{previous target} pose, not to the measured slot base pose (IndustReal's policy-level action
 integrator~\cite{tang2023industreal}), so commanded steps are not lost while the tool moves freely. Within the policy
 step the target moves and turns at constant rate, and its velocities $\dot x_d$, $\omega_d$ are passed to the
-controller. At every control step the target is kept within 4\,mm and 3$^\circ$ of the measured tool pose, which bounds
+controller. At every control step the target is kept within 4\,mm and 3$^\circ$ of the measured slot base pose, which bounds
 the spring force to 4\,N and the moment to 5.2\,N\,m when the fork is blocked; while held, the target moves with the
 tool and its velocity is the tool's. The fork starts horizontal; its orientation is then free.
 
@@ -160,7 +160,7 @@ hold the tool is within 0.5\,mm of the commanded end point in all tests.
   \item The simulated FR3 initially had no motor inertia. Without it the arm oscillated and pressed the stem with
         5\,N instead of 0.85\,N; at the wrist the motor inertia is about 100 times the link inertia.
   \item Turning the fork moves the slot base: the law treats position and orientation as independent springs, but
-        the arm's dynamics couple them. With the criterion (tip drift $\le 2$\,mm, angles $\le 2^\circ$) the first
+        the arm's dynamics couple them. With the criterion (slot-base drift $\le 2$\,mm, angles $\le 2^\circ$) the first
         design limited rotations to 7.8$^\circ$/s. The acceleration limit (Section~\ref{sec:al}) now allows
         45$^\circ$/s within the criterion. Decoupling rotation and translation by inertia feedforward
         (operational-space control~\cite{khatib1987}) is option B3 of Section~\ref{sec:al}: planned only after a

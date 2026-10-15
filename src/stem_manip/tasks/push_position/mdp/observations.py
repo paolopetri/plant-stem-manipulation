@@ -77,10 +77,10 @@ def applied_step(env: ManagerBasedEnv, action_name: str = "slot_base") -> torch.
 
 def target_offset(env: ManagerBasedEnv, action_name: str = "slot_base") -> torch.Tensor:
     """Target pose relative to the measured slot base (num_envs, 6), robot base frame: position offset /
-    max_target_offset and rotation vector (tool -> target) / max_target_rot_offset, so about [-1, 1]: the clamp holds
-    the bound at its physics step, this is measured after it (the tool may have moved slightly since). The spring
+    max_target_offset and rotation vector (slot base -> target) / max_target_rot_offset, so about [-1, 1]: the clamp
+    holds the bound at its physics step, this is measured after it (the tool may have moved slightly since). The spring
     force of the impedance law is proportional to it."""
     term: SlotBaseImpedanceAction = env.action_manager.get_term(action_name)
-    pos, quat = term.tool_pose()
+    pos, quat = term.slot_base_pose()
     rot = rotvec_between(term.target_quat(), quat)
     return torch.cat(((term.target() - pos) / term.cfg.max_target_offset, rot / term.cfg.max_target_rot_offset), dim=-1)

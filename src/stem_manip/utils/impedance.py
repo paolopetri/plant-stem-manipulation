@@ -82,7 +82,7 @@ def integrate_orientation(
 def clamp_target_offset(
     target: torch.Tensor, pos: torch.Tensor, max_offset: float
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Target position (n, 3) moved towards the tool position `pos` so that it is at most `max_offset` [m] away.
+    """Target position (n, 3) moved towards the slot base position `pos` so that it is at most `max_offset` [m] away.
 
     Bounds the spring force of the law to K_p * max_offset when the tool is blocked (e.g. pushed against something).
     Returns (clamped target, held (n,) bool: where the clamp acted).
@@ -96,9 +96,9 @@ def clamp_target_offset(
 def clamp_target_rot_offset(
     target_quat: torch.Tensor, quat: torch.Tensor, max_angle: float
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Target orientation (n, 4) turned towards the tool orientation `quat` so that the rotation between them is at
+    """Target orientation (n, 4) turned towards the slot base orientation `quat` so that the rotation between them is at
     most `max_angle` [rad] (bounds the spring moment to K_o * max_angle). Returns (clamped target, held (n,) bool)."""
-    offset = rotvec_between(target_quat, quat)  # base frame: tool -> target
+    offset = rotvec_between(target_quat, quat)  # base frame: slot base -> target
     angle = offset.norm(dim=-1, keepdim=True)
     held = angle > max_angle
     clamped = _quat_mul(quat_from_rotvec(offset * (max_angle / angle.clamp(min=max_angle))), quat)
@@ -112,8 +112,8 @@ def substep_command(
     fraction: float,
     pos: torch.Tensor,
     quat: torch.Tensor,
-    tool_vel: torch.Tensor,
-    tool_ang_vel: torch.Tensor,
+    slot_base_vel: torch.Tensor,
+    slot_base_ang_vel: torch.Tensor,
     policy_dt: float,
     max_offset: float,
     max_rot_offset: float,
@@ -122,11 +122,11 @@ def substep_command(
 
     The target moves linearly (turns at constant rate) from (`target_start`, `target_quat_start`) by `step` (n, 6:
     translation [m], rotation vector [rad]) over the policy step; `fraction` in (0, 1] is the elapsed part. It is then
-    clamped to `max_offset` [m] / `max_rot_offset` [rad] from the measured tool pose (`pos`, `quat`): bounds the
+    clamped to `max_offset` [m] / `max_rot_offset` [rad] from the measured slot base pose (`pos`, `quat`): bounds the
     spring force and moment when the tool is blocked, inactive in free motion (the distance is the lag there). The
-    feedforward velocity is the step's velocity; where the clamp holds the target, the target moves with the tool,
-    so its velocity is the tool's (`tool_vel`, `tool_ang_vel`): the damping then adds no force to the bounded spring
-    force. Runs at the physics rate in simulation and in the 1 kHz loop on the real FR3.
+    feedforward velocity is the step's velocity; where the clamp holds the target, the target moves with the slot
+    base, so its velocity is the slot base's (`slot_base_vel`, `slot_base_ang_vel`): the damping then adds no force to
+    the bounded spring force. Runs at the physics rate in simulation and in the 1 kHz loop on the real FR3.
     Returns (target position (n, 3), target orientation (n, 4), target velocity (n, 3), target angular velocity
     (n, 3), held (n, 2) bool: where the clamp acted on the position / orientation).
     """
@@ -135,8 +135,8 @@ def substep_command(
     target_quat, held_rot = clamp_target_rot_offset(
         target_quat / target_quat.norm(dim=-1, keepdim=True), quat, max_rot_offset
     )
-    target_vel = torch.where(held.unsqueeze(-1), tool_vel, step[:, :3] / policy_dt)
-    target_ang_vel = torch.where(held_rot.unsqueeze(-1), tool_ang_vel, step[:, 3:] / policy_dt)
+    target_vel = torch.where(held.unsqueeze(-1), slot_base_vel, step[:, :3] / policy_dt)
+    target_ang_vel = torch.where(held_rot.unsqueeze(-1), slot_base_ang_vel, step[:, 3:] / policy_dt)
     return target_pos, target_quat, target_vel, target_ang_vel, torch.stack((held, held_rot), dim=-1)
 
 

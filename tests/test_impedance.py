@@ -255,9 +255,9 @@ def test_substep_command_free_motion():
     start_quat = quat_from_rotvec(torch.zeros(N, 3))
     step = torch.tensor([[0.0032, 0.0, 0.0, 0.0, 0.0, 0.0251], [0.0, 0.002, 0.0, 0.01, 0.0, 0.0]])
     pos = start - torch.tensor([0.0005, 0.0, 0.0])
-    tool_vel = torch.full((N, 3), 0.05)  # must not be used: the target is not held
+    slot_base_vel = torch.full((N, 3), 0.05)  # must not be used: the target is not held
     pos_t, quat_t, vel, ang_vel, held = substep_command(
-        start, start_quat, step, 0.5, pos, start_quat, tool_vel, tool_vel, **SUBSTEP
+        start, start_quat, step, 0.5, pos, start_quat, slot_base_vel, slot_base_vel, **SUBSTEP
     )
     assert held.tolist() == [[False, False], [False, False]]
     assert torch.allclose(pos_t, start + 0.5 * step[:, :3])
@@ -275,15 +275,15 @@ def test_substep_command_blocked():
     start = torch.tensor([[0.003, 0.0, 0.0], [0.0, 0.0, 0.0]])  # env 0: target already 3 mm ahead
     start_quat = quat_from_rotvec(torch.tensor([[0.0, 0.0, math.radians(2.5)], [0.0, 0.0, 0.0]]))
     step = torch.tensor([[0.0032, 0.0, 0.0, 0.0, 0.0, math.radians(1.44)], [0.001, 0.0, 0.0, 0.0, 0.0, 0.0]])
-    tool_vel = torch.tensor([[0.01, 0.0, 0.0], [0.05, 0.0, 0.0]])
-    tool_ang_vel = torch.tensor([[0.0, 0.0, 0.02], [0.0, 0.0, 0.0]])
+    slot_base_vel = torch.tensor([[0.01, 0.0, 0.0], [0.05, 0.0, 0.0]])
+    slot_base_ang_vel = torch.tensor([[0.0, 0.0, 0.02], [0.0, 0.0, 0.0]])
     pos_t, quat_t, vel, ang_vel, held = substep_command(
-        start, start_quat, step, 1.0, pos, quat, tool_vel, tool_ang_vel, **SUBSTEP
+        start, start_quat, step, 1.0, pos, quat, slot_base_vel, slot_base_ang_vel, **SUBSTEP
     )
     assert held.tolist() == [[True, True], [False, False]]
     assert torch.allclose(pos_t[0], torch.tensor([0.004, 0.0, 0.0]))
     assert torch.allclose(rotvec_between(quat_t, quat)[0], torch.tensor([0.0, 0.0, math.radians(3.0)]), atol=1e-6)
-    assert torch.allclose(vel[0], tool_vel[0])
-    assert torch.allclose(ang_vel[0], tool_ang_vel[0])
+    assert torch.allclose(vel[0], slot_base_vel[0])
+    assert torch.allclose(ang_vel[0], slot_base_ang_vel[0])
     assert torch.allclose(pos_t[1], torch.tensor([0.001, 0.0, 0.0]))  # env 1: free
     assert torch.allclose(vel[1], step[1, :3] / 0.032)
