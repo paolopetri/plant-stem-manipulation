@@ -7,10 +7,17 @@ Requirements (issue #52):
 - Recordings of different settings (task, envs, steps, seed, device, push rollout length) compare FAIL.
 - `never_nonzero` names the terms (of those required) that stay 0 / never fire or are missing, so `record` can fail
   when the push stops exercising the damage limits.
+- With renames `(old, new)` (issue #135), a term renamed between the recordings compares PASS under its new name
+  and FAIL without the rename. A name matches a term key whole or as its tail after a `/` (`slot_base_pos` or
+  `obs/slot_base_pos`), in every rollout. The renames apply at once, so a swap works whatever their order. An old
+  name not in the baseline, a new name not in the other recording, an old name given twice, a term matched by two
+  old names, or a renamed term that collides with another baseline term is an error, so no term drops out of the
+  comparison unnoticed.
 """
 
 from dataclasses import asdict, replace
 
+import pytest
 import torch
 
 from stem_manip.utils import check_report, rollout_compare
@@ -87,6 +94,65 @@ def test_other_push_length_fails():
     b["meta"] = rollout_compare.meta(replace(SETTINGS, push_steps=6), commit="abc")
     ok, info = rollout_compare.compare(recording(), b)["settings"]
     assert not ok and "push_steps 5 vs 6" in info
+
+
+def renamed(old: str, new: str) -> dict:
+    """`recording()` with every term key ending in `old` renamed to end in `new`."""
+    b = recording()
+    b["terms"] = {(k[: -len(old)] + new if k.endswith(old) else k): v for k, v in b["terms"].items()}
+    return b
+
+
+def test_renamed_term_passes_with_rename_fails_without():
+    b = renamed("slot_base_pos", "slot_base_position")
+    assert check_report.report(rollout_compare.compare(recording(), b)) is False
+    rows = rollout_compare.compare(recording(), b, renames=[("slot_base_pos", "slot_base_position")])
+    assert check_report.report(rows) is True
+    assert "zero/obs/slot_base_position" in rows
+
+
+def test_rename_matches_key_tail_after_slash():
+    b = renamed("reward/distance_fine", "reward/distance_near")
+    rows = rollout_compare.compare(recording(), b, renames=[("reward/distance_fine", "reward/distance_near")])
+    assert check_report.report(rows) is True
+    # "fine" is not a whole name after a "/": no match
+    with pytest.raises(ValueError, match="'fine' matches no term of the first"):
+        rollout_compare.compare(recording(), b, renames=[("fine", "near")])
+
+
+def test_rename_name_not_in_recordings_is_an_error():
+    b = renamed("slot_base_pos", "slot_base_position")
+    with pytest.raises(ValueError, match="'slot_base_po' matches no term of the first"):
+        rollout_compare.compare(recording(), b, renames=[("slot_base_po", "slot_base_position")])
+    with pytest.raises(ValueError, match="'slot_base_posit' matches no term of the second"):
+        rollout_compare.compare(recording(), b, renames=[("slot_base_pos", "slot_base_posit")])
+
+
+def two_terms(x: torch.Tensor, y: torch.Tensor) -> dict:
+    """A recording with the terms `zero/obs/x` and `zero/obs/y`."""
+    return {"meta": rollout_compare.meta(SETTINGS, commit="abc"), "terms": {"zero/obs/x": x, "zero/obs/y": y}}
+
+
+def test_swap_passes_in_either_order():
+    a, b = two_terms(torch.zeros(3), torch.ones(3)), two_terms(torch.ones(3), torch.zeros(3))
+    for renames in ([("x", "y"), ("y", "x")], [("y", "x"), ("x", "y")]):
+        assert check_report.report(rollout_compare.compare(a, b, renames=renames)) is True
+
+
+def test_renamed_term_colliding_with_a_baseline_term_is_an_error():
+    a = two_terms(torch.zeros(3), torch.ones(3))
+    b = {"meta": a["meta"], "terms": {"zero/obs/y": torch.zeros(3)}}
+    with pytest.raises(ValueError, match="'zero/obs/y'"):
+        rollout_compare.compare(a, b, renames=[("x", "y")])
+
+
+def test_old_name_twice_or_term_matched_twice_is_an_error():
+    a = two_terms(torch.zeros(3), torch.ones(3))
+    b = {"meta": a["meta"], "terms": {"zero/obs/u": torch.zeros(3), "zero/obs/v": torch.zeros(3)}}
+    with pytest.raises(ValueError, match="'x' is renamed twice"):
+        rollout_compare.compare(a, b, renames=[("x", "u"), ("x", "v")])
+    with pytest.raises(ValueError, match="'zero/obs/x' is matched by both 'x' and 'obs/x'"):
+        rollout_compare.compare(a, b, renames=[("x", "u"), ("obs/x", "v")])
 
 
 def test_never_nonzero_names_silent_and_missing_terms():

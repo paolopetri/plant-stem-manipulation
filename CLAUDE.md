@@ -56,11 +56,12 @@ Before writing or reviewing code, read `CODING_STANDARDS.md`: decision tags, sin
 
 - `docs/notes/YYYY-MM-DD.md`: one short, append-only log per work day, with sections Done / Decisions / Open questions (skip empty ones). A decision that gets an ADR links it (`docs/adr/NNNN-...`) in the day's Decisions section.
 - `docs/TODO.md`: high-level open items and discussion (direction, open questions, parked topics). Concrete, actionable work items are GitHub issues. When a TODO item is done or turned into issues, delete it there and log it in today's note.
-- After finishing a unit of work, add an entry to today's note and update `docs/TODO.md`. In orchestrated or parallel work the orchestrator writes the day's note, not each agent.
+- After finishing a unit of work, add an entry to today's note and update `docs/TODO.md`. Both go into the unit's own PR, not a separate notes PR (user, 2026-10-15). In orchestrated or parallel work the orchestrator writes the day's note, not each agent.
 
 ## Agent skills
 
 - `docs/agents/workflow.md`: how new work goes from decision to PR, which skills the user starts, context and model choice.
+- `docs/agents/worktrees.md`: create, set up and remove a git worktree for a branch.
 - `docs/agents/issue-tracker.md`: GitHub issues via `gh`; every branch has an issue.
 - `docs/agents/triage-labels.md`: label vocabulary.
 - `docs/agents/domain.md`: domain docs, single-context: `GLOSSARY.md` and `docs/adr/` at the repo root.

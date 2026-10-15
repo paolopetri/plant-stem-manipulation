@@ -31,11 +31,9 @@ fr3/
    ./scripts/create_urdf.sh fr3 --no-ee
    ```
 3. Copy the generated URDF to `base/fr3.urdf`.
-4. Tell the build where `franka_description` is (the base URDF uses `package://` mesh paths). Either pass
-   `--franka-description <path>` every time or set it once in your shell:
-   ```bash
-   export FRANKA_DESCRIPTION=/path/to/franka_description
-   ```
+4. The build needs `franka_description` (the base URDF uses `package://` mesh paths). Clone it next to the repo,
+   as `../franka_description` (same convention as `../IsaacLab`), and the build finds it without further setup.
+   Elsewhere, set `FRANKA_DESCRIPTION=/path/to/franka_description` or pass `--franka-description <path>`.
 
 ## Build and check
 
@@ -43,21 +41,18 @@ The commands below use `fork_v2`; replace it with another end-effector folder na
 this folder (`assets/fr3/`).
 
 ```bash
-export FRANKA_DESCRIPTION=/path/to/franka_description   # once per terminal, see Setup step 4
 uv run build_asset.py --ee fork_v2                      # -> build/fr3_fork_v2.urdf
 uv run view_urdf.py --ee fork_v2                        # sanity check, open http://localhost:8080
 ISAACLAB_DIR=~/IsaacLab ./convert_to_usd.sh fork_v2     # -> build/fr3_fork_v2_usd/fr3_fork_v2/fr3_fork_v2.usda
 ```
 
-`build_asset.py` needs the path to the `franka_description` repo, because the FR3 meshes are copied from
-there. Without it the build stops with
-`ERROR: base URDF uses package:// paths -> pass --franka-description <path to franka_description repo>`.
-Set `FRANKA_DESCRIPTION` as above (add the line to `~/.bashrc` to make it permanent), or pass the path
-directly: `uv run build_asset.py --ee fork_v2 --franka-description /path/to/franka_description`.
+`build_asset.py` copies the FR3 meshes from the `franka_description` repo; where it finds it: Setup step 4.
 CI uses the `franka_description` commit recorded in `FRANKA_DESCRIPTION_COMMIT` at the repo root.
 
 After building, check the result in simulation from the repo root:
 `uv run --extra isaacsim python scripts/check_fr3.py` (uses `fork_v2`; `--ee fork` for the first design).
+It fails with `stale build, rerun build_asset` when the `slot_base` pose in the built URDF differs from the yaml;
+then rerun the build and the conversion.
 
 `view_urdf.py` prints the `slot_base` pose and the end-effector's mass, CoM and inertia as they ended up in
 the URDF (compare with the yaml). It then serves a browser viewer with joint sliders, visual/collision

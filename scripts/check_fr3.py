@@ -3,6 +3,8 @@
 Loads `fr3_cfg(<ee>, control="torque")` (default `fork_v2`; the task's mode: no joint PD, the joints take efforts),
 holds the start pose with zero torque, then applies a torque pulse (+`--torque` on every joint, then -`--torque`)
 and checks:
+- the build is up to date: the slot_base pose in build/fr3_<ee>.urdf equals the end-effector yaml's (else "stale build,
+  rerun build_asset");
 - the articulation has the bodies fr3_link0..fr3_link7 + the end-effector;
 - the end-effector stays rigidly at 107 mm along z of fr3_link7 (flange offset), at the start pose and after the pulse;
 - robot gravity off (user, 2026-10-14): PhysX reports gravity disabled for every robot body, the end-effector
@@ -40,7 +42,7 @@ from isaaclab.assets import Articulation
 from isaaclab.sim import SimulationContext
 from isaaclab.utils.math import matrix_from_quat, quat_apply_inverse
 
-from stem_manip.assets.fr3 import fr3_cfg, slot_base_offset
+from stem_manip.assets.fr3 import fr3_cfg, slot_base_offset, stale_build
 from stem_manip.utils import check_report, slot_base
 from stem_manip.utils.fr3_reference import rotvec_from_matrix, slot_base_pose
 
@@ -114,6 +116,11 @@ def main() -> None:
         slot_base_errors.append(slot_base_error())
 
         results = {}
+        stale = stale_build(args_cli.ee)
+        results["build up to date"] = (
+            stale is None,
+            "slot_base in the built URDF = yaml" if stale is None else f"stale build, rerun build_asset: {stale}",
+        )
         expected_bodies = [f"fr3_link{i}" for i in range(8)] + [args_cli.ee]
         results["bodies"] = (robot.body_names == expected_bodies, f"{robot.body_names}")
         results["ee rigid at flange"] = (
