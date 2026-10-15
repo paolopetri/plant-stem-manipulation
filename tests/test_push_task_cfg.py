@@ -23,8 +23,8 @@ DECIDED_TARGET = {
 SPAWN_AREA = {"x": (0.50, 0.65), "y": (-0.15, 0.15)}  # [m] stem base, robot base frame (= env frame); 2026-10-09
 STEM_POINT_ARC_LENGTHS = (0.08, 0.16, 0.24, 0.32, 0.40)  # [m] 5 points up to the tip
 POLICY_TERMS = [  # order of the concatenated policy observation (57 values)
-    "tool_tip_pos",  # 3
-    "tool_tip_rot",  # 6
+    "slot_base_pos",  # 3
+    "slot_base_rot",  # 6
     "applied_step",  # 6
     "target_offset",  # 6
     "stem_base",  # 3
@@ -38,13 +38,13 @@ REWARDS = {
     "distance_fine": (mdp.stem_point_distance_tanh, 1.0, {"std": 0.01, "z_scale": 0.01 / 0.003}),
     # run 13 config (docs/experiments/2026-10-10-m5-weekend.md)
     "height": (mdp.stem_point_height_tanh, 0.3, {"std": 0.003}),
-    "approach": (mdp.approach_tanh, 0.5, {"std": 0.1}),  # tool tip to the nearest stem point [m]
+    "approach": (mdp.approach_tanh, 0.5, {"std": 0.1}),  # slot base to the nearest stem point [m]
     "curvature": (mdp.curvature_penalty, -1.0, {"soft_fraction": 0.8}),  # quadratic above 0.8 x the limit
     "contact_force": (mdp.contact_force_penalty, -1.0, {"threshold": 2.0}),  # quadratic above 2 N
     "action_rate": (mdp.action_rate_l2, -0.01, {}),
     "terminated": (mdp.is_terminated, -10.0, {}),  # early terminations only (not the time out)
 }
-TERMINATIONS = ["time_out", "curvature_limit", "contact_force_limit", "joint_margin"]  # no tool-tip bound (user)
+TERMINATIONS = ["time_out", "curvature_limit", "contact_force_limit", "joint_margin"]  # no slot-base bound (user)
 MIN_JOINT_MARGIN = 0.25  # [rad] distance to any FR3 joint limit (the sweeps' rule)
 EPISODE_LENGTH_S = 15.0  # [s] approach and push (user, 2026-10-09)
 

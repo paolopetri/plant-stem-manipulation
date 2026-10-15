@@ -1,6 +1,6 @@
 __all__ = [
     "StemTipTargetCommandCfg",
-    "ToolTipImpedanceActionCfg",
+    "SlotBaseImpedanceActionCfg",
     "applied_step",
     "approach_tanh",
     "contact_force_limit",
@@ -18,17 +18,17 @@ __all__ = [
     "stem_point_height_tanh",
     "stem_points",
     "target_offset",
-    "tool_tip_pos",
-    "tool_tip_rot6d",
+    "slot_base_pos",
+    "slot_base_rot6d",
 ]
 
 from isaaclab.envs.mdp import *
 
-from .actions_cfg import ToolTipImpedanceActionCfg
+from .actions_cfg import SlotBaseImpedanceActionCfg
 from .commands import StemTipTargetCommandCfg
 from .contact import robot_contact_force
 from .events import fix_stem_base, reset_stem_base_uniform
-from .observations import applied_step, target_offset, tool_tip_pos, tool_tip_rot6d
+from .observations import applied_step, slot_base_pos, slot_base_rot6d, target_offset
 from .rewards import (
     approach_tanh,
     contact_force_penalty,

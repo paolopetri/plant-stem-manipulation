@@ -3,7 +3,7 @@
 Builds the FR3 robot with one of our end-effectors (e.g. the fork) for Isaac Lab.
 The Franka URDF is never edited by hand; each end-effector lives in its own folder with a yaml config.
 
-**The project uses `fork_v2`** (long prongs, `tool_tip` at the notch between them). `fork` is the first,
+**The project uses `fork_v2`** (long prongs, `slot_base` at the notch between them). `fork` is the first,
 shorter design; it is kept and still builds, but nothing uses it by default.
 
 ```
@@ -11,7 +11,7 @@ fr3/
 ├── base/fr3.urdf               FR3 without end-effector (generated, not edited)
 ├── end_effectors/
 │   ├── fork_v2/                one folder per end-effector, folder name = <ee>
-│   │   ├── fork_v2.yaml        all parameters (mount, mass, inertia, tool tip)
+│   │   ├── fork_v2.yaml        all parameters (mount, mass, inertia, slot base)
 │   │   ├── fork_v2_visual.stl
 │   │   └── fork_v2_collision.stl
 │   └── fork/                   first design, same layout
@@ -59,19 +59,19 @@ CI uses the `franka_description` commit recorded in `FRANKA_DESCRIPTION_COMMIT` 
 After building, check the result in simulation from the repo root:
 `uv run --extra isaacsim python scripts/check_fr3.py` (uses `fork_v2`; `--ee fork` for the first design).
 
-`view_urdf.py` prints the `tool_tip` pose and the end-effector's mass, CoM and inertia as they ended up in
+`view_urdf.py` prints the `slot_base` pose and the end-effector's mass, CoM and inertia as they ended up in
 the URDF (compare with the yaml). It then serves a browser viewer with joint sliders, visual/collision
-toggles and axes for `fr3_link8` and `tool_tip` (red = x, green = y, blue = z). Stop it with Ctrl+C.
+toggles and axes for `fr3_link8` and `slot_base` (red = x, green = y, blue = z). Stop it with Ctrl+C.
 It runs in the browser because the yourdfpy/pyglet window only shows white on Wayland.
 
 In Isaac Lab, use `fr3_cfg("fork_v2")` from `stem_manip.assets.fr3` (`src/stem_manip/assets/fr3.py`). The articulation's bodies are `fr3_link0` … `fr3_link7`
-and the end-effector (`fork_v2`). `tool_tip` and `fr3_link8` are **not** bodies: the converter turns massless links
+and the end-effector (`fork_v2`). `slot_base` and `fr3_link8` are **not** bodies: the converter turns massless links
 without geometry into plain frames. For the task frame, use the end-effector body plus the offset from the yaml:
 
 ```python
-from stem_manip.assets.fr3 import fr3_cfg, tool_tip_offset
+from stem_manip.assets.fr3 import fr3_cfg, slot_base_offset
 
-pos, rot = tool_tip_offset("fork_v2")  # rot as quaternion (x, y, z, w), the Isaac Lab 3.0 order
+pos, rot = slot_base_offset("fork_v2")  # rot as quaternion (x, y, z, w), the Isaac Lab 3.0 order
 # e.g. body_name="fork_v2", body_offset=OffsetCfg(pos=pos, rot=rot) in the IK action, or in a FrameTransformer
 ```
 
@@ -115,7 +115,7 @@ inertial:                       # all in the end-effector frame, SI units
     ixz: 0.0
     iyz: 0.0
 
-tool_tip:                       # task frame (observations, rewards, IK), in the end-effector frame
+slot_base:                      # task frame (observations, rewards, IK), in the end-effector frame
   xyz: [0.0, 0.0, 0.05]         # m
   rpy: [0, 0, 0]                # rad
 ```
@@ -149,7 +149,7 @@ the CoM) and correct the scale with `measured_mass` after weighing.
 ## Changing an end-effector
 
 1. Re-export the STLs into `end_effectors/<ee>/`.
-2. Update `<ee>.yaml` (mass properties, tool tip).
+2. Update `<ee>.yaml` (mass properties, slot base).
 3. Rerun the build, check and conversion.
 
 After weighing the printed part, set `inertial.measured_mass`. The inertia is scaled automatically.
@@ -157,9 +157,9 @@ After weighing the printed part, set `inertial.measured_mass`. The inertia is sc
 ## Frame conventions
 
 - `fr3_link8`: origin at the center of the flange face, z out of the robot.
-- `tool_tip` is the frame to use in tasks (observations, rewards, IK). It has the same name for every
+- `slot_base` is the frame to use in tasks (observations, rewards, IK). It has the same name for every
   end-effector, so tasks work unchanged when the end-effector is swapped. In Isaac Lab it is reached as
-  end-effector body + `tool_tip_offset(ee)` (see above).
-- Fork: `tool_tip` sits on the lower-z edge of the fork in `fr3_link8` (the top of the fork in world with the
+  end-effector body + `slot_base_offset(ee)` (see above).
+- Fork: `slot_base` sits on the lower-z edge of the fork in `fr3_link8` (the top of the fork in world with the
   flange pointing down); x points out along the fork, z = `fr3_link8` z. Revisit if it causes trouble in
   training.

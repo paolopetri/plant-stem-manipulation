@@ -185,7 +185,7 @@ def test_slot_approach_distance_of_the_push_check():
 
 @pytest.mark.parametrize("change", [dict(push_depth=0.0), dict(plate_thickness=0.0)])
 def test_slot_approach_distance_of_an_upright_stem_or_a_thin_plate_is_the_radius(change):
-    # no push: the stem stays upright; no plate: the tool tip is on the touching face
+    # no push: the stem stays upright; no plate: the slot base is on the touching face
     assert stem_reference.slot_approach_distance(**SLOT_PUSH | change) == pytest.approx(0.004, abs=1e-9)
 
 

@@ -4,7 +4,7 @@ Uses the USD produced by assets/fr3/convert_to_usd.sh (assets/fr3/build/fr3_<ee>
 Joint position limits come from the URDF (FR3 values from franka_description).
 Gravity is off for the robot (its links and the end-effector only; other assets keep theirs), as in Isaac Lab's
 `FRANKA_PANDA_HIGH_PD_CFG` for task-space control: with gravity, differential IK on top of the PD drives keeps the
-gravity sag as a steady error (about 4 cm at the tool tip). The real FR3 compensates gravity itself (libfranka
+gravity sag as a steady error (about 4 cm at the slot base). The real FR3 compensates gravity itself (libfranka
 torque commands are sent without gravity and friction); its compensation includes the end-effector only if the
 end-effector's mass, centre of mass and inertia are set as the robot's load (`setLoad` or a Desk profile).
 Joint armature: the motors' reflected inertia (gear ratio^2 x motor inertia, from the `<dynamics>` tags of the URDF);
@@ -31,28 +31,28 @@ BUILD_DIR = REPO_ASSETS_DIR / "fr3" / "build"
 EE_DIR = REPO_ASSETS_DIR / "fr3" / "end_effectors"
 
 # Bodies for tasks: the end-effector body has the end-effector's name (e.g. "fork_v2").
-# tool_tip and fr3_link8 are plain frames in the USD, not bodies (the converter turns massless links
-# without geometry into frames). Use the end-effector body + tool_tip_offset(ee) instead.
+# slot_base and fr3_link8 are plain frames in the USD, not bodies (the converter turns massless links
+# without geometry into frames). Use the end-effector body + slot_base_offset(ee) instead.
 
 
-def tool_tip_offset(ee: str) -> tuple[tuple[float, float, float], tuple[float, float, float, float]]:
-    """Pose of tool_tip in the end-effector body `ee`, read from end_effectors/<ee>/<ee>.yaml.
+def slot_base_offset(ee: str) -> tuple[tuple[float, float, float], tuple[float, float, float, float]]:
+    """Pose of slot_base in the end-effector body `ee`, read from end_effectors/<ee>/<ee>.yaml.
 
     Returns (pos, rot) with rot as quaternion (x, y, z, w), the Isaac Lab 3.0 convention.
     Pass it as OffsetCfg(pos=pos, rot=rot) with body name `ee`, e.g. to the IK action or a FrameTransformer.
     """
-    tip = yaml.safe_load((EE_DIR / ee / f"{ee}.yaml").read_text())["tool_tip"]
+    slot_base = yaml.safe_load((EE_DIR / ee / f"{ee}.yaml").read_text())["slot_base"]
     # URDF rpy: fixed-axis roll, pitch, yaw -> R = Rz(yaw) Ry(pitch) Rx(roll)
-    cr, sr = math.cos(tip["rpy"][0] / 2), math.sin(tip["rpy"][0] / 2)
-    cp, sp = math.cos(tip["rpy"][1] / 2), math.sin(tip["rpy"][1] / 2)
-    cy, sy = math.cos(tip["rpy"][2] / 2), math.sin(tip["rpy"][2] / 2)
+    cr, sr = math.cos(slot_base["rpy"][0] / 2), math.sin(slot_base["rpy"][0] / 2)
+    cp, sp = math.cos(slot_base["rpy"][1] / 2), math.sin(slot_base["rpy"][1] / 2)
+    cy, sy = math.cos(slot_base["rpy"][2] / 2), math.sin(slot_base["rpy"][2] / 2)
     rot = (
         sr * cp * cy - cr * sp * sy,
         cr * sp * cy + sr * cp * sy,
         cr * cp * sy - sr * sp * cy,
         cr * cp * cy + sr * sp * sy,
     )
-    return tuple(float(v) for v in tip["xyz"]), rot
+    return tuple(float(v) for v in slot_base["xyz"]), rot
 
 
 def motor_armature(ee: str) -> dict[str, float]:

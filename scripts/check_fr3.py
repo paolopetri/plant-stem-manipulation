@@ -9,9 +9,9 @@ and checks:
   included (the model of `fr3_cfg`: the real FR3 compensates gravity itself);
 - torque mode (user, 2026-10-14): under a +-0.5 N m pulse every joint moves by more than 0.01 rad (with the position
   mode's joint PD, stiffness 400 N m/rad, the pulse would deflect a joint by 1.25 mrad);
-- tool tip = datasheet kinematics: the tool-tip pose the task computes (`stem_manip.utils.tool_tip.tool_tip_pose`)
-  equals the tool tip from the measured joint angles via the FR3 Denavit-Hartenberg parameters and the yaml's
-  tool_tip (`stem_manip.utils.fr3_reference`), at the start pose and after the pulse.
+- slot base = datasheet kinematics: the slot-base pose the task computes (`stem_manip.utils.slot_base.slot_base_pose`)
+  equals the slot base from the measured joint angles via the FR3 Denavit-Hartenberg parameters and the yaml's
+  slot_base (`stem_manip.utils.fr3_reference`), at the start pose and after the pulse.
   Tolerance 1e-5 m and 1e-5 rad (user, 2026-10-14): both sides use the same nominal values (datasheet = URDF), so
   only float32 rounding of the joint angles and link poses remains, about 1e-7 per transform, ~1e-6 over the chain;
   10x margin.
@@ -40,14 +40,14 @@ from isaaclab.assets import Articulation
 from isaaclab.sim import SimulationContext
 from isaaclab.utils.math import matrix_from_quat, quat_apply_inverse
 
-from stem_manip.assets.fr3 import fr3_cfg, tool_tip_offset
-from stem_manip.utils import check_report, tool_tip
-from stem_manip.utils.fr3_reference import rotvec_from_matrix, tool_tip_pose
+from stem_manip.assets.fr3 import fr3_cfg, slot_base_offset
+from stem_manip.utils import check_report, slot_base
+from stem_manip.utils.fr3_reference import rotvec_from_matrix, slot_base_pose
 
 FLANGE_OFFSET = torch.tensor([0.0, 0.0, 0.107])  # fr3_link7 -> fr3_link8 [m], FR3 kinematics
 POS_TOL = 1e-3  # [m] end-effector at the flange
 MIN_PULSE_MOVE = 0.01  # [rad] per joint under the +-0.5 N m pulse (user, 2026-10-14)
-TIP_POS_TOL, TIP_ROT_TOL = 1e-5, 1e-5  # [m], [rad] tool tip vs datasheet kinematics (user, 2026-10-14)
+SLOT_BASE_POS_TOL, SLOT_BASE_ROT_TOL = 1e-5, 1e-5  # [m], [rad] slot base vs datasheet kinematics (user, 2026-10-14)
 
 
 def main() -> None:
@@ -66,7 +66,7 @@ def main() -> None:
         robot.write_joint_position_to_sim_index(position=q0)
         robot.write_joint_velocity_to_sim_index(velocity=torch.zeros_like(q0))
         i7, i_ee = robot.body_names.index("fr3_link7"), robot.body_names.index(args_cli.ee)
-        offset_pos, offset_quat = (torch.tensor([v], device=sim.device) for v in tool_tip_offset(args_cli.ee))
+        offset_pos, offset_quat = (torch.tensor([v], device=sim.device) for v in slot_base_offset(args_cli.ee))
 
         def run(torque: float, steps: int) -> None:
             for _ in range(steps):
@@ -81,11 +81,11 @@ def main() -> None:
             ee_in_link7 = quat_apply_inverse(quat[i7 : i7 + 1], (pos[i_ee] - pos[i7]).unsqueeze(0))[0]
             return float((ee_in_link7 - FLANGE_OFFSET).norm())
 
-        def tip_error() -> tuple[float, float]:
-            """Tool tip as the task computes it vs the datasheet kinematics at the measured joints: position [m] and
+        def slot_base_error() -> tuple[float, float]:
+            """Slot base as the task computes it vs the datasheet kinematics at the measured joints: position [m] and
             angle [rad] differences."""
             data = robot.data
-            tip_pos, tip_quat = tool_tip.tool_tip_pose(  # the task's code (under test)
+            slot_base_pos, slot_base_quat = slot_base.slot_base_pose(  # the task's code (under test)
                 data.root_pos_w.torch,
                 data.root_quat_w.torch,
                 data.body_pos_w.torch[:, i_ee],
@@ -93,9 +93,11 @@ def main() -> None:
                 offset_pos,
                 offset_quat,
             )
-            reference = tool_tip_pose(data.joint_pos.torch, args_cli.ee)
-            pos_err = (tip_pos.double() - reference[:, :3, 3]).norm(dim=-1)
-            rot_err = rotvec_from_matrix(matrix_from_quat(tip_quat).double() @ reference[:, :3, :3].transpose(1, 2))
+            reference = slot_base_pose(data.joint_pos.torch, args_cli.ee)
+            pos_err = (slot_base_pos.double() - reference[:, :3, 3]).norm(dim=-1)
+            rot_err = rotvec_from_matrix(
+                matrix_from_quat(slot_base_quat).double() @ reference[:, :3, :3].transpose(1, 2)
+            )
             return float(pos_err.max()), float(rot_err.norm(dim=-1).max())
 
         gravity_off = robot.root_view.get_disable_gravities()
@@ -103,13 +105,13 @@ def main() -> None:
         gravity_off = gravity_off.reshape(-1).bool().cpu().tolist()[: robot.num_bodies]
         run(0.0, args_cli.steps)
         ee_errors = [ee_at_flange()]
-        tip_errors = [tip_error()]
+        slot_base_errors = [slot_base_error()]
         q_held = robot.data.joint_pos.torch.clone()
         run(args_cli.torque, args_cli.pulse_steps)
         run(-args_cli.torque, args_cli.pulse_steps)
         moved = (robot.data.joint_pos.torch - q_held)[0].cpu()
         ee_errors.append(ee_at_flange())
-        tip_errors.append(tip_error())
+        slot_base_errors.append(slot_base_error())
 
         results = {}
         expected_bodies = [f"fr3_link{i}" for i in range(8)] + [args_cli.ee]
@@ -127,13 +129,13 @@ def main() -> None:
             f"pulse +-{args_cli.torque} N m x {args_cli.pulse_steps} steps: joints moved "
             f"{[round(float(d), 3) for d in moved]} rad (each > {MIN_PULSE_MOVE} rad)",
         )
-        results["tool tip = datasheet kinematics"] = (
-            all(p < TIP_POS_TOL and r < TIP_ROT_TOL for p, r in tip_errors),
+        results["slot base = datasheet kinematics"] = (
+            all(p < SLOT_BASE_POS_TOL and r < SLOT_BASE_ROT_TOL for p, r in slot_base_errors),
             "; ".join(
                 f"{where}: {p * 1e3:.5f} mm, {r:.1e} rad"
-                for where, (p, r) in zip(("start pose", "after the pulse"), tip_errors, strict=True)
+                for where, (p, r) in zip(("start pose", "after the pulse"), slot_base_errors, strict=True)
             )
-            + f" (tol {TIP_POS_TOL * 1e3:.2f} mm, {TIP_ROT_TOL:.0e} rad)",
+            + f" (tol {SLOT_BASE_POS_TOL * 1e3:.2f} mm, {SLOT_BASE_ROT_TOL:.0e} rad)",
         )
 
         print(f"\n=== check_fr3 ({type(sim_cfg.physics).__name__}, ee={args_cli.ee}, torque mode) ===")

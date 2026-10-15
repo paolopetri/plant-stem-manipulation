@@ -141,21 +141,21 @@ def chain_weight_strain(
 
 
 def slot_approach_distance(radius: float, plate_thickness: float, push_height: float, push_depth: float) -> float:
-    """Distance d from the tool tip to the stem's centre line with the stem pushed into the fork's slot.
+    """Distance d from the slot base to the stem's centre line with the stem pushed into the fork's slot.
 
-    The tool tip sits at the slot bottom on the plate's top face; the plate is `plate_thickness` thick below it.
-    The slot bottom seats the upright stem with its centre `radius` from the tool tip. Pushed, the stem leans away
+    The slot base sits at the slot bottom on the plate's top face; the plate is `plate_thickness` thick below it.
+    The slot bottom seats the upright stem with its centre `radius` from the slot base. Pushed, the stem leans away
     from the fork by theta and rests against the slot bottom at the plate's bottom face, where its centre is
     radius / cos(theta) from the slot bottom, so d = radius + plate_thickness * sin(theta). theta is the slope of
     the clamped stem at a point load at a = push_height - plate_thickness (cantilever, small deflections:
     slope = 1.5 * delta / a), with the deflection delta = push_depth - radius + radius / cos(theta) there, where
-    `push_depth` is how far the tool tip moves beyond first contact with the upright stem's surface.
+    `push_depth` is how far the slot base moves beyond first contact with the upright stem's surface.
 
     Args:
         radius: Stem radius [m].
-        plate_thickness: Plate thickness at the slot bottom, below the tool tip [m].
-        push_height: Height of the tool tip above the stem base [m].
-        push_depth: Tool-tip travel beyond first contact [m].
+        plate_thickness: Plate thickness at the slot bottom, below the slot base [m].
+        push_height: Height of the slot base above the stem base [m].
+        push_depth: Slot-base travel beyond first contact [m].
 
     Returns:
         d [m].

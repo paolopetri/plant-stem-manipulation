@@ -1,10 +1,10 @@
-"""Unit tests of the tool-tip kinematics (pose and geometric Jacobian in the robot base frame), worked examples."""
+"""Unit tests of the slot-base kinematics (pose and geometric Jacobian in the robot base frame), worked examples."""
 
 import math
 
 import torch
 
-from stem_manip.utils.tool_tip import tool_tip_jacobian, tool_tip_pose
+from stem_manip.utils.slot_base import slot_base_jacobian, slot_base_pose
 
 S = math.sqrt(0.5)
 IDENTITY = torch.tensor([[0.0, 0.0, 0.0, 1.0]])
@@ -17,7 +17,7 @@ def test_pose_in_rotated_shifted_base():
 
     Body in the base frame: (1, 0, 0), yawed -90 deg; its x axis is the base's -y, so the tip is at (1, -0.1, 0).
     """
-    pos, quat = tool_tip_pose(
+    pos, quat = slot_base_pose(
         torch.tensor([[1.0, 0.0, 0.0]]),
         YAW_90,
         torch.tensor([[1.0, 1.0, 0.0]]),
@@ -31,7 +31,7 @@ def test_pose_in_rotated_shifted_base():
 
 def test_pose_applies_offset_rotation():
     """Base and body at the world origin, unrotated; tip offset yawed 90 deg: the tip orientation is the offset's."""
-    pos, quat = tool_tip_pose(
+    pos, quat = slot_base_pose(
         torch.zeros(1, 3), IDENTITY, torch.zeros(1, 3), IDENTITY, torch.tensor([[0.0, 0.0, 0.2]]), YAW_90
     )
     assert torch.allclose(pos, torch.tensor([[0.0, 0.0, 0.2]]), atol=1e-6)
@@ -46,18 +46,18 @@ def _one_joint_jacobian() -> torch.Tensor:
 
 def test_jacobian_shifts_linear_rows_to_the_tip():
     """Tip 0.5 m along the body x axis (world (1.5, 0, 0)): v_tip = z x (1.5, 0, 0) = (0, 1.5, 0); w unchanged."""
-    jacobian = tool_tip_jacobian(_one_joint_jacobian(), IDENTITY, IDENTITY, torch.tensor([[0.5, 0.0, 0.0]]))
+    jacobian = slot_base_jacobian(_one_joint_jacobian(), IDENTITY, IDENTITY, torch.tensor([[0.5, 0.0, 0.0]]))
     assert torch.allclose(jacobian, torch.tensor([0.0, 1.5, 0.0, 0.0, 0.0, 1.0]).view(1, 6, 1), atol=1e-6)
 
 
 def test_jacobian_in_rotated_base():
     """Same arm, base yawed 90 deg: world (0, 1.5, 0) is base (1.5, 0, 0); the z axis is the same in both frames."""
-    jacobian = tool_tip_jacobian(_one_joint_jacobian(), YAW_90, IDENTITY, torch.tensor([[0.5, 0.0, 0.0]]))
+    jacobian = slot_base_jacobian(_one_joint_jacobian(), YAW_90, IDENTITY, torch.tensor([[0.5, 0.0, 0.0]]))
     assert torch.allclose(jacobian, torch.tensor([1.5, 0.0, 0.0, 0.0, 0.0, 1.0]).view(1, 6, 1), atol=1e-6)
 
 
 def test_jacobian_uses_body_orientation_for_the_lever():
     """Body yawed 90 deg in the world: the offset 0.5 m along its x axis points to world +y, tip at world (1, 0.5,
     0); v_tip = z x (1, 0.5, 0) = (-0.5, 1, 0)."""
-    jacobian = tool_tip_jacobian(_one_joint_jacobian(), IDENTITY, YAW_90, torch.tensor([[0.5, 0.0, 0.0]]))
+    jacobian = slot_base_jacobian(_one_joint_jacobian(), IDENTITY, YAW_90, torch.tensor([[0.5, 0.0, 0.0]]))
     assert torch.allclose(jacobian, torch.tensor([-0.5, 1.0, 0.0, 0.0, 0.0, 1.0]).view(1, 6, 1), atol=1e-6)

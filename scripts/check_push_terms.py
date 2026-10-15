@@ -3,7 +3,7 @@
 Every reward and termination term is wrapped so that, when the managers evaluate it (before the env's automatic
 reset), its value is recorded together with values computed here independently of the MDP code:
 - stem tip from the segment poses (segment 19, +L/2) and the command's target -> distance d and height error dz;
-- tool tip from the action term's pose -> distance to the stem, sampled at 1 mm along the arc length;
+- slot base from the action term's pose -> distance to the stem, sampled at 1 mm along the arc length;
 - curvature per joint from the segment poses; contact force from the sensor's history (largest single
   segment-body contact per physics step, mean over the policy step); joint margin from the joint
   positions and limits.
@@ -78,13 +78,13 @@ TIP_SEGMENT = 19
 SPAWN_X, SPAWN_Y = (0.50, 0.65), (-0.15, 0.15)  # [m] stem spawn area (user, 2026-10-09), for the rest phase
 # scripted motions
 STEM_BASE = (0.65, 0.0)  # [m] stem base x, y for the scripted phases (far edge of the spawn area)
-BEHIND = 0.20  # [m] tool tip this far behind the stem axis before a push (prongs reach 0.17 m beyond the tool tip)
-PUSH_HEIGHT, IMPACT_HEIGHT = 0.30, 0.25  # [m] tool-tip height of the slow push and of the impact
+BEHIND = 0.20  # [m] slot base this far behind the stem axis before a push (prongs reach 0.17 m beyond the slot base)
+PUSH_HEIGHT, IMPACT_HEIGHT = 0.30, 0.25  # [m] slot-base height of the slow push and of the impact
 REACH_TOL = 2e-3  # [m] the scripted drive must end this close to its goal, without a reset on the way
-PUSH_DEPTH = 0.04  # [m] slow push: tool tip this far beyond first contact of the slot bottom
+PUSH_DEPTH = 0.04  # [m] slow push: slot base this far beyond first contact of the slot bottom
 # Approach in contact (user, 2026-10-14): threshold = 1 - tanh((d + margin) / std), d from
 # `stem_reference.slot_approach_distance` (derivation there).
-# fork_v2 plate thickness at the slot bottom, below the tool tip (measured in fork_v2_visual.stl and _collision.stl)
+# fork_v2 plate thickness at the slot bottom, below the slot base (measured in fork_v2_visual.stl and _collision.stl)
 SLOT_PLATE_THICKNESS = 0.018  # [m]
 APPROACH_MARGIN = 1e-3  # [m] on d
 RAMP_FORCE, RAMP_STEPS = 2.0, 150  # [N], policy steps: tip force ramp of the curvature phase
@@ -103,7 +103,7 @@ def main() -> None:
         sim, device, n = env.sim, env.device, env.num_envs
         robot, stem, sensor = env.scene["robot"], env.scene["stem"], env.scene["stem_contact"]
         command = env.command_manager.get_term("stem_target")
-        action_term = env.action_manager.get_term("tool_tip")
+        action_term = env.action_manager.get_term("slot_base")
         model = stem_model(STEM_MODEL)
         geometry = stem_params(STEM_MODEL)["geometry"]
         segment_length = geometry["length"] / geometry["num_segments"]
@@ -126,7 +126,7 @@ def main() -> None:
             poses = model.segment_poses(stem)
             tip = to_base(point_pose(poses, TIP_SEGMENT, 0.5 * segment_length)[:, None, :3])[:, 0]
             error = tip - command.command
-            tool = action_term.tool_pose()[0]
+            slot_base = action_term.slot_base_pose()[0]
             stem_b = to_base(stem_points(poses, dense, segment_length))
             data = sensor.data
             force = data.normal_force_matrix_w_history.torch + data.friction_force_matrix_w_history.torch
@@ -136,11 +136,11 @@ def main() -> None:
                 d=error.norm(dim=-1),
                 d_fine=(error * error.new_tensor([1.0, 1.0, FINE_Z_SCALE])).norm(dim=-1),
                 dz=error[:, 2],
-                approach_d=(stem_b - tool[:, None]).norm(dim=-1).min(dim=-1).values,
+                approach_d=(stem_b - slot_base[:, None]).norm(dim=-1).min(dim=-1).values,
                 curvature=joint_curvature(poses, lengths),
                 force=force.norm(dim=-1).flatten(start_dim=2).max(dim=-1).values.mean(dim=1),  # largest single contact
                 margin=torch.minimum(q - limits[..., 0], limits[..., 1] - q).min(dim=-1).values,
-                tool=tool,
+                slot_base=slot_base,
             )
             # the height term's unweighted value, evaluated here at the same state
             height_cfg = env.reward_manager.get_term_cfg("height")
@@ -231,8 +231,8 @@ def main() -> None:
             return torch.zeros(n, 6, device=device)
 
         def toward(goal: torch.Tensor, speed: float = 1.0) -> torch.Tensor:
-            """Action that moves the tool tip toward `goal` (n, 3), robot base frame (`rollout.toward`)."""
-            return rollout.toward(action_term.tool_pose()[0], goal, max_step, max_step_change, speed)
+            """Action that moves the slot base toward `goal` (n, 3), robot base frame (`rollout.toward`)."""
+            return rollout.toward(action_term.slot_base_pose()[0], goal, max_step, max_step_change, speed)
 
         def place_stem(fixed: bool) -> None:
             """Stem base at STEM_BASE for the scripted phases, or the spawn area of the training."""
@@ -248,15 +248,15 @@ def main() -> None:
             Returns whether every env reached the goal without a reset, and a summary."""
             reset = False
             waypoint = goal.clone()
-            waypoint[:, 2] = action_term.tool_pose()[0][:, 2]
+            waypoint[:, 2] = action_term.slot_base_pose()[0][:, 2]
             for target in (waypoint, goal):
                 for _ in range(max_steps):
-                    if (action_term.tool_pose()[0] - target).norm(dim=-1).max() < 1e-3:
+                    if (action_term.slot_base_pose()[0] - target).norm(dim=-1).max() < 1e-3:
                         break
                     reset |= bool(step(toward(target)).any())
             for _ in range(15):  # settle
                 reset |= bool(step(toward(goal)).any())
-            distance = float((action_term.tool_pose()[0] - goal).norm(dim=-1).max())
+            distance = float((action_term.slot_base_pose()[0] - goal).norm(dim=-1).max())
             return distance < REACH_TOL and not reset, f"drive to the goal: {distance * 1e3:.2f} mm off, reset: {reset}"
 
         def goal_behind(height: float) -> torch.Tensor:
@@ -321,11 +321,11 @@ def main() -> None:
                 reached, reach_info = drive_to(goal_behind(PUSH_HEIGHT))
                 approach_behind = recorded["approach"].clone()
                 force_before = float(snap["force"].max())
-                contact_x = STEM_BASE[0] - radius  # slot bottom (tool tip) touches the stem surface
+                contact_x = STEM_BASE[0] - radius  # slot bottom (slot base) touches the stem surface
                 goal = goal_behind(PUSH_HEIGHT)
                 goal[:, 0] = contact_x - 0.01  # at full speed until 1 cm before contact (the prongs pass the stem)
                 for _ in range(200):
-                    if (action_term.tool_pose()[0] - goal).norm(dim=-1).max() < 1e-3:
+                    if (action_term.slot_base_pose()[0] - goal).norm(dim=-1).max() < 1e-3:
                         break
                     step(toward(goal))
                 goal[:, 0] = contact_x + PUSH_DEPTH
@@ -335,7 +335,7 @@ def main() -> None:
                     max_force = max(max_force, float(snap["force"].max()))
                     max_penalty = max(max_penalty, float(recorded["contact_force"].max()))
                     max_curv = max(max_curv, float(snap["curvature"].max()))
-                    if (snap["tool"][:, 0] >= goal[:, 0] - 1e-3).all():
+                    if (snap["slot_base"][:, 0] >= goal[:, 0] - 1e-3).all():
                         break
                 approach_contact = float(recorded["approach"].min())
                 approach_d = stem_reference.slot_approach_distance(
@@ -436,12 +436,12 @@ def main() -> None:
                     step(action)
                     margins.append(float(snap["margin"].min()))
                     if recorded["joint_margin"].any():
-                        fired = (k, float(snap["tool"][:, 2].mean()), bool(recorded["joint_margin"].all()))
+                        fired = (k, float(snap["slot_base"][:, 2].mean()), bool(recorded["joint_margin"].all()))
                         break
                 ok = fired is not None and fired[2] and margins[-1] < MIN_MARGIN and min(margins[:-1]) >= MIN_MARGIN
                 results["joint margin"] = (
                     ok,
-                    f"fired at step {fired and fired[0]}, tool tip z {f3(fired and fired[1])} m, in every env: "
+                    f"fired at step {fired and fired[0]}, slot base z {f3(fired and fired[1])} m, in every env: "
                     f"{fired and fired[2]}; margin at the start {margins[0]:.3f} rad, at firing {margins[-1]:.3f} rad",
                 )
 

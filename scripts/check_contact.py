@@ -1,7 +1,7 @@
 """Contact check: the FR3 with `fork_v2` pushes the `chain` stem in PhysX (robot and stem in one solver).
 
-The robot follows a straight tool-tip path at constant speed with differential IK on the body `fork_v2` +
-`tool_tip_offset("fork_v2")`; the stem is moved only by contact with the fork. The fork is horizontal (flange
+The robot follows a straight slot-base path at constant speed with differential IK on the body `fork_v2` +
+`slot_base_offset("fork_v2")`; the stem is moved only by contact with the fork. The fork is horizontal (flange
 pointing down) at `PUSH_HEIGHT`, its slot pointing along `FORK_YAW` (45 deg between world +x and +y: the arm then
 stays behind the fork; pushing along +y, the stem's top touched the wrist). Tests (`--test`):
 - `slot`: the stem slides into the slot (8 mm wide at the bottom) and is pushed 5 cm beyond first contact;
@@ -18,9 +18,9 @@ only, no gravity; the upright stem's own weight makes it about 4 % softer), and 
 first joint divided by its lever arm.
 
 Checks (`slot`, `side`; `slot_far` checks only the first three and the last):
-- robot base at the env origin, unrotated (the tool pose is in the base frame and the path in the env frame):
+- robot base at the env origin, unrotated (the slot base pose is in the base frame and the path in the env frame):
   within 1e-5 m and 1e-5 rad (float32 rounding of the env origins);
-- start pose reached: tool tip within 1 mm of the start;
+- start pose reached: slot base within 1 mm of the start;
 - only the fork touches the stem: no contact with the arm links during the whole test, and no contact at all
   before the push;
 - contact where expected: first contact within 3 mm of the position where the fork touches the stem surface;
@@ -29,7 +29,7 @@ Checks (`slot`, `side`; `slot_far` checks only the first three and the last):
 - contact force: sensor within 10 % of the force from the stiffness and of the force from the base moment;
 - stays finite, and below the curvature limit (`damage.max_curvature`);
 - springs back: the stem tip is back within 1 mm after the fork has pulled back.
-Reported: the stem point in the tool frame (slot depth).
+Reported: the stem point in the slot base frame (slot depth).
 
 Usage (from the repo root; headless unless a visualizer is requested, e.g. `--viz kit --slow_motion 3`):
     uv run --extra isaacsim python scripts/check_contact.py --test slot
@@ -43,7 +43,7 @@ from isaaclab.app import add_launcher_args, launch_simulation
 
 parser = argparse.ArgumentParser(description="Contact check: the FR3 with fork_v2 pushes the chain stem.")
 parser.add_argument("--test", choices=["slot", "side", "slot_far"], default="slot", help="Which push.")
-parser.add_argument("--speed", type=float, default=0.05, help="Tool-tip speed during the push [m/s].")
+parser.add_argument("--speed", type=float, default=0.05, help="Slot-base speed during the push [m/s].")
 parser.add_argument(
     "--slow_motion", type=float, default=1.0, help="With a viewer: play this many times slower than real time."
 )
@@ -58,19 +58,19 @@ import torch
 import isaaclab.sim as sim_utils
 from isaaclab.utils.math import quat_apply_inverse, quat_from_matrix
 
-from stem_manip.assets.fr3 import fr3_cfg, tool_tip_offset
+from stem_manip.assets.fr3 import fr3_cfg, slot_base_offset
 from stem_manip.assets.stem import stem_model, stem_params
-from stem_manip.tasks.push_position.mdp.tool_tip import ToolTipKinematics
+from stem_manip.tasks.push_position.mdp.slot_base import SlotBaseKinematics
 from stem_manip.utils import check_report, stem_geometry, stem_reference
 
-PUSH_HEIGHT = 0.30  # [m] tool-tip height = height of the push on the stem
+PUSH_HEIGHT = 0.30  # [m] slot-base height = height of the push on the stem
 FORK_YAW = math.radians(45.0)  # direction of the fork (tool x) in the ground plane, from world +x
-CLEAR_HEIGHT = 0.55  # [m] tool-tip height for the move over the stem's tip (stem length 0.4 m)
+CLEAR_HEIGHT = 0.55  # [m] slot-base height for the move over the stem's tip (stem length 0.4 m)
 BACKOFF = 0.10  # [m] the robot goes down this far behind the start
 APPROACH_SPEED = 0.10  # [m/s] mean speed of the legs to the start
-PRONG_REACH = 0.17  # [m] the fork's collision mesh reaches this far beyond the tool tip along tool x
+PRONG_REACH = 0.17  # [m] the fork's collision mesh reaches this far beyond the slot base along tool x
 PRONG_FACE = 0.022  # [m] outer face of a prong from the slot centre line, 10 cm along the fork (collision mesh)
-SIDE_CONTACT_AT = 0.10  # [m] side push: stem this far along the fork from the tool tip
+SIDE_CONTACT_AT = 0.10  # [m] side push: stem this far along the fork from the slot base
 APPROACH_GAP = 0.03  # [m] gap between fork and stem at the start
 PUSH_DEPTH = {"slot": 0.05, "side": 0.05, "slot_far": 0.15}  # [m] fork travel beyond the stem surface
 MOVE_TIME, SETTLE_TIME, HOLD_TIME, REST_TIME = 3.0, 1.0, 1.5, 3.0  # [s] (MOVE_TIME: to the point over the stem)
@@ -107,7 +107,7 @@ def main() -> None:
         start_offset = contact_offset + APPROACH_GAP
     else:
         push_dir = fork_dir
-        contact_offset = radius  # the tool tip (slot bottom) touches the stem surface
+        contact_offset = radius  # the slot base (slot bottom) touches the stem surface
         path_origin = (stem_x, stem_y)
         start_offset = contact_offset + PRONG_REACH + APPROACH_GAP
 
@@ -161,7 +161,7 @@ def main() -> None:
             torch.tensor(v, device=device) for v in (start, end, push_dir, down, over)
         )
         tool_axes = torch.tensor([fork_dir, side_dir, (0.0, 0.0, -1.0)], device=device).T  # columns: x, y, z
-        tool_quat = quat_from_matrix(tool_axes.unsqueeze(0))
+        slot_base_quat = quat_from_matrix(tool_axes.unsqueeze(0))
 
         # the scene starts with all joints at zero (singular, at joint limits): write the default pose
         default_joint_pos = robot.data.default_joint_pos.torch.clone()
@@ -169,23 +169,23 @@ def main() -> None:
         robot.write_joint_velocity_to_sim_index(velocity=torch.zeros_like(default_joint_pos))
         robot.set_joint_position_target_index(target=default_joint_pos)
 
-        # the tool pose is in the robot base frame, the path in the env frame: the base must be the env origin,
+        # the slot base pose is in the robot base frame, the path in the env frame: the base must be the env origin,
         # unrotated (rotation angle ~ 2 |q_xyz|, sign-independent)
         base_offset = float((robot.data.root_pos_w.torch[0] - origin).norm())
         base_rotation = 2.0 * float(robot.data.root_quat_w.torch[0, :3].norm())
 
-        # differential IK on the tool tip
+        # differential IK on the slot base
         arm_joints = list(range(7))
-        tool = ToolTipKinematics(robot, "fork_v2", tool_tip_offset("fork_v2"), arm_joints)
-        tool_pose = tool.pose
+        slot_base = SlotBaseKinematics(robot, "fork_v2", slot_base_offset("fork_v2"), arm_joints)
+        slot_base_pose = slot_base.pose
         ik = DifferentialIKController(
             DifferentialIKControllerCfg(command_type="pose", use_relative_mode=False, ik_method="dls"), 1, device
         )
 
         def command(target_pos: torch.Tensor, target_quat: torch.Tensor) -> None:
-            pos, quat = tool_pose()
+            pos, quat = slot_base_pose()
             ik.set_command(torch.cat([target_pos.view(1, 3), target_quat.view(1, 4)], dim=-1))
-            joint_pos = ik.compute(pos, quat, tool.jacobian(), robot.data.joint_pos.torch[:, arm_joints])
+            joint_pos = ik.compute(pos, quat, slot_base.jacobian(), robot.data.joint_pos.torch[:, arm_joints])
             robot.set_joint_position_target_index(target=joint_pos, joint_ids=arm_joints)
 
         render_every = max(1, round(RENDER_DT / sim_dt))
@@ -193,7 +193,7 @@ def main() -> None:
         max_arm_contact = torch.zeros(len(robot_links), device=device)  # per link, whole test
         approach_contact = 0.0  # any contact with the robot before the push
 
-        def step(target_pos: torch.Tensor, target_quat: torch.Tensor = tool_quat, approach: bool = False) -> None:
+        def step(target_pos: torch.Tensor, target_quat: torch.Tensor = slot_base_quat, approach: bool = False) -> None:
             nonlocal max_arm_contact, approach_contact
             command(target_pos, target_quat)
             scene.write_data_to_sim()
@@ -221,8 +221,8 @@ def main() -> None:
 
         # -- move over the stem's tip to the point behind the start (orientation interpolated), go down, move
         # horizontally to the start, settle
-        pos0, quat0 = (v[0].clone() for v in tool_pose())
-        quat1 = tool_quat[0] if float(quat0 @ tool_quat[0]) >= 0 else -tool_quat[0]
+        pos0, quat0 = (v[0].clone() for v in slot_base_pose())
+        quat1 = slot_base_quat[0] if float(quat0 @ slot_base_quat[0]) >= 0 else -slot_base_quat[0]
         move_steps = round(MOVE_TIME / sim_dt)
         for i in range(move_steps):
             s = 0.5 - 0.5 * math.cos(math.pi * (i + 1) / move_steps)
@@ -235,7 +235,7 @@ def main() -> None:
                 step(leg_start + s * (leg_end - leg_start), approach=True)
         for _ in range(round(SETTLE_TIME / sim_dt)):
             step(start_t, approach=True)
-        start_error = float((tool_pose()[0][0] - start_t).norm())
+        start_error = float((slot_base_pose()[0][0] - start_t).norm())
 
         # -- push, hold, pull back, rest
         push_steps = round(float((end_t - start_t).norm()) / args_cli.speed / sim_dt)
@@ -255,11 +255,11 @@ def main() -> None:
                 poses = stem_module.segment_poses(stem)
                 finite = finite and bool(torch.isfinite(poses).all())
                 if onset is None and phase == "push" and float(fork_force.norm()) > CONTACT_THRESHOLD:
-                    onset = tool_pose()[0][0].clone()
+                    onset = slot_base_pose()[0][0].clone()
                 max_force = max(max_force, float(fork_force.norm()))
                 max_curvature = max(max_curvature, float(stem_geometry.joint_curvature(poses, segment_lengths).max()))
             state[phase] = {
-                "tool": tool_pose()[0][0].clone(),
+                "slot_base": slot_base_pose()[0][0].clone(),
                 "fork_force": fork_force.clone(),
                 "poses": stem_module.segment_poses(stem).clone(),
                 "wrenches": stem_module.joint_wrenches(stem)[0].clone(),
@@ -267,7 +267,7 @@ def main() -> None:
 
         # -- evaluation at the end of the hold
         hold = state["hold"]
-        travel = float((hold["tool"] - onset) @ push_dir_t) if onset is not None else math.nan
+        travel = float((hold["slot_base"] - onset) @ push_dir_t) if onset is not None else math.nan
         onset_along = float(onset @ push_dir_t) if onset is not None else math.nan
         deflection = float((stem_point(hold["poses"]) - stem_point(rest_poses)) @ push_dir_t)
         force_sensor = float(hold["fork_force"] @ push_dir_t)
@@ -276,7 +276,9 @@ def main() -> None:
         )
         force_stiffness = deflection / compliance
         force_moment = float(hold["wrenches"][1, 3:].norm()) / (PUSH_HEIGHT - segment_length)  # joint 1 at height l
-        in_tool = quat_apply_inverse(tool_quat, (stem_point(hold["poses"]) - hold["tool"]).unsqueeze(0))[0]
+        in_slot_base = quat_apply_inverse(slot_base_quat, (stem_point(hold["poses"]) - hold["slot_base"]).unsqueeze(0))[
+            0
+        ]
         tip_rest = float((state["rest"]["poses"][0, -1, :3] - rest_poses[0, -1, :3]).norm())
         max_curvature_limit = params["damage"]["max_curvature"]
 
@@ -290,7 +292,7 @@ def main() -> None:
                 f"offset {base_offset:.1e} m (tol {BASE_POS_TOL:.0e}), rotation {base_rotation:.1e} rad "
                 f"(tol {BASE_ROT_TOL:.0e})",
             ),
-            "start pose reached": (start_error < START_TOL, f"tool tip {start_error * 1e3:.2f} mm from the start"),
+            "start pose reached": (start_error < START_TOL, f"slot base {start_error * 1e3:.2f} mm from the start"),
             "only the fork touches the stem": (
                 not arm and approach_contact == 0.0,
                 f"arm links (max force) {arm or 'none'}; max contact force before the push {approach_contact:.3f} N",
@@ -334,8 +336,9 @@ def main() -> None:
             f"{[round(float(v), 3) for v in hold['fork_force']]} N (world)"
         )
         print(
-            f"[INFO] stem point at {PUSH_HEIGHT} m in the tool frame: along the fork {in_tool[0] * 1e3:+.1f} mm, "
-            f"sideways {in_tool[1] * 1e3:+.1f} mm, vertical {in_tool[2] * 1e3:+.1f} mm"
+            f"[INFO] stem point at {PUSH_HEIGHT} m in the slot base frame: "
+            f"along the fork {in_slot_base[0] * 1e3:+.1f} mm, "
+            f"sideways {in_slot_base[1] * 1e3:+.1f} mm, vertical {in_slot_base[2] * 1e3:+.1f} mm"
         )
         check_report.finish(results, checked=checked)
 

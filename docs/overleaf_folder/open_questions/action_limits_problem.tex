@@ -17,9 +17,9 @@ questions at the end (Section~\ref{sec:al-questions}).
 simulation and on the FR3. What blocks us is a trade-off between \emph{agility} and a \emph{small tracking error}.
 A small error transfers better~\cite{al-aljalbout2024}, because then the fork's motion is set by our controller
 (identical on both sides) rather than by the arm's dynamics (not identical, not yet identified). But an impedance
-controller is a spring of stiffness $K$ between the commanded and the actual tool position, and it can only
+controller is a spring of stiffness $K$ between the commanded and the actual slot base position, and it can only
 accelerate the arm by being stretched: while the commanded motion accelerates at $a$, the tool lags behind by about
-$\Lambda a/K$, where $\Lambda$ is the arm's apparent mass at the tool tip (8--22\,kg depending on pose and direction,
+$\Lambda a/K$, where $\Lambda$ is the arm's apparent mass at the slot base (8--22\,kg depending on pose and direction,
 half of it from the motors' reflected inertia). With a small lag (2\,mm) and a stiffness we consider acceptable near a
 plant (400--1000\,N/m), the fork may accelerate only at about 0.04--0.09\,m/s$^2$; we use 0.08\,m/s$^2$ at
 1000\,N/m. This section explains the
@@ -39,14 +39,14 @@ moves at constant velocity $\dot x_d$ from the old to the new value. A Cartesian
   \tau = J^\top\!\left[\,K\,(x_d - x) + D\,(\dot x_d - \dot x)\,\right] + \tau_\text{null} + \tau_\text{Coriolis}.
   \label{eq:al-law}
 \end{equation}
-$x$ is the measured tool pose, $J$ the tool-tip Jacobian, $K$ the stiffness and $D$ the damping (written here for
+$x$ is the measured slot base pose, $J$ the slot-base Jacobian, $K$ the stiffness and $D$ the damping (written here for
 the position; the orientation has its own stiffness $K_o$). This is the law of Franka's example controllers, with
 two changes: the target velocity $\dot x_d$ is fed forward (Franka's examples use $\dot x_d = 0$), and the damping
 $D = 2\sqrt{K}\,\Lambda^{1/2}$ is chosen critical for the arm's actual inertia $\Lambda$ (Section~\ref{sec:al-problem})
 instead of Franka's $2\sqrt K$, which is critical only for a 1\,kg tool.
 
-\paragraph{Null-space spring $\tau_\text{null}$.} The FR3 has 7 joints, but the tool pose has only 6 degrees of
-freedom. For every tool pose there is therefore a one-parameter family of arm postures (the elbow can swing about the
+\paragraph{Null-space spring $\tau_\text{null}$.} The FR3 has 7 joints, but the slot base pose has only 6 degrees of
+freedom. For every slot base pose there is therefore a one-parameter family of arm postures (the elbow can swing about the
 line from shoulder to wrist without moving the tool): the \emph{null space}. The first term of
 Eq.~\eqref{eq:al-law} does not act in this direction, so the elbow would drift freely. A weak joint-space spring
 (0.5\,N\,m/rad, as in Franka's examples) pulls the posture towards a rest posture; it is projected so that it does
@@ -131,12 +131,12 @@ the controller. This is the decision we need help with. The rest of this section
 from, how severe it is for the task, and how severe it will be on the real robot.
 
 \paragraph{Why the tool lags: the impedance law as a mass on a spring.} Consider one direction, free space,
-gravity compensated. The controller makes the tool tip behave like a mass $\Lambda$ (the arm's inertia felt at the
-tool tip, explained in the next paragraph) attached by a spring $K$ and a damper $D$ to the moving target:
+gravity compensated. The controller makes the slot base behave like a mass $\Lambda$ (the arm's inertia felt at the
+slot base, explained in the next paragraph) attached by a spring $K$ and a damper $D$ to the moving target:
 \begin{equation}
   \Lambda\,\ddot x = K\,(x_d - x) + D\,(\dot x_d - \dot x).
 \end{equation}
-Write the lag as $e = x_d - x$ (target minus tool). Then $\ddot x = \ddot x_d - \ddot e$, and substituting gives
+Write the lag as $e = x_d - x$ (target minus slot base). Then $\ddot x = \ddot x_d - \ddot e$, and substituting gives
 \begin{equation}
   \Lambda\,\ddot e + D\,\dot e + K\,e = \Lambda\,\ddot x_d.
   \label{eq:al-error}
@@ -169,18 +169,18 @@ The lag itself behaves like a damped mass-spring system, driven by the force $\L
         (Table~\ref{tab:al-final}).
 \end{enumerate}
 
-\paragraph{The mass in this equation: the apparent mass $\Lambda$ (``8--20\,kg at the tool tip'').} The trade-off
-is severe because the mass that the spring has to accelerate is large. If one pushes the tool tip of
-the arm (joints free, gravity compensated) with a force $F$, the tip starts to accelerate with $\ddot x = \Lambda^{-1}
-F$. $\Lambda$ is the arm's inertia as seen at the tool tip, the \emph{apparent mass} (or operational-space inertia):
+\paragraph{The mass in this equation: the apparent mass $\Lambda$ (``8--20\,kg at the slot base'').} The trade-off
+is severe because the mass that the spring has to accelerate is large. If one pushes the slot base of
+the arm (joints free, gravity compensated) with a force $F$, the slot base starts to accelerate with $\ddot x = \Lambda^{-1}
+F$. $\Lambda$ is the arm's inertia as seen at the slot base, the \emph{apparent mass} (or operational-space inertia):
 \begin{equation}
   \Lambda = \left(J M^{-1} J^\top\right)^{-1},
   \label{eq:al-lambda}
 \end{equation}
-with $M$ the $7\times7$ joint-space mass matrix and $J$ the $6\times7$ tool-tip Jacobian. $\Lambda$ is a $6\times6$
+with $M$ the $7\times7$ joint-space mass matrix and $J$ the $6\times7$ slot-base Jacobian. $\Lambda$ is a $6\times6$
 matrix (force and moment versus linear and angular acceleration) and depends on the pose. Its translational
-diagonal entries say how heavy the arm feels when the tip is pushed along $x$, $y$ or $z$. At the earlier start pose
-(2026-10-07; tool tip at $(0.30, 0, 0.55)$\,m in front of the robot, fork horizontal), computed from the simulated FR3:
+diagonal entries say how heavy the arm feels when the slot base is pushed along $x$, $y$ or $z$. At the earlier start pose
+(2026-10-07; slot base at $(0.30, 0, 0.55)$\,m in front of the robot, fork horizontal), computed from the simulated FR3:
 \begin{center}
 {\renewcommand{\arraystretch}{1.15}
 \begin{tabular}{lrrr}
@@ -192,7 +192,7 @@ diagonal entries say how heavy the arm feels when the tip is pushed along $x$, $
   \bottomrule
 \end{tabular}}
 \end{center}
-Pushing the tip forward with 20\,N accelerates it at about 1\,m/s$^2$, as if it were a 20\,kg mass; the same push
+Pushing the slot base forward with 20\,N accelerates it at about 1\,m/s$^2$, as if it were a 20\,kg mass; the same push
 sideways gives 2.6\,m/s$^2$. Forward motion needs the heavy shoulder and elbow joints, sideways motion mostly the
 base rotation and the wrist. The second row includes the motors' reflected inertia $n^2 I_\text{motor}$ ($n$: gear
 ratio), which we add to $M$ from Franka's description files: 0.61, 0.61, 0.46, 0.46, 0.21, 0.21, 0.21\,kg\,m$^2$ for
@@ -200,7 +200,7 @@ joints 1--7 (at the wrist about 100 times the link's own inertia). Without these
 and pressed the stem 5 times harder. The lag measurements below give the same value independently: from
 Eq.~\eqref{eq:al-lag}, $\Lambda = K e / a \approx 16$--20\,kg along $x$ at the start pose, and up to 21.5\,kg
 at the far, high start points of the sweep ($x$ 0.60, $z$ 0.45\,m).
-Near the arm's reach, $\Lambda$ along $x$ grows to 40--76\,kg (tool tip at $x$ 0.75\,m, $y$ $\pm0.25$\,m, where the
+Near the arm's reach, $\Lambda$ along $x$ grows to 40--76\,kg (slot base at $x$ 0.75\,m, $y$ $\pm0.25$\,m, where the
 fork works for stems at the far edge of the spawn area, 9 October), so the lag there reaches 2.3--4.2\,mm; we accept
 this as a known limit until the inertia feedforward (B3).
 
@@ -243,17 +243,17 @@ and lengthen it only if the trained policy demonstrably runs out of time.
 \paragraph{Rotations: the same effect, plus a coupling.} Turning the fork works in the same way: the orientation
 spring $K_o$ must twist to give the rotational inertia an angular acceleration $\alpha$, so the angle lags by about
 $\Lambda_o \alpha / K_o$ ($\Lambda_o$: the rotational part of $\Lambda$). In addition, $\Lambda$ is a full $6\times6$
-matrix: its off-diagonal blocks couple translation and rotation. The reason is geometric: the tool tip is 10--20\,cm
-away from the wrist's joint axes, and the joints that turn the fork also move the tip, while those that move the
-tip also turn the fork. The control law, however, treats position and orientation as two independent springs.
+matrix: its off-diagonal blocks couple translation and rotation. The reason is geometric: the slot base is 10--20\,cm
+away from the wrist's joint axes, and the joints that turn the fork also move the slot base, while those that move the
+slot base also turn the fork. The control law, however, treats position and orientation as two independent springs.
 Two consequences, both measured:
 \begin{itemize}
-  \item \textbf{Tilt while translating.} Accelerating the tip at $a$ needs, besides the force, a moment
+  \item \textbf{Tilt while translating.} Accelerating the slot base at $a$ needs, besides the force, a moment
         $\Lambda_{op}\, a$ ($\Lambda_{op}$: off-diagonal block). It comes from the orientation spring, which must twist:
         the fork tilts by about $\Lambda_{op} a / K_o$. Table~\ref{tab:al-diag} shows the tilt falling with $1/K_o$
         (2.0$^\circ$ at $K_o = 30$, 0.26$^\circ$ at 300\,N\,m/rad).
-  \item \textbf{Tip drift while turning.} Turning the fork at angular acceleration $\alpha$ needs, besides the moment, a
-        force at the tip, which the position spring supplies by stretching: the tip moves away from its target by
+  \item \textbf{Slot-base drift while turning.} Turning the fork at angular acceleration $\alpha$ needs, besides the moment, a
+        force at the slot base, which the position spring supplies by stretching: the slot base moves away from its target by
         about $\Lambda_{po}\,\alpha / K$, although the position command is constant (Tables~\ref{tab:al-rot}
         and~\ref{tab:al-b1}).
 \end{itemize}
@@ -263,9 +263,9 @@ control, option B3 below) would supply these coupling forces and moments from th
 \paragraph{Contact.} When the tool is blocked (e.g.\ pressed against the stem), the target keeps moving and the
 lag becomes force: $K e$. Small lags therefore also mean small unintended forces. A hard bound is added by
 clamping the target: at every control step, $\lVert x_d - x \rVert \le 4$\,mm (spring force $\le 4$\,N at
-$K = 1000$\,N/m) and the angle between target and tool orientation $\le 3^\circ$ (moment $\le 5.2$\,N\,m at
+$K = 1000$\,N/m) and the angle between target and slot base orientation $\le 3^\circ$ (moment $\le 5.2$\,N\,m at
 $K_o = 100$\,N\,m/rad). In free motion the clamp is inactive, because the lag stays below 2\,mm. While it holds the
-target, the target moves with the tool, so the target velocity fed forward is the tool's own velocity: the damper
+target, the target moves with the slot base, so the target velocity fed forward is the slot base's own velocity: the damper
 then adds no force to the bounded spring force, and the controller does not switch back and forth between holding and
 releasing. Not bounded by the clamp: the momentum of the arm when the moving fork first hits something (as with any
 impedance controller); the policy is meant to learn to approach gently (contact-force and smoothness penalties).
@@ -334,7 +334,7 @@ target brakes \emph{and} reverses (before, it only braked to rest). \emph{Full-s
 rest up to the speed cap, 10 steps at the cap, then braking to rest (about 16\,cm; rotations about 120$^\circ$),
 one per axis, in a direction with room for it (towards the middle of the workspace; up along $z$).
 \emph{Rotation moves}: the same about the base axes, with zero position command. \emph{Start points}: either the
-start pose only, or 9 points spanning the workspace in which the stems stand (tool tip at $x$ = 0.35 and 0.60\,m,
+start pose only, or 9 points spanning the workspace in which the stems stand (slot base at $x$ = 0.35 and 0.60\,m,
 $y = \pm0.20$\,m, $z$ = 0.20 and 0.45\,m, plus the start pose); since 9 October 8 more at the far edge ($x$ = 0.60
 and 0.75\,m, $y = \pm0.25$\,m, $z$ = 0.30 and 0.45\,m), where $x$ 0.75\,m is a known limit (see above). Moves that come within 0.25\,rad of a joint limit
 are reported but not counted (decision 8 October): there the arm, not the controller, limits the motion. This
@@ -343,17 +343,17 @@ concerns the two start points low and close to the robot ($x$ 0.35, $z$ 0.20\,m)
 
 \paragraph{What is measured (all tables).}
 \begin{itemize}
-  \item \emph{Lag} (following error): the largest distance between the target position and the actual tool-tip
+  \item \emph{Lag} (following error): the largest distance between the target position and the actual slot-base
         position during the move and the hold. The quantity of Eq.~\eqref{eq:al-lag}.
-  \item \emph{Overshoot}: how far the tool tip goes past the target's final position after it stops.
+  \item \emph{Overshoot}: how far the slot base goes past the target's final position after it stops.
   \item \emph{Tilt}: the largest change of the fork's orientation during a straight move, although no rotation is
         commanded.
   \item \emph{Angle lag}: during rotation moves, the largest angle between the target and the actual orientation.
-  \item \emph{Tip drift}: during rotation moves, the largest displacement of the tool tip, although no translation is
+  \item \emph{Slot-base drift}: during rotation moves, the largest displacement of the slot base, although no translation is
         commanded.
 \end{itemize}
 Each table reports the worst value over all moves (and start points). The criterion used so far: lag $\le 2$\,mm,
-overshoot $\le 5$\,mm, tilt $\le 1^\circ$; angle lag $\le 2^\circ$, tip drift $\le 2$\,mm.
+overshoot $\le 5$\,mm, tilt $\le 1^\circ$; angle lag $\le 2^\circ$, slot-base drift $\le 2$\,mm.
 
 \begin{table}[h]
   \centering
@@ -384,7 +384,7 @@ overshoot $\le 5$\,mm, tilt $\le 1^\circ$; angle lag $\le 2^\circ$, tip drift $\
   \caption{\textbf{How the lag evolves over time} (illustrates Eq.~\eqref{eq:al-error}). Start pose, $K = 400$\,N/m,
   $K_o = 30$\,N\,m/rad. One straight move along $+x$ at full command for 40 policy steps. With the acceleration limit
   of 0.49\,m/s$^2$ the target speeds up during the first 13 steps (0.42\,s) and then moves at constant speed.
-  Lag of the tool tip behind the target after 10, 20, 30 and 40 policy steps.}
+  Lag of the slot base behind the target after 10, 20, 30 and 40 policy steps.}
   \label{tab:al-time}
   {\renewcommand{\arraystretch}{1.15}
   \begin{tabular}{lrrrr}
@@ -410,7 +410,7 @@ overshoot $\le 5$\,mm, tilt $\le 1^\circ$; angle lag $\le 2^\circ$, tip drift $\
   \centering
   \caption{\textbf{Effect of the stiffnesses $K$ and $K_o$.} Start pose, speed cap 20\,cm/s. A straight move along $+x$
   at full command for 25 policy steps (0.8\,s, enough to reach about the speed cap), hold for 45 steps, then the same
-  along $-x$ and hold. Two acceleration limits (columns). Largest lag of the tool tip and largest tilt of the fork
+  along $-x$ and hold. Two acceleration limits (columns). Largest lag of the slot base and largest tilt of the fork
   over the whole test.}
   \label{tab:al-diag}
   {\renewcommand{\arraystretch}{1.15}
@@ -448,7 +448,7 @@ overshoot $\le 5$\,mm, tilt $\le 1^\circ$; angle lag $\le 2^\circ$, tip drift $\
     \toprule
     \multicolumn{3}{c}{translation moves} & \multicolumn{3}{c}{rotation moves} \\
     \cmidrule(lr){1-3} \cmidrule(lr){4-6}
-    acceleration limit & lag & tilt & angular acceleration limit & angle lag & tip drift \\
+    acceleration limit & lag & tilt & angular acceleration limit & angle lag & slot-base drift \\
     \midrule
     0.24\,m/s$^2$ & 5.0\,mm  & 3.0$^\circ$ & 20$^\circ$/s$^2$  & 9.9$^\circ$$^*$ & 14.0\,mm$^*$ \\
     0.49\,m/s$^2$ & 8.5\,mm  & 5.0$^\circ$ & 49$^\circ$/s$^2$  & 4.7$^\circ$ & 4.0\,mm \\
@@ -476,7 +476,7 @@ overshoot $\le 5$\,mm, tilt $\le 1^\circ$; angle lag $\le 2^\circ$, tip drift $\
     \toprule
     \multicolumn{4}{c}{translation moves} & \multicolumn{3}{c}{rotation moves} \\
     \cmidrule(lr){1-4} \cmidrule(lr){5-7}
-    acceleration limit & lag & overshoot & tilt & angular accel.\ limit & angle lag & tip drift \\
+    acceleration limit & lag & overshoot & tilt & angular accel.\ limit & angle lag & slot-base drift \\
     \midrule
     0.05\,m/s$^2$ & 1.3\,mm & 0.9\,mm & 0.17$^\circ$ & 10$^\circ$/s$^2$ & 0.30$^\circ$ & 0.55\,mm \\
     \textbf{0.10\,m/s}$^\mathbf{2}$ & \textbf{1.9\,mm} (2.4$^*$) & \textbf{1.8\,mm} & \textbf{0.33}$^\circ$ &
@@ -486,7 +486,7 @@ overshoot $\le 5$\,mm, tilt $\le 1^\circ$; angle lag $\le 2^\circ$, tip drift $\
   \end{tabular}}
 
   \smallskip
-  {\small Reading: the criterion (lag $\le 2$\,mm, tilt $\le 1^\circ$, angle lag $\le 2^\circ$, tip drift $\le 2$\,mm)
+  {\small Reading: the criterion (lag $\le 2$\,mm, tilt $\le 1^\circ$, angle lag $\le 2^\circ$, slot-base drift $\le 2$\,mm)
   is met at 0.1\,m/s$^2$ and 20$^\circ$/s$^2$ (bold, chosen) and fails at 0.15\,m/s$^2$ / 39$^\circ$/s$^2$. The lag
   of 1.9\,mm matches Eq.~\eqref{eq:al-lag} with $\Lambda \approx 20$\,kg. $^*$ at the two start points low and close
   to the robot ($x$ 0.35, $z$ 0.20\,m), where joint 4 is within 0.21\,rad of its limit; the task will keep the tool
@@ -522,7 +522,7 @@ overshoot $\le 5$\,mm, tilt $\le 1^\circ$; angle lag $\le 2^\circ$, tip drift $\
   counted ones lag up to 3.35\,mm ($^*$ start pose, $+y$, while braking far out; two further moves ran beyond the
   arm's reach). At 10\,cm/s all full-speed moves of the 7 counted start points fit. \textbf{0.08\,m/s$^2$ and
   10\,cm/s} (bold, chosen) meet the criterion everywhere with about 15\,\% margin. Rotations at the same limits: angle
-  lag $\le 0.62^\circ$, tip drift $\le 1.23$\,mm (full-speed turns of about 120$^\circ$ about $x$ and $y$ reach the
+  lag $\le 0.62^\circ$, slot-base drift $\le 1.23$\,mm (full-speed turns of about 120$^\circ$ about $x$ and $y$ reach the
   wrist's joint limits at most points, so only 1--2 of 3 turns per point are counted). Not counted: the two points
   near joint 4's limit lag up to 2.3\,mm.}
 \end{table}
@@ -544,7 +544,7 @@ current value is given in the first column.
   Building block (current) & What it is & Gains & Costs \\
   \midrule
   Translational stiffness $K$ \newline (\textbf{1000\,N/m}, was 400)
-    & spring between target and tool position. Franka's examples use 150--400\,N/m; Franka's internal Cartesian
+    & spring between target and slot base position. Franka's examples use 150--400\,N/m; Franka's internal Cartesian
       impedance accepts up to 3000\,N/m
     & lag $\propto 1/K$, so $a_\text{max} \propto K$ (Eq.~\ref{eq:al-amax}); less position error from joint friction on
       the real arm (error $\approx$ friction$/K$)
@@ -552,18 +552,18 @@ current value is given in the first column.
       more; stability margin on the real robot to be checked \\
   \addlinespace\cmidrule(lr){1-4}\addlinespace
   Rotational stiffness $K_o$ \newline (\textbf{100\,N\,m/rad}, was 30)
-    & spring between target and tool orientation (10--300\,N\,m/rad)
+    & spring between target and slot base orientation (10--300\,N\,m/rad)
     & tilt $\propto 1/K_o$ while translating (Table~\ref{tab:al-diag}); smaller angle lag when turning
     & twists a stem caught in the fork more stiffly; same noise/stability caveat as $K$ \\
   \addlinespace\cmidrule(lr){1-4}\addlinespace
   Damping $D$ \newline (\textbf{$2\sqrt K\Lambda^{1/2}$})
-    & damper between target and tool velocity
+    & damper between target and slot base velocity
     & critical in every pose and direction; Franka's $2\sqrt K$ (critical only for 1\,kg) overshot by up to 7\,mm
     & uses the model of $\Lambda$ (only for the damping) \\
   \addlinespace\cmidrule(lr){1-4}\addlinespace
   Velocity feedforward $\dot x_d$ \newline (\textbf{on})
-    & the damper acts on the velocity \emph{difference}, not on the tool velocity; while the clamp holds the target,
-      $\dot x_d$ is the tool's velocity (the held target moves with the tool)
+    & the damper acts on the velocity \emph{difference}, not on the slot base velocity; while the clamp holds the target,
+      $\dot x_d$ is the slot base's velocity (the held target moves with the slot base)
     & no lag at constant speed (without it: 82\,mm at 20\,cm/s, Table~\ref{tab:al-time}); no damping force on top of
       the clamp's bound
     & none found \\
@@ -572,7 +572,7 @@ current value is given in the first column.
     & the controller supplies the force needed to accelerate the arm from the model (operational-space
       control~\cite{al-khatib1987}) instead of waiting for the spring to stretch
     & lag drops to $\Delta\Lambda\, a / K$, set only by the \emph{model error} $\Delta\Lambda$ (20\,\% error: 5 times less
-      lag); also removes the tilt and tip drift from the coupling
+      lag); also removes the tilt and slot-base drift from the coupling
     & the motion now depends on the model of $\Lambda$ (libfranka on the robot); needs the motor-inertia question
       settled and the model checked (identification) \\
   \addlinespace\cmidrule(lr){1-4}\addlinespace

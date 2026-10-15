@@ -1,10 +1,10 @@
-"""Action term: relative tool-tip pose (position and rotation step), executed by Franka's Cartesian impedance law.
+"""Action term: relative slot-base pose (position and rotation step), executed by Franka's Cartesian impedance law.
 
-The policy outputs a tool-tip translation and rotation per policy step (robot base frame); the term integrates them
+The policy outputs a slot-base translation and rotation per policy step (robot base frame); the term integrates them
 into a target pose (IndustReal's policy-level action integrator) and, every physics step, computes the joint torques
 with the same law the real FR3 will run (`stem_manip.utils.impedance`). Per policy step the step's size is capped
 (speed), its change from the previous step is limited (acceleration: keeps the tracking error small), and the target
-is kept within a bound of the measured tool pose at every physics step (bounds the force when the tool is blocked;
+is kept within a bound of the measured slot base pose at every physics step (bounds the force when the tool is blocked;
 inactive in free motion); the applied step is the target's actual motion after the clamp. The target moves linearly
 (position) and turns at constant rate (orientation) through the policy step, and its linear and angular velocities
 enter the damping term (feedforward; while the clamp holds the target, it moves with the tool and its velocity is the
@@ -32,23 +32,23 @@ from stem_manip.utils.impedance import (
     substep_command,
 )
 
-from .actions_cfg import ToolTipImpedanceActionCfg
-from .tool_tip import ToolTipKinematics
+from .actions_cfg import SlotBaseImpedanceActionCfg
+from .slot_base import SlotBaseKinematics
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
 
 
-class ToolTipImpedanceAction(ActionTerm):
-    """Relative tool-tip pose action with a Cartesian impedance controller (see the module docstring)."""
+class SlotBaseImpedanceAction(ActionTerm):
+    """Relative slot-base pose action with a Cartesian impedance controller (see the module docstring)."""
 
-    cfg: ToolTipImpedanceActionCfg
+    cfg: SlotBaseImpedanceActionCfg
     _asset: Articulation
 
-    def __init__(self, cfg: ToolTipImpedanceActionCfg, env: ManagerBasedEnv):
+    def __init__(self, cfg: SlotBaseImpedanceActionCfg, env: ManagerBasedEnv):
         super().__init__(cfg, env)
         self._joint_ids, _ = self._asset.find_joints(cfg.joint_names)
-        self._tool = ToolTipKinematics(self._asset, cfg.body_name, cfg.tool_offset, self._joint_ids)
+        self._slot_base = SlotBaseKinematics(self._asset, cfg.body_name, cfg.slot_base_offset, self._joint_ids)
 
         n, device = self.num_envs, self.device
         self._q_ns = self._asset.data.default_joint_pos.torch[:, self._joint_ids].clone()
@@ -81,9 +81,9 @@ class ToolTipImpedanceAction(ActionTerm):
     def processed_actions(self) -> torch.Tensor:
         return self._step
 
-    def tool_pose(self) -> tuple[torch.Tensor, torch.Tensor]:
-        """Tool-tip position (n, 3) and orientation (n, 4) in the robot base frame."""
-        return self._tool.pose()
+    def slot_base_pose(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """Slot-base position (n, 3) and orientation (n, 4) in the robot base frame."""
+        return self._slot_base.pose()
 
     def target(self) -> torch.Tensor:
         """Current target position (n, 3) in the robot base frame (end of the current policy step)."""
@@ -121,8 +121,8 @@ class ToolTipImpedanceAction(ActionTerm):
         self._substep = min(self._substep + 1, self._decimation)
         cfg = self.cfg
         data = self._asset.data
-        pos, quat = self.tool_pose()
-        jacobian = self._tool.jacobian()
+        pos, quat = self.slot_base_pose()
+        jacobian = self._slot_base.jacobian()
         dq = data.joint_vel.torch[:, self._joint_ids]
         twist = (jacobian @ dq.unsqueeze(-1)).squeeze(-1)
         target_pos, target_quat, target_vel, target_ang_vel, held = substep_command(
@@ -148,7 +148,7 @@ class ToolTipImpedanceAction(ActionTerm):
         damping = None
         if cfg.damping == "apparent_mass":
             # PhysX's mass matrix excludes the joint armature (motor inertia); add it
-            joints = self._tool.jacobian_joint_ids
+            joints = self._slot_base.jacobian_joint_ids
             mass_matrix = data.mass_matrix.torch[:, joints][:, :, joints]
             mass_matrix = mass_matrix + torch.diag_embed(data.joint_armature.torch[:, self._joint_ids])
             damping = apparent_mass_damping(jacobian, mass_matrix, cfg.stiffness_pos, cfg.stiffness_rot)
@@ -174,9 +174,9 @@ class ToolTipImpedanceAction(ActionTerm):
         self._asset.set_joint_effort_target_index(target=tau, joint_ids=self._joint_ids)
 
     def reset(self, env_ids: Sequence[int] | None = None) -> None:
-        """Start the target at the tool's current pose (link poses are up to date after the reset event)."""
+        """Start the target at the slot base's current pose (link poses are up to date after the reset event)."""
         env_ids = slice(None) if env_ids is None else env_ids
-        pos, quat = self.tool_pose()
+        pos, quat = self.slot_base_pose()
         self._target[env_ids] = pos[env_ids]
         self._target_start[env_ids] = pos[env_ids]
         self._target_quat[env_ids] = quat[env_ids]

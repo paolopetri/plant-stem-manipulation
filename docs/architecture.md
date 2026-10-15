@@ -92,16 +92,16 @@ Each model module provides the same functions:
 
 Task `StemManip-Push-Position-FR3-v0`, cfg in `src/stem_manip/tasks/push_position/env_cfg.py`.
 
-1. **Action:** a tool-tip translation and rotation step in the robot base frame, integrated into a target pose and
+1. **Action:** a slot-base translation and rotation step in the robot base frame, integrated into a target pose and
    executed by Franka's Cartesian impedance law with apparent-mass damping (`stem_manip.utils.impedance`, action term
-   `ToolTipImpedanceAction`). Speed caps, acceleration limits and the target clamp at every physics step (which
-   bounds the contact force) are fields of `ToolTipImpedanceActionCfg` (`mdp/actions_cfg.py`). The arm is torque
+   `SlotBaseImpedanceAction`). Speed caps, acceleration limits and the target clamp at every physics step (which
+   bounds the contact force) are fields of `SlotBaseImpedanceActionCfg` (`mdp/actions_cfg.py`). The arm is torque
    controlled, as on the real FR3. Reasons for the limits: `docs/overleaf_folder/open_questions/action_limits_problem.tex`.
-   Why this controller: `docs/adr/0003-cartesian-impedance-action.md`. Tool-tip pose and Jacobian in the base
-   frame: `ToolTipKinematics` (`mdp/tool_tip.py`, reads the robot), formulas in `stem_manip.utils.tool_tip`.
+   Why this controller: `docs/adr/0003-cartesian-impedance-action.md`. Slot-base pose and Jacobian in the base
+   frame: `SlotBaseKinematics` (`mdp/slot_base.py`, reads the robot), formulas in `stem_manip.utils.slot_base`.
 2. **Simulation:** PhysX steps robot and stem (`chain`) together in one solver.
 3. **Observation** (stem state read from the simulation; on the real robot it will come from cameras): robot base
-   frame, raw meters; the tool tip's pose, applied step and target offset, the stem base, points along the stem
+   frame, raw meters; the slot base's pose, applied step and target offset, the stem base, points along the stem
    (the last one the tip) for the previous and the current policy step, and the tip's target. Terms, their order and
    the arc lengths: `ObservationsCfg` in the env cfg; the stem-state terms are in `mdp/stem_state.py`. No contact
    forces (`docs/adr/0002-contact-forces-not-observed.md`). To be reduced to what the perception can deliver.
@@ -110,7 +110,7 @@ Task `StemManip-Push-Position-FR3-v0`, cfg in `src/stem_manip/tasks/push_positio
    `TerminationsCfg` of the env cfg, damage limits from `damage` in `assets/stem/stem.yaml`): distance of the stem
    point to the target (coarse and fine tanh, the fine one an ellipsoid that weighs the height error more) and a
    height term, fork-to-stem approach, curvature and contact-force penalties, action rate, early-termination
-   penalty; terminate on time out, curvature limit, contact-force limit and joint margin, no tool-tip bound. Contact
+   penalty; terminate on time out, curvature limit, contact-force limit and joint margin, no slot-base bound. Contact
    forces (sensor `stem_contact` on the stem segments, filtered to the robot) are used here, not in the observation.
 
 The **stem point of interest** is given by a segment index + an offset along that segment: the tip. Its **target**

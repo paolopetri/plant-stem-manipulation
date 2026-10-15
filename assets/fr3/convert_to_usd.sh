@@ -9,7 +9,7 @@
 # Requirements for this asset:
 #   - fixed base (arm is bolted to the table)
 #   - do NOT merge fixed joints (otherwise the end-effector body is merged into fr3_link7)
-# Massless links without geometry (fr3_link8, tool_tip) become plain frames, not bodies.
+# Massless links without geometry (fr3_link8, slot_base) become plain frames, not bodies.
 # Afterwards set_collision.py sets the end-effector's collision shape from its yaml (collision_approximation), and
 # fix_base_joint.py turns the converter's base joint into a world joint (fixed base; see its docstring).
 set -euo pipefail

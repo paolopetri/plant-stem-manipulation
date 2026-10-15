@@ -7,7 +7,7 @@
 
 Inputs (never edited by this script):
   base/fr3.urdf                     FR3 arm without end-effector, generated with franka_description
-  end_effectors/<ee>/<ee>.yaml      end-effector description (meshes, inertia, mount, tool tip)
+  end_effectors/<ee>/<ee>.yaml      end-effector description (meshes, inertia, mount, slot base)
 
 Output:
   build/fr3_<ee>.urdf     merged URDF with relative mesh paths
@@ -30,7 +30,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent
 EE_DIR = ROOT / "end_effectors"
-TOOL_TIP = "tool_tip"  # fixed frame name, so tasks use the same body for every end-effector
+SLOT_BASE = "slot_base"  # fixed frame name, so tasks use the same body for every end-effector
 
 
 def fail(msg: str) -> None:
@@ -104,8 +104,8 @@ REQUIRED_KEYS = [
     "inertial.cad_mass",
     "inertial.com",
     *(f"inertial.inertia.{k}" for k in ("ixx", "ixy", "ixz", "iyy", "iyz", "izz")),
-    "tool_tip.xyz",
-    "tool_tip.rpy",
+    "slot_base.xyz",
+    "slot_base.rpy",
 ]
 
 
@@ -124,13 +124,13 @@ def check_config(cfg: dict, path: Path) -> None:
 
 def add_tool(robot: ET.Element, name: str, cfg: dict, tool_dir: Path, mesh_out: Path) -> None:
     parent = cfg["parent_link"]
-    tip = cfg["tool_tip"]
+    slot_base = cfg["slot_base"]
 
     links = {link.get("name") for link in robot.findall("link")}
     joints = {j.get("name") for j in robot.findall("joint")}
     if parent not in links:
         fail(f"parent link '{parent}' not in base URDF. Available: {sorted(links)}")
-    for new in (name, TOOL_TIP):
+    for new in (name, SLOT_BASE):
         if new in links:
             fail(f"link '{new}' already exists in base URDF (generated with an end-effector?)")
     if f"{name}_mount" in joints:
@@ -175,12 +175,12 @@ def add_tool(robot: ET.Element, name: str, cfg: dict, tool_dir: Path, mesh_out: 
     ET.SubElement(joint, "child", link=name)
     add_origin(joint, cfg["mount"]["xyz"], cfg["mount"]["rpy"])
 
-    # tool tip (massless frame)
-    ET.SubElement(robot, "link", name=TOOL_TIP)
-    tj = ET.SubElement(robot, "joint", name=f"{TOOL_TIP}_joint", type="fixed")
+    # slot base (massless frame)
+    ET.SubElement(robot, "link", name=SLOT_BASE)
+    tj = ET.SubElement(robot, "joint", name=f"{SLOT_BASE}_joint", type="fixed")
     ET.SubElement(tj, "parent", link=name)
-    ET.SubElement(tj, "child", link=TOOL_TIP)
-    add_origin(tj, tip["xyz"], tip["rpy"])
+    ET.SubElement(tj, "child", link=SLOT_BASE)
+    add_origin(tj, slot_base["xyz"], slot_base["rpy"])
 
 
 # --------------------------------------------------------------------------- main

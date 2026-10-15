@@ -1,6 +1,6 @@
-"""Tool-tip kinematics of the robot articulation: pose and geometric Jacobian in the robot base frame.
+"""Slot-base kinematics of the robot articulation: pose and geometric Jacobian in the robot base frame.
 
-Reads the inputs of `stem_manip.utils.tool_tip` (the formulas) from the robot's current data. Used by the action
+Reads the inputs of `stem_manip.utils.slot_base` (the formulas) from the robot's current data. Used by the action
 term (`actions.py`) and by `scripts/check_contact.py` and `scripts/sweep_impedance.py`.
 """
 
@@ -11,19 +11,19 @@ from typing import TYPE_CHECKING
 
 import torch
 
-from stem_manip.utils.tool_tip import tool_tip_jacobian, tool_tip_pose
+from stem_manip.utils.slot_base import slot_base_jacobian, slot_base_pose
 
 if TYPE_CHECKING:
     from isaaclab.assets import Articulation
 
 
-class ToolTipKinematics:
-    """Tool-tip pose and Jacobian of an articulation's end-effector body, read from its current data.
+class SlotBaseKinematics:
+    """Slot-base pose and Jacobian of an articulation's end-effector body, read from its current data.
 
     Args:
         robot: the robot articulation.
         body_name: end-effector body that carries the tool.
-        offset: tool tip in that body, (position, quaternion (x, y, z, w)).
+        offset: slot base in that body, (position, quaternion (x, y, z, w)).
         joint_ids: articulation joint indices of the Jacobian's columns (the arm joints).
     """
 
@@ -48,9 +48,9 @@ class ToolTipKinematics:
         )
 
     def pose(self) -> tuple[torch.Tensor, torch.Tensor]:
-        """Tool-tip position (n, 3) and orientation (n, 4) in the robot base frame."""
+        """Slot-base position (n, 3) and orientation (n, 4) in the robot base frame."""
         data = self._robot.data
-        return tool_tip_pose(
+        return slot_base_pose(
             data.root_pos_w.torch,
             data.root_quat_w.torch,
             data.body_pos_w.torch[:, self._body_idx],
@@ -60,9 +60,9 @@ class ToolTipKinematics:
         )
 
     def jacobian(self) -> torch.Tensor:
-        """Geometric Jacobian of the tool tip in the robot base frame (n, 6, len(joint_ids))."""
+        """Geometric Jacobian of the slot base in the robot base frame (n, 6, len(joint_ids))."""
         data = self._robot.data
-        return tool_tip_jacobian(
+        return slot_base_jacobian(
             data.body_link_jacobian_w.torch[:, self._jacobi_body_idx, :, self.jacobian_joint_ids],
             data.root_quat_w.torch,
             data.body_quat_w.torch[:, self._body_idx],
