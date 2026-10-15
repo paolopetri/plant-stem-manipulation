@@ -6,6 +6,8 @@ Any session that works on a branch while other sessions may use the main checkou
 
 `git worktree add .claude/worktrees/<name> -b <branch> main`
 
+A new worktree costs about 35 min (`uv sync` with Isaac Sim, first Kit start). Create one per ticket that runs in parallel with others. Tickets that run one after another (a chain of blocking edges) reuse one set-up worktree: each ticket gets a new branch off the integration tip, `git -C <path> switch -c <branch> <integration branch>`, once the previous ticket is committed.
+
 ## Setup
 
 Before any `uv run` in the worktree:
@@ -24,5 +26,11 @@ At most two sessions run Isaac Sim at the same time (checks, not training runs);
 
 ## Merge
 
-From the main checkout: remove the worktree first (`git worktree remove -f -f <path>`), then `gh pr merge N --squash`, delete the remote and local branch, `git pull --ff-only` on `main`.
+No step switches the main checkout's branch or pulls in it: other sessions may be using it.
+
+1. Remove the worktree (`git worktree remove -f -f <path>`), unless the next ticket of a chain reuses it.
+2. A PR: `gh pr merge N --squash`, then delete the remote and local branch.
+   A branch advanced without a PR (an integration branch by a ticket branch): fast-forward it on the remote with `git push origin <branch>:<target>`, never by checking out `<target>`.
+3. Update local `main` with `git fetch origin main:main`. If git refuses because a tree has `main` checked out, leave it: the session in that tree pulls.
+
 Check the main checkout's branch with `git branch --show-current` before branch operations; the session-start git snapshot can be stale.
