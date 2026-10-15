@@ -2,9 +2,9 @@
 
 High-level items and discussion: current milestone, roadmap, research directions, open questions per person. Concrete, actionable work items are GitHub issues (decision 2026-10-13). When an item here is done or turned into issues, delete it and log it in today's `docs/notes/` file.
 
-## Current milestone: M5 First training run
-Stem model `chain` in PhysX (decision 2026-10-06). Exit criterion: tag `v0.1-position-control` once a policy reaches the targets.
-- Current work: #77, #78, #79, #80, #81, #82, #84, #85, #86, #88, #94, #95.
+## Current milestone: M6 Slot use
+M5 closed with the tag `v0.1-position-control` (2026-10-15). Spec #160 (ADR 0004), tickets #161–#170. Exit criterion: the first M6 run (#170) meets the success criteria the user sets before it.
+- Current work: #160 (#161–#170), #77, #78, #79, #80, #81, #82, #84, #85, #86, #88, #94, #95.
 - Later (closed as not planned to keep the open list to current work, 2026-10-14; the full text stays in each issue, reopen when it becomes current):
   - #75 Two targets in sequence within an episode
   - #76 Refine the stem spawn area near the robot
@@ -32,7 +32,7 @@ Stem model `chain` in PhysX (decision 2026-10-06). Exit criterion: tag `v0.1-pos
 - **Branched plants** (user, 2026-10-09): add branches to the plant model (e.g. a PhysX articulation tree instead of the chain). The target command assumes one uniform, upright, inextensible rod with loads only at the stem point (`stem_manip.utils.stem_target`: bowl, drop and curvature factors; rest position straight above the base). With branches the rest shape bends under their weight, stiffness varies at the junctions, a stem point on a branch has a kinked path to the base, and branches can catch on the fork. Candidate: targets from a simulated library (random forces / moments, keep end positions with every joint within the curvature budget). Also check the stem interface (`segment_poses` as a chain), the observed points along the stem, and the damage measures per joint (should carry over).
 
 ## Open question: damage criteria beyond bending
-For all supervisors and Alessio. The measures exist (twist rate, axial strain, contact force), but only the bending curvature has a limit. Issues waiting for values: #81 (twist), #82 (tension).
+For all supervisors and Alessio. The measures exist (twist rate, axial strain, contact force), but only the bending curvature has a limit. Issues waiting for values: #81 (twist), #82 (tension, and axial compression from M6: #160).
 - **Torsion:** the fork can turn (6-D action) and twist a stem caught in the slot; `damage.max_twist_rate` is null.
 - **Tension:** tearing is limited as a tensile stress (`damage.max_tensile_stress`, null), e.g. the fork dragging along the stem with friction.
 - **Crushing / abrasion:** needs a contact-force limit. `damage.max_contact_force` 5 N is a placeholder: a full-speed slot impact at 0.25 m height gives only 1.07 N (mean over a policy step), so with the 4 N clamp it fires only in unusual cases (e.g. arm contact).
