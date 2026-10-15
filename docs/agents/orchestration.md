@@ -16,6 +16,8 @@ Each agent gets its own git worktree; setup, the GPU limit and merging: `worktre
 - A refactor of simulator code records a fixed-seed rollout with `scripts/record_rollout.py` before the change and compares at tol 0 after it.
 - Each agent writes its PR body to its own scratchpad file (e.g. `pr-<N>.md`).
 - Agents never create issues; new issues come from the user's `/to-spec` or `/to-tickets`.
+- Simulator runs go through `scripts/gpu_slot.py` (`worktrees.md`, GPU).
+- Before handing back, stop your own background tasks.
 
 ## Per PR
 
