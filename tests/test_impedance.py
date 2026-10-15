@@ -12,7 +12,7 @@ from stem_manip.utils.impedance import (
     clamp_setpoint_offset,
     clamp_setpoint_rot_offset,
     integrate_orientation,
-    integrate_setpoint,
+    integrate_position,
     limit_torque_rate,
     quat_from_rotvec,
     rotvec_between,
@@ -97,14 +97,14 @@ def test_nullspace_does_not_move_the_tool():
     assert tau.abs().max() > 1e-3
 
 
-def test_integrate_setpoint_limits_the_step():
+def test_integrate_position_limits_the_step():
     """Per-axis actions are scaled by max_step, and the step's length never exceeds max_step."""
     setpoint = torch.zeros(N, 3)
-    new, step = integrate_setpoint(setpoint, torch.tensor([[0.5, 0.0, 0.0], [1.0, 1.0, 1.0]]), 0.00125)
+    new, step = integrate_position(setpoint, torch.tensor([[0.5, 0.0, 0.0], [1.0, 1.0, 1.0]]), 0.00125)
     assert torch.allclose(step[0], torch.tensor([0.000625, 0.0, 0.0]))
     assert math.isclose(float(step[1].norm()), 0.00125, rel_tol=1e-6)
     assert torch.allclose(new, step)
-    _, step = integrate_setpoint(setpoint, torch.full((N, 3), 5.0), 0.00125)  # out-of-range actions are clipped
+    _, step = integrate_position(setpoint, torch.full((N, 3), 5.0), 0.00125)  # out-of-range actions are clipped
     assert torch.all(step.norm(dim=-1) <= 0.00125 + 1e-9)
 
 
@@ -171,13 +171,13 @@ def test_step_change_is_limited_and_reaches_the_desired_step():
     full = torch.tensor([[1.0, 0.0, 0.0]])
     steps = []
     for _ in range(20):
-        new_setpoint, new_step = integrate_setpoint(setpoint, full, max_step, step, max_change)
+        new_setpoint, new_step = integrate_position(setpoint, full, max_step, step, max_change)
         assert float((new_step - step).norm()) <= max_change + 1e-9
         setpoint, step = new_setpoint, new_step
         steps.append(float(step[0, 0]))
     assert math.isclose(steps[0], max_change, rel_tol=1e-6)
     assert math.isclose(steps[-1], max_step, rel_tol=1e-6)
-    _, braked = integrate_setpoint(setpoint, torch.zeros(1, 3), max_step, step, max_change)
+    _, braked = integrate_position(setpoint, torch.zeros(1, 3), max_step, step, max_change)
     assert math.isclose(float(braked[0, 0]), max_step - max_change, rel_tol=1e-6)
 
 
@@ -195,7 +195,7 @@ def test_speed_cap_holds_after_a_longer_previous_step():
     setpoint along with a fast tool), the next step is at most the cap, for translation and rotation."""
     prev = torch.tensor([[0.01, 0.0, 0.0], [0.0, 0.0, -0.008]])
     action = torch.tensor([[1.0, 0.0, 0.0], [0.0, 0.0, -1.0]])
-    _, step = integrate_setpoint(torch.zeros(N, 3), action, 0.0064, prev, 1e-4)
+    _, step = integrate_position(torch.zeros(N, 3), action, 0.0064, prev, 1e-4)
     assert (step.norm(dim=-1) <= 0.0064 + 1e-9).all()
     _, rot_step = integrate_orientation(torch.tensor([[0.0, 0.0, 0.0, 1.0]] * N), action, 0.02513, 3 * prev, 0.000349)
     assert (rot_step.norm(dim=-1) <= 0.02513 + 1e-9).all()
@@ -238,9 +238,9 @@ def test_rotvec_between():
     assert torch.allclose(rotvec_between(_quat_mul(quat_from_rotvec(v), b), b), v, atol=1e-6)
 
 
-def test_integrate_setpoint_without_change_limit():
+def test_integrate_position_without_change_limit():
     """`prev_step` without `max_change` means no change limit (not an error)."""
-    setpoint, step = integrate_setpoint(torch.zeros(N, 3), torch.ones(N, 3), 0.0032, torch.zeros(N, 3))
+    setpoint, step = integrate_position(torch.zeros(N, 3), torch.ones(N, 3), 0.0032, torch.zeros(N, 3))
     assert torch.allclose(step.norm(dim=-1), torch.full((N,), 0.0032))
     assert torch.allclose(setpoint, step)
 

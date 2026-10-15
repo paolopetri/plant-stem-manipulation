@@ -40,7 +40,7 @@ TASK = "StemManip-Push-Position-FR3-v0"
 # push rollout: stem base (world x, y) [m], as in check_push_terms.py; slot-base waypoints relative to the stem base
 # (robot base frame) [m] and the policy steps spent on each. Two pushes, each from behind the stem at the start
 # height, down, then toward 0.15 m beyond the stem axis at full speed: at 0.15 m height the stem bends until
-# `curvature_limit` fires and resets the envs; at 0.10 m (stiffer, the curvature stays below the curvature budget) the
+# `curvature_limit` fires and resets the envs; at 0.10 m (stiffer, the curvature within the curvature budget) the
 # contact force passes its limit and `contact_force_limit` fires
 PUSH_STEM_BASE = (0.65, 0.0)
 PUSH_PLAN = (

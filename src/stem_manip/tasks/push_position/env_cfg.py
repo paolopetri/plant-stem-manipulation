@@ -123,7 +123,9 @@ class CommandsCfg:
     """Target position of the stem tip, sampled once per episode (decided values: cfg defaults, user 2026-10-08)."""
 
     # resampling time far above the episode length: the target is sampled only at reset
-    stem_target = mdp.StemTipTargetCommandCfg(stem_model=STEM_MODEL, resampling_time_range=(1e9, 1e9), debug_vis=True)
+    stem_target = mdp.StemTipTargetCommandCfg(
+        stem_model=STEM_MODEL, curvature_budget=CURVATURE_BUDGET, resampling_time_range=(1e9, 1e9), debug_vis=True
+    )
 
 
 @configclass

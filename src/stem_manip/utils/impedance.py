@@ -42,7 +42,7 @@ def _limited_step(
     return step
 
 
-def integrate_setpoint(
+def integrate_position(
     setpoint: torch.Tensor,
     action: torch.Tensor,
     max_step: float,

@@ -26,7 +26,7 @@ from stem_manip.utils.impedance import (
     apparent_mass_damping,
     cartesian_impedance_torque,
     integrate_orientation,
-    integrate_setpoint,
+    integrate_position,
     limit_torque_rate,
     rotvec_between,
     substep_command,
@@ -108,7 +108,7 @@ class SlotBaseImpedanceAction(ActionTerm):
         self._setpoint_quat_start[:] = self._setpoint_quat
         cfg = self.cfg
         # commanded step; the clamp acts per physics step (`apply_actions`), which sets the applied step at the end
-        self._setpoint[:], self._step[:, :3] = integrate_setpoint(
+        self._setpoint[:], self._step[:, :3] = integrate_position(
             self._setpoint, actions[:, :3], cfg.max_step, self._step[:, :3], cfg.max_step_change
         )
         self._setpoint_quat[:], self._step[:, 3:] = integrate_orientation(

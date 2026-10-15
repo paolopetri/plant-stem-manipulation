@@ -214,9 +214,9 @@ def main() -> None:
                 clock["frame_start"] = time.perf_counter()
 
         # -- approach with the joint PD and differential IK (as check_contact), then settle
-        def ik_step(target_pos: torch.Tensor, target_quat: torch.Tensor) -> None:
+        def ik_step(goal_pos: torch.Tensor, goal_quat: torch.Tensor) -> None:
             pos, quat = slot_base_pose()
-            ik.set_command(torch.cat([target_pos, target_quat], dim=-1))
+            ik.set_command(torch.cat([goal_pos, goal_quat], dim=-1))
             joint_pos = ik.compute(pos, quat, slot_base_jacobian(), robot.data.joint_pos.torch[:, arm])
             robot.set_joint_position_target_index(target=joint_pos, joint_ids=arm)
             advance()
