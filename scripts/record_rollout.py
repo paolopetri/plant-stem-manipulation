@@ -15,6 +15,9 @@ recorded after it:
 - `compare <a> <b>`: prints one row per term with its max absolute difference: PASS if within `--tol`, FAIL
   naming the term otherwise; a term missing in one recording, another shape, or other settings (task, envs, steps,
   seed, device, push rollout length) are FAIL. Exit status 0 if all passed, 1 otherwise. No simulator needed.
+  `--rename old=new` (repeatable) compares a term renamed by the refactor: the baseline's `old` term is compared
+  with the other recording's `new` term; how names match and what is an error (exit status 1):
+  `rollout_compare.compare`.
 
 Tolerance (user, 2026-10-14): bit-exact (`--tol 0`, the default) on the same device; GPU and CPU recordings differ.
 A refactor that legitimately changes the floating-point order may pass `--tol` (e.g. 1e-6) and states the reason in
@@ -27,6 +30,9 @@ refactor, so no golden file goes stale.
     git switch <refactor branch>
     uv run --extra isaacsim python scripts/record_rollout.py record logs/rollout/refactor.pt
     uv run python scripts/record_rollout.py compare logs/rollout/main.pt logs/rollout/refactor.pt
+    # if the refactor renamed a term, e.g. the observation slot_base_pos to slot_base_position:
+    uv run python scripts/record_rollout.py compare logs/rollout/main.pt logs/rollout/refactor.pt \
+        --rename slot_base_pos=slot_base_position
 
 Recording takes about 1 min with the defaults (4 envs, 50 steps).
 """
@@ -60,6 +66,15 @@ PUSH_REQUIRED = (
     "push/termination/contact_force_limit",
 )
 
+
+def rename(text: str) -> tuple[str, str]:
+    """`old=new` -> `(old, new)`, for `--rename`."""
+    old, sep, new = text.partition("=")
+    if not (sep and old and new):
+        raise argparse.ArgumentTypeError(f"expected old=new, got {text!r}")
+    return old, new
+
+
 parser = argparse.ArgumentParser(description="Record a fixed-seed rollout of the push task, or compare two.")
 commands = parser.add_subparsers(dest="command", required=True)
 record_parser = commands.add_parser("record", help="Record a rollout to a file.")
@@ -71,6 +86,15 @@ compare_parser = commands.add_parser("compare", help="Compare two recordings.")
 compare_parser.add_argument("a", type=Path, help="Baseline recording.")
 compare_parser.add_argument("b", type=Path, help="Recording to compare with the baseline.")
 compare_parser.add_argument("--tol", type=float, default=0.0, help="Largest absolute difference that passes.")
+compare_parser.add_argument(
+    "--rename",
+    type=rename,
+    action="append",
+    default=[],
+    metavar="OLD=NEW",
+    help="Term renamed between the recordings (repeatable), e.g. slot_base_pos=slot_base_position.",
+)
+
 if sys.argv[1:2] == ["record"]:
     # imported only to record: importing isaaclab.app starts Kit's bootstrap
     from isaaclab.app import add_launcher_args, launch_simulation
@@ -178,7 +202,12 @@ def compare() -> None:
     """Print the rows of the two recordings and exit with the verdict."""
     a, b = (torch.load(path) for path in (args_cli.a, args_cli.b))
     print(f"=== record_rollout compare {args_cli.a} {args_cli.b} (tol {args_cli.tol:g}) ===")
-    check_report.finish(rollout_compare.compare(a, b, args_cli.tol))
+    try:
+        rows = rollout_compare.compare(a, b, args_cli.tol, args_cli.rename)
+    except ValueError as error:
+        print(f"[ERROR] --rename: {error}")
+        sys.exit(1)
+    check_report.finish(rows)
 
 
 if __name__ == "__main__":
