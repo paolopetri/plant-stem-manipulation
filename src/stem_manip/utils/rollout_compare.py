@@ -29,27 +29,24 @@ def meta(settings: Settings, commit: str) -> dict:
 
 
 def compare(
-    a: Mapping, b: Mapping, tol: float = 0.0, renames: Mapping[str, str] | None = None
+    a: Mapping, b: Mapping, tol: float = 0.0, renames: Sequence[tuple[str, str]] = ()
 ) -> dict[str, tuple[bool, str]]:
     """Rows `{name: (ok, info)}`: the settings, then every term of either recording.
 
     Args:
         a, b: Recordings `{"meta": {...}, "terms": {name: tensor}}`.
         tol: Largest absolute difference that passes; 0 means bit-exact.
-        renames: `{old: new}` for terms renamed between `a` and `b`: the terms of `a` are compared under their new
+        renames: `(old, new)` for terms renamed between `a` and `b`: the terms of `a` are compared under their new
             names. A name matches a term key whole or as its tail after a `/` (`slot_base_pos` matches
-            `zero/obs/slot_base_pos` in every rollout; `reward/curvature` only the reward term).
+            `zero/obs/slot_base_pos` in every rollout; `reward/curvature` only the reward term). The renames apply
+            at once to the original names, so a swap works whatever their order.
 
     Raises:
-        ValueError: An old name matches no term of `a` or a new name no term of `b`, so a typo cannot hide a
-            missing term.
+        ValueError: An old name matches no term of `a` or a new name no term of `b`, an old name is given twice, a
+            term of `a` is matched by two old names, or two terms of `a` get the same name: so no term drops out of
+            the comparison unnoticed.
     """
-    a_terms = dict(a["terms"])
-    for old, new in (renames or {}).items():
-        for name, terms, which in ((old, a_terms, "the first"), (new, b["terms"], "the second")):
-            if not any(_matches(key, name) for key in terms):
-                raise ValueError(f"--rename {old}={new}: {name!r} matches no term of {which} recording")
-        a_terms = {(key[: -len(old)] + new if _matches(key, old) else key): v for key, v in a_terms.items()}
+    a_terms = _rename(a["terms"], b["terms"], renames)
     rows: dict[str, tuple[bool, str]] = {}
     keys = [f.name for f in fields(Settings)]
     diff_settings = [k for k in keys if a["meta"].get(k) != b["meta"].get(k)]
@@ -69,6 +66,28 @@ def compare(
             diff = float((x.double() - y.double()).abs().max()) if x.numel() else 0.0
             rows[name] = (diff <= tol, f"max |diff| {diff:.3g}")
     return rows
+
+
+def _rename(a_terms: Mapping, b_terms: Mapping, renames: Sequence[tuple[str, str]]) -> dict:
+    """The terms of `a` under their new names, checked as `compare` documents."""
+    olds = [old for old, _ in renames]
+    for old in olds:
+        if olds.count(old) > 1:
+            raise ValueError(f"{old!r} is renamed twice")
+    for old, new in renames:
+        for name, terms, which in ((old, a_terms, "first"), (new, b_terms, "second")):
+            if not any(_matches(key, name) for key in terms):
+                raise ValueError(f"{name!r} matches no term of the {which} recording (rename {old} -> {new})")
+    renamed = {}
+    for key, value in a_terms.items():
+        hits = [(old, new) for old, new in renames if _matches(key, old)]
+        if len(hits) > 1:
+            raise ValueError(f"{key!r} is matched by both {hits[0][0]!r} and {hits[1][0]!r}")
+        new_key = key[: -len(hits[0][0])] + hits[0][1] if hits else key
+        if new_key in renamed:
+            raise ValueError(f"{new_key!r} is the name of two terms of the first recording after the renames")
+        renamed[new_key] = value
+    return renamed
 
 
 def _matches(key: str, name: str) -> bool:
