@@ -9,11 +9,13 @@ reset), its value is recorded together with values computed here independently o
   positions and limits.
 Decided values (user, 2026-10-09; the height std and the fine distance's z-scale 2026-10-10), fixed here, not read
 from the cfg: std 0.05 / 0.01 m (distance), 0.003 m (height), 0.1 m (approach); curvature penalty above 0.8 x 5 1/m,
-limit 5 1/m; contact penalty above 2 N, limit 5 N; joint margin 0.25 rad; episode 15 s.
+limit 5 1/m; contact penalty above 2 N, limit 5 N; joint margin 0.25 rad; episode 15 s; termination penalty -4.8
+per termination in effect (weight -150 x policy dt 0.032 s, about -5; user, 2026-10-15).
 
 Phases (the stem base fixed at x 0.65 m, y 0, except in `rest`):
 - rest: zero action for a whole episode (spawn area as in training). Time out fires exactly at the last step and
-  nothing else fires before; curvature and contact penalties 0, contact force 0, action rate 0.
+  nothing else fires before; curvature and contact penalties 0, contact force 0, action rate 0, termination penalty 0
+  (also at the time out).
 - action_rate: alternating actions; the term equals sum((a_t - a_t-1)^2) of the actions sent.
 - push: drive the fork behind the stem at 0.30 m height (forward first, then down; the drive must reach its goal
   within 2 mm without a reset), at full speed until 1 cm before contact, then push it slowly (5 cm/s) 4 cm into the
@@ -29,8 +31,9 @@ Phases (the stem base fixed at x 0.65 m, y 0, except in `rest`):
 Only `rest` runs on the decided 15 s episode; the scripted phases take longer and run without a time out, and a
 reset anywhere except where a phase makes a term fire fails the check. In every phase and at every step: each term
 equals its formula of the independent values (tolerance 1e-4 for the rewards, 0.5 mm on the approach distance), each
-termination fires exactly when its independent value crosses the limit, `terminated` = any early termination, metric
-`height_error` = dz, metric `position_error` = d.
+termination fires exactly when its independent value crosses the limit, `terminated` = any early termination, the
+termination penalty in effect (the reward manager's weighted term x policy dt) = -4.8 where an early termination
+fires and 0 elsewhere, metric `height_error` = dz, metric `position_error` = d.
 
 Usage (from the repo root; headless unless a visualizer is requested):
     uv run --extra isaacsim python scripts/check_push_terms.py
@@ -88,6 +91,7 @@ PUSH_DEPTH = 0.04  # [m] slow push: slot base this far beyond first contact of t
 SLOT_PLATE_THICKNESS = 0.018  # [m]
 APPROACH_MARGIN = 1e-3  # [m] on d
 RAMP_FORCE, RAMP_STEPS = 2.0, 150  # [N], policy steps: tip force ramp of the curvature phase
+TERMINATION_PENALTY = -150.0 * 0.032  # in effect per termination: weight x policy dt (user, 2026-10-15)
 REWARD_TOL = 1e-4
 APPROACH_TOL = 5e-4  # [m]
 
@@ -170,6 +174,14 @@ def main() -> None:
         # -- checks of every step against the formulas
         errors = {key: 0.0 for key in ("rewards", "approach", "terminations", "height_error", "position_error")}
         fired_wrongly: list[str] = []
+        penalty = {"error": 0.0, "fired": 0, "fired_values": [], "time_out": None}
+        terminated_index = env.reward_manager.active_terms.index("terminated")
+
+        def termination_penalty() -> torch.Tensor:
+            """The termination penalty in effect this step, per env: the reward manager's weighted term (a rate)
+            x policy dt."""
+            rates = [env.reward_manager.get_active_iterable_terms(i)[terminated_index][1][0] for i in range(n)]
+            return torch.tensor(rates, device=device) * env.step_dt
 
         def tanh_reward(x: torch.Tensor, std: float) -> torch.Tensor:
             return 1.0 - torch.tanh(x / std)
@@ -201,6 +213,14 @@ def main() -> None:
             errors["terminations"] = max(
                 errors["terminations"], float((recorded["terminated"] - early.float()).abs().max())
             )
+            in_effect = termination_penalty()
+            penalty["error"] = max(
+                penalty["error"], float((in_effect - TERMINATION_PENALTY * early.float()).abs().max())
+            )
+            penalty["fired"] += int(early.sum())
+            penalty["fired_values"] += in_effect[early].tolist()
+            if bool(recorded["time_out"].any()):
+                penalty["time_out"] = float(in_effect[recorded["time_out"]].abs().max())
             kept = ~done  # the command's metric is computed after the reset: compare where no reset happened
             if kept.any():
                 tip = to_base(point_pose(model.segment_poses(stem), TIP_SEGMENT, 0.5 * segment_length)[:, None, :3])
@@ -445,6 +465,16 @@ def main() -> None:
                     f"{fired and fired[2]}; margin at the start {margins[0]:.3f} rad, at firing {margins[-1]:.3f} rad",
                 )
 
+        fired_values = penalty["fired_values"]
+        results["termination penalty"] = (
+            penalty["error"] < REWARD_TOL
+            and ("rest" not in args_cli.phases or penalty["time_out"] == 0.0)
+            and (penalty["fired"] > 0 or not {"push", "curvature", "joint_margin"} & set(args_cli.phases)),
+            f"{penalty['fired']} early terminations, penalty in effect "
+            f"{f3(min(fired_values, default=None))} to {f3(max(fired_values, default=None))} (expected "
+            f"{TERMINATION_PENALTY:.3f}); at the time out {f3(penalty['time_out'])}; largest difference to "
+            f"{TERMINATION_PENALTY:.3f} x early / 0 over all steps {penalty['error']:.1e}",
+        )
         results["no unexpected reset"] = (
             not unexpected_resets,
             f"resets outside the intended firings: {unexpected_resets[:5] or 'none'}",
