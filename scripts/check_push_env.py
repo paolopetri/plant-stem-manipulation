@@ -4,7 +4,9 @@ Creates the env with a few envs, resets it and drives the slot base with constan
 hold (zero action), then full translation along +x, +y, +z, each for `--steps` policy steps and followed by a hold;
 then a full rotation about the vertical (+z) for `--steps` policy steps and a hold. Then, each after a reset to the
 start pose: a full +y translation and a full rotation about +z from rest (step limits), and a move +x followed by a
-full move down (-z) into the ground and a lift (setpoint clamp, restart after contact). The action term (6-D:
+full move down (-z) into the ground and a lift (setpoint clamp, restart after contact); the clamp test starts from
+the held-out start pose a_above_tip without joint noise (every env alike, as `check_push_terms.py`), so that the
+ground contact does not vary with the random table pose. The action term (6-D:
 translation and rotation step, robot base frame) is Franka's Cartesian impedance law with an
 integrated setpoint, speed cap, step-change limit and setpoint-offset clamp (`mdp.SlotBaseImpedanceAction`). With the
 step-change limit the setpoint ramps up at the start of a move and brakes during the hold.
@@ -90,7 +92,7 @@ from isaaclab.sensors import ContactSensorCfg
 from isaaclab.utils.math import matrix_from_quat
 
 import stem_manip.tasks  # noqa: F401  (registers the task)
-from stem_manip.tasks.push_position.env_cfg import START_POSES, StemPushPositionEnvCfg
+from stem_manip.tasks.push_position.env_cfg import EVAL_START_POSES, START_POSES, StemPushPositionEnvCfg
 from stem_manip.utils import check_report
 from stem_manip.utils.fr3_reference import rotvec_from_matrix, slot_base_pose
 from stem_manip.utils.impedance import rotvec_between
@@ -396,7 +398,11 @@ def main() -> None:
         first_rot, last_rot, rot_ramp_margin, rot_ramp_follow = ramp(5, rot_ramp_steps)
 
         # -- setpoint clamp: +x, then full move down into the ground; at every physics step the setpoint the law uses
-        # may be at most CLAMP_OFFSET ahead of the tool (measured around each apply_actions call)
+        # may be at most CLAMP_OFFSET ahead of the tool (measured around each apply_actions call); from a_above_tip
+        # without joint noise (the ground contact must not vary with the random table pose)
+        env.event_manager.get_term_cfg("start_pose").params.update(
+            poses=(EVAL_START_POSES["a_above_tip"],), joint_noise=0.0
+        )
         restart()
         x_move = torch.zeros(6, device=device)
         x_move[0] = 1.0
