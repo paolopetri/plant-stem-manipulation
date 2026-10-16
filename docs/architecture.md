@@ -182,6 +182,45 @@ enter in the MDP terms), the joint forces in the model module (`chain.joint_wren
 terminations (hard limits from `damage` in `assets/stem/stem.yaml`) use them. Stage 1 enforces the bending and the
 contact-force limits; the tension and twist limits follow when realistic values are known.
 
+## Isaac Lab behaviour this repo relies on
+
+Checked against the Isaac Lab commit in `ISAACLAB_COMMIT` (`b8c1a6b05`, `v3.0.0-EA-155`); links point at that commit. The
+rsl_rl facts are from `rsl_rl_lib` 5.5.1 (the version in the repo's `.venv`), which is not part of the checkout. Values
+this repo sets (dt, weights, body paths) are not repeated here; read them in the cfg.
+
+- **Reward terms count as weight x step dt.** `RewardManager.compute` adds `term(env) * weight * dt` per term, with `dt` the
+  env's `step_dt` (decimation x physics dt), so a weight is per second, not per step. Terms with weight 0 are skipped
+  and never evaluated. [`reward_manager.py` L148](https://github.com/isaac-sim/IsaacLab/blob/b8c1a6b0543192ecf3d2a097508a1e44e92bd411/source/isaaclab/isaaclab/managers/reward_manager.py#L148), called with `dt=self.step_dt` in [`manager_based_rl_env.py` L234](https://github.com/isaac-sim/IsaacLab/blob/b8c1a6b0543192ecf3d2a097508a1e44e92bd411/source/isaaclab/isaaclab/envs/manager_based_rl_env.py#L234).
+- **Order inside `ManagerBasedRLEnv.step`:** process the action; `decimation` physics steps (write data to sim, step,
+  scene update); episode counters += 1; terminations; rewards; for the envs that ended, `_reset_idx`; command
+  `compute` (resample on expiry); interval events; observations. So the observation a policy gets for a reset env is
+  already from the new episode, rewards and terminations are from the pre-reset state, and a command term updates
+  after the reset. [`manager_based_rl_env.py` L205-262](https://github.com/isaac-sim/IsaacLab/blob/b8c1a6b0543192ecf3d2a097508a1e44e92bd411/source/isaaclab/isaaclab/envs/manager_based_rl_env.py#L205-L262).
+- **Order inside `_reset_idx`:** curriculum, scene reset, reset events, then `reset` of the observation, action,
+  reward, curriculum, command, event and termination managers, each filling `extras["log"]`. [`manager_based_rl_env.py` L379-418](https://github.com/isaac-sim/IsaacLab/blob/b8c1a6b0543192ecf3d2a097508a1e44e92bd411/source/isaaclab/isaaclab/envs/manager_based_rl_env.py#L379-L418).
+- **Command-term metrics are logged as `Metrics/<term>/<metric>`**, once per reset: `CommandManager.reset` takes each
+  term's `reset` result, which is the mean over the envs being reset of the term's `metrics[name]` tensor, and then
+  zeroes those entries. A metric is therefore whatever the term accumulates into `metrics` over the episode, not a
+  per-step value. [`command_manager.py` L115-140](https://github.com/isaac-sim/IsaacLab/blob/b8c1a6b0543192ecf3d2a097508a1e44e92bd411/source/isaaclab/isaaclab/managers/command_manager.py#L115-L140) (term), [`command_manager.py` L330-354](https://github.com/isaac-sim/IsaacLab/blob/b8c1a6b0543192ecf3d2a097508a1e44e92bd411/source/isaaclab/isaaclab/managers/command_manager.py#L330-L354) (manager).
+  rsl_rl copies `extras["log"]` into its episode info and writes keys that contain `/` unchanged (others get an
+  `Episode/` prefix): `rsl_rl/utils/logger.py` L131-133 and L198-200.
+- **Contact-sensor filter.** The sensor's `prim_path` selects the sensor bodies, which must have the contact reporter
+  API; `filter_prim_paths_expr` is a list, and the filter axis of `force_matrix_w` / `normal_force_matrix_w` follows
+  the list order: shape (envs, sensor bodies, filter bodies, 3). Each expression becomes a PhysX glob (`.*` and
+  `[^/]*` turn into `*`, one path segment) that PhysX matches against prim paths, not against rigid bodies only, so
+  a loose pattern also hits visuals, collision children and joints. An empty filter list gives `None` for the matrix
+  and is an error with `track_friction_forces`. [`contact_sensor.py` L379-388](https://github.com/isaac-sim/IsaacLab/blob/b8c1a6b0543192ecf3d2a097508a1e44e92bd411/source/isaaclab_physx/isaaclab_physx/sensors/contact_sensor/contact_sensor.py#L379-L388), [`contact_sensor.py` L409-417](https://github.com/isaac-sim/IsaacLab/blob/b8c1a6b0543192ecf3d2a097508a1e44e92bd411/source/isaaclab_physx/isaaclab_physx/sensors/contact_sensor/contact_sensor.py#L409-L417), [`queries.py` L27](https://github.com/isaac-sim/IsaacLab/blob/b8c1a6b0543192ecf3d2a097508a1e44e92bd411/source/isaaclab/isaaclab/sim/utils/queries.py#L27) and [`queries.py` L31-45](https://github.com/isaac-sim/IsaacLab/blob/b8c1a6b0543192ecf3d2a097508a1e44e92bd411/source/isaaclab/isaaclab/sim/utils/queries.py#L31-L45). The
+  robot's rigid-body paths (nested under their parent link's prim) are `ROBOT_BODY_PATHS` in the env cfg (why exact
+  paths: #84).
+- **`play` and `train` accept Hydra overrides `env.<path>=...`** (and `agent.<path>=...`): the arguments the
+  entrypoint does not know go to `resolve_task_config`, which applies `env.` / `agent.` scalars to the task's cfg
+  object. Paths address cfg fields, e.g. `env.events.<term>.params.<name>`. [`train_rsl_rl.py` L71-74](https://github.com/isaac-sim/IsaacLab/blob/b8c1a6b0543192ecf3d2a097508a1e44e92bd411/source/isaaclab_rl/isaaclab_rl/entrypoints/backends/train_rsl_rl.py#L71-L74), [`train_rsl_rl.py` L119](https://github.com/isaac-sim/IsaacLab/blob/b8c1a6b0543192ecf3d2a097508a1e44e92bd411/source/isaaclab_rl/isaaclab_rl/entrypoints/backends/train_rsl_rl.py#L119), [`play_rsl_rl.py` L106](https://github.com/isaac-sim/IsaacLab/blob/b8c1a6b0543192ecf3d2a097508a1e44e92bd411/source/isaaclab_rl/isaaclab_rl/entrypoints/backends/play_rsl_rl.py#L106),
+  [`hydra.py` L634-714](https://github.com/isaac-sim/IsaacLab/blob/b8c1a6b0543192ecf3d2a097508a1e44e92bd411/source/isaaclab_tasks/isaaclab_tasks/utils/hydra.py#L634-L714).
+- **The manager code is `source/isaaclab`, not `isaaclab_experimental`.** The task registers
+  `isaaclab.envs:ManagerBasedRLEnv` (`tasks/push_position/__init__.py`), which uses `isaaclab.managers`. The
+  `isaaclab_experimental` package has its own managers (for example `reward_manager.py`) that this env never loads;
+  do not read them when tracing a step.
+
 ## Where future work goes
 
 Open work is tracked in GitHub issues (`gh issue list`); this table says where its code goes.
@@ -195,6 +234,8 @@ Open work is tracked in GitHub issues (`gh issue list`); this table says where i
 | Perception: camera-based stem state (with Alessio Caporali) | to decide |
 | Real robot deployment (stage 3) | to decide |
 | Distillation into an end-to-end vision policy (stretch goal) | to decide |
+
+**A new metric** (a value logged as `Metrics/<term>/<metric>`): add it to the term's `metrics` in `tasks/push_position/mdp/metrics.py` (`StemMetrics`; the target command's metrics are in `commands.py`); add its independent expected value to the check that owns the term, found by the `New metric:` line in the header of `scripts/check_push_terms.py` (stem and reward metrics) or `scripts/check_push_obs.py` (target command); add a kitless test in `tests/test_push_task_cfg.py` for any cfg value it reads (as `test_arm_contact_metric_reads_the_termination_threshold`).
 
 ## Open modelling questions
 

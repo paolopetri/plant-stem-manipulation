@@ -14,7 +14,7 @@ The controller is tested without the stem: the spawn area is switched off and th
 behind the robot (`STEM_AWAY`); the clamp test pushes the fork into the ground instead.
 Checks:
 - shapes: observation (num_envs, 57) and action (num_envs, 6), all observations finite;
-- start pose: at the first reset the arm joints of every env within 0.02 rad (the reset noise, proposal 2026-10-15) of
+- start pose: at the first reset the arm joints of every env within the reset noise, 0.02 rad (user, 2026-10-15), of
   a pose of the start-pose table (`env_cfg.START_POSES`, checked in `tests/test_fr3_reference.py`); the slot base
   within 1 deg of its orientation at reset after the hold;
 - null-space rest posture: at every reset, the action term's null-space rest posture equals the arm joints measured
@@ -57,6 +57,17 @@ the arm, not the controller, limits the motion; user 2026-10-08, same threshold 
 The orientation reference for translation moves is the start orientation (rotation action zero).
 Reported: per axis, travel, largest following error and overshoot.
 
+Map (grep -n a marker, then read that section only; `tests/test_check_push_headers.py` keeps it in step with the
+  code):
+- hold: `# -- hold: zero action`
+- translation +x, +y, +z: `# -- full action along +x, +y, +z`
+- rotation about +z: `# -- rotation about the vertical`
+- step limits: `# -- step limits`
+- setpoint clamp: `# -- setpoint clamp`
+- restart after contact: `# -- restart after contact`
+New metric: this script checks no metric; see `check_push_terms.py` (stem metrics, reward-command metrics) or
+  `check_push_obs.py` (target command metrics).
+
 Usage (from the repo root; headless unless a visualizer is requested):
     uv run --extra isaacsim python scripts/check_push_env.py
     uv run --extra isaacsim python scripts/check_push_env.py --num_envs 1 --viz kit --slow_motion 3
@@ -92,7 +103,7 @@ from isaaclab.sensors import ContactSensorCfg
 from isaaclab.utils.math import matrix_from_quat
 
 import stem_manip.tasks  # noqa: F401  (registers the task)
-from stem_manip.tasks.push_position.env_cfg import EVAL_START_POSES, START_POSES, StemPushPositionEnvCfg
+from stem_manip.tasks.push_position.env_cfg import START_POSES, StemPushPositionEnvCfg, fixed_start
 from stem_manip.utils import check_report
 from stem_manip.utils.fr3_reference import rotvec_from_matrix, slot_base_pose
 from stem_manip.utils.impedance import rotvec_between
@@ -400,9 +411,7 @@ def main() -> None:
         # -- setpoint clamp: +x, then full move down into the ground; at every physics step the setpoint the law uses
         # may be at most CLAMP_OFFSET ahead of the tool (measured around each apply_actions call); from a_above_tip
         # without joint noise (the ground contact must not vary with the random table pose)
-        env.event_manager.get_term_cfg("start_pose").params.update(
-            poses=(EVAL_START_POSES["a_above_tip"],), joint_noise=0.0
-        )
+        fixed_start(env.event_manager.get_term_cfg("start_pose").params)
         restart()
         x_move = torch.zeros(6, device=device)
         x_move[0] = 1.0

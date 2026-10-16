@@ -19,7 +19,8 @@ uv sync --extra isaacsim --extra rsl-rl --extra wandb --extra video
 
 This creates `.venv/` with Isaac Lab (editable, from `../IsaacLab`) and this package (`stem_manip`, editable).
 
-Install the pre-commit hook (ruff check and ruff format on each `git commit`):
+Install the pre-commit hook (ruff check, ruff format and the glossary test on each `git commit`), once, in the main
+checkout. Git worktrees share it:
 
 ```bash
 uv run pre-commit install

@@ -58,6 +58,22 @@ since the reset with fork contact (0 before any), `fork_contact` = 1 after the f
 The push phase must reach (d < 1 cm) in every env; in the rest phase, which never
 reaches, the time-out logs `time_to_reach` = 15 s.
 
+Map (grep -n a marker, then read that section only; `tests/test_check_push_headers.py` keeps it in step with the
+  code):
+- rest: `phase == "rest"`
+- action_rate: `phase == "action_rate"`
+- push: `phase == "push"`
+- impact: `phase == "impact"`
+- arm_contact: `phase == "arm_contact"`
+- curvature: `phase == "curvature"`
+- joint_margin: `phase == "joint_margin"`
+- independent values per step (wrapper that records them): `# -- independent values, taken when`
+- checks of every step against the formulas: `# -- checks of every step`
+New metric: the expected value goes in the per-step wrapper, next to `errors["contact_point"]` /
+  `errors["time_to_reach"]` (after `kept = ~done`, where the metric is compared with a value computed here from the
+  independent quantities of that step); add its key to `errors = {`, its comparison to the row `results["every step:
+  terms = formulas"]` and its sentence to the docstring above.
+
 Usage (from the repo root; headless unless a visualizer is requested):
     uv run --extra isaacsim python scripts/check_push_terms.py
     uv run --extra isaacsim python scripts/check_push_terms.py --num_envs 4 --phases push --viz kit --slow_motion 3
@@ -87,7 +103,7 @@ from isaaclab.utils.math import subtract_frame_transforms
 
 import stem_manip.tasks  # noqa: F401  (registers the task)
 from stem_manip.assets.stem import stem_model, stem_params
-from stem_manip.tasks.push_position.env_cfg import EVAL_START_POSES, STEM_MODEL, StemPushPositionEnvCfg
+from stem_manip.tasks.push_position.env_cfg import STEM_MODEL, StemPushPositionEnvCfg, fixed_start
 from stem_manip.utils import check_report, rollout, stem_reference
 from stem_manip.utils.stem_geometry import joint_curvature, point_pose, stem_points
 
@@ -370,7 +386,7 @@ def main() -> None:
             poses = env.event_manager.get_term_cfg("start_pose").params
             if fixed:
                 params.update(x_range=(STEM_BASE[0],) * 2, y_range=(STEM_BASE[1],) * 2)
-                poses.update(poses=(EVAL_START_POSES["a_above_tip"],), joint_noise=0.0)
+                fixed_start(poses)
             else:
                 params.update(x_range=SPAWN_X, y_range=SPAWN_Y)
                 poses.update(poses=table, joint_noise=noise)
