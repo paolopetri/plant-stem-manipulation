@@ -21,6 +21,8 @@ Before any `uv run` in the worktree:
    **Copy** instead of linking (`cp -a`) when the ticket rebuilds the assets, or when the user may rebuild the main checkout's assets while the session runs.
 3. Own `.venv`: `uv sync --extra isaacsim --extra rsl-rl --extra wandb --extra video`. A `.venv` is never shared between worktrees (the editable install points at one tree).
 4. Simulation runs need `OMNI_KIT_ACCEPT_EULA=YES`.
+5. The pre-commit hook is shared with the main checkout and already fires here. Don't run `pre-commit install` in a
+   worktree: the hook would then call this worktree's `.venv`, which goes away with the worktree.
 
 ## GPU
 
