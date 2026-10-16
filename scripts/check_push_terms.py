@@ -42,7 +42,7 @@ without joint noise, except in `rest`):
   arm_contact` log 1 (every env ended by it). The envs already reset hold the start pose until the time-out of
   this next episode: no arm contact, and the metric `arm_contact` logs 0 at every time-out, equal to
   `Episode_Termination/arm_contact` once every env has timed out. Mechanism check with the metric's threshold lowered
-  to 0.01 N (not the decided value), so that a contact read before the reset would show.
+  to a fifth of the decided threshold, so that a contact read before the reset would show.
 - curvature: a force on the tip segment, ramped 0 -> 2 N; the penalty becomes > 0 above 4 1/m and
   `curvature_limit` fires (in every env, at the same step) above 5 1/m; nothing fires earlier.
 - joint_margin: the fork moved straight down at full speed from the start pose; `joint_margin` fires in every env.
@@ -616,10 +616,10 @@ def main() -> None:
                 # envs have timed out
                 env.cfg.episode_length_s = (int(env.episode_length_buf.max()) + 10) * env.step_dt
                 timed_out = torch.zeros(n, dtype=torch.bool, device=device)
-                metric_after, again = [], False
+                metric_after, arm_contact_again = [], False
                 for _ in range(int(env.max_episode_length) + 2):
                     step(zeros())
-                    again |= bool(recorded["arm_contact"].any())
+                    arm_contact_again |= bool(recorded["arm_contact"].any())
                     if recorded["time_out"].any():
                         metric_after.append(env.extras["log"]["Metrics/stem_metrics/arm_contact"])
                     timed_out |= recorded["time_out"]
@@ -630,12 +630,13 @@ def main() -> None:
                 stem_metrics.cfg.arm_contact_force = ARM_CONTACT_FORCE
                 results["arm contact: next episode"] = (
                     bool(timed_out.all())
-                    and not again
-                    and metric_after
+                    and not arm_contact_again
+                    and bool(metric_after)
                     and termination_after == 0.0
                     and all(value == termination_after for value in metric_after),
-                    f"timed out in every env: {bool(timed_out.all())}; arm contact again: {again}; metric arm_contact "
-                    f"at the time-outs {metric_after}, Episode_Termination/arm_contact {termination_after}",
+                    f"timed out in every env: {bool(timed_out.all())}; arm contact again: {arm_contact_again}; "
+                    f"metric arm_contact at the time-outs {metric_after}, Episode_Termination/arm_contact "
+                    f"{termination_after}",
                 )
 
             elif phase == "curvature":
