@@ -12,7 +12,8 @@ Run it in the ticket's worktree, with the system python. The steps (`docs/agents
 
 It stops at the first failure with a non-zero exit and a `merge_ticket: FAILED (<cause>)` line, cause one of
 dirty worktree, conflict, tests, sim check, non-fast-forward, push, comment. `--dry-run` does every step but pushes
-with `git push --dry-run` (which still rejects a non-fast-forward) and prints the comment instead of posting it.
+with `git push --dry-run` (which still rejects a non-fast-forward) and prints the comment instead of posting it; step
+1 is not dry: a missing integration tip is merged in as a real local merge commit.
 
 Usage: scripts/merge_ticket.py feat/173-agent-environment 180 [--dry-run]
 Verify: tests/test_merge_ticket.py.
@@ -117,7 +118,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("integration", help="integration branch, e.g. feat/173-agent-environment")
     parser.add_argument("issue", help="ticket issue number, for the comment")
-    parser.add_argument("--dry-run", action="store_true", help="every step, but no push and no comment")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="every step, but no push and no comment (a missing tip is still merged in locally)",
+    )
     args = parser.parse_args(argv)
     try:
         merge_tip(args.integration)
