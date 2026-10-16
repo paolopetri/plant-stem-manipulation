@@ -20,7 +20,7 @@ from pathlib import Path
 
 from gpu_slot import LOCK_DIR, acquire_slot
 
-STAGGER = 60.0  # s between two launches (shared shader cache)
+STAGGER = 60.0  # s between two launches (shared shader cache) (user, 2026-10-16)
 LOG_DIR = Path("logs/sim_check")  # git-ignored
 
 VERDICT = re.compile(r"^(\[(PASS|FAIL|NOT RUN)\] |=== (all passed|FAILED) ===$)")
