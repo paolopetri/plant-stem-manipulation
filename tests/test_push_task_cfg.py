@@ -146,7 +146,7 @@ def test_spawn_redraws_stem_positions_at_the_arm(cfg: StemPushPositionEnvCfg):
 
 
 def test_start_pose_is_picked_from_the_table(cfg: StemPushPositionEnvCfg):
-    """The arm starts at a random table pose with uniform noise of 0.02 rad (proposal, 2026-10-15, #163), before the
+    """The arm starts at a random table pose with uniform noise of 0.02 rad (user, 2026-10-15, #163), before the
     stem is placed (the spawn event keeps the stem clear of the fork at its start pose)."""
     events = [name for name, value in vars(cfg.events).items() if isinstance(value, EventTermCfg)]
     assert events.index("reset_scene") < events.index("start_pose") < events.index("spawn_stem")

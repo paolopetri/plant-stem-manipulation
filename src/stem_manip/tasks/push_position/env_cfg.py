@@ -43,7 +43,7 @@ ARM_JOINT_NAMES = [f"fr3_joint{i}" for i in range(1, 8)]  # order of the joint a
 #   behind the stem area; solved with differential IK, smallest distance to a joint limit 0.58 rad (joint 4). Also the
 #   robot's default joint position (the null-space rest posture of the action term is the start pose of each episode).
 # - b_side_90, c_low: beside the stem like the table, at azimuth 90 deg and at a slot-base height of 0.08 m; the other
-#   coordinate (b: height 0.30 m, c: azimuth 60 deg) is a proposal (2026-10-15, #163). Solved by
+#   coordinate is b: height 0.30 m, c: azimuth 60 deg (user, 2026-10-15, #163). Solved by
 #   `scripts/start_poses.py solve`.
 EVAL_START_POSES = {
     "a_above_tip": (-0.013, -0.689, 0.011, -2.496, 0.007, 1.808, 0.779),
@@ -54,8 +54,8 @@ EVAL_START_POSES = {
 # for the stem at the spawn-area centre; `START_POSE_DISTANCE` from the stem axis (prongs 0.17 m + stem radius + 3 cm
 # gap), slot-base height in `START_POSE_HEIGHTS`, azimuth about the stem axis within +-`START_POSE_AZIMUTH` of the
 # direction to the robot. Poses with a joint margin below `START_POSE_MIN_MARGIN` or an arm body (any robot body but
-# the fork) closer than `START_POSE_ARM_CLEARANCE` to the stem are rejected. With the 0.5 rad margin only azimuths of
-# about 45-60 deg remain, down to 30 deg at 0.40-0.45 m (joint 4 folds too far towards the robot; user, 2026-10-15).
+# the fork) closer than `START_POSE_ARM_CLEARANCE` to the stem are rejected. The azimuths that pass at each height
+# are those in `START_POSES` (at small azimuths joint 4 folds too far towards the robot).
 START_POSE_DISTANCE = 0.205  # [m] stem axis to slot base, horizontal
 START_POSE_HEIGHTS = (0.10, 0.45)  # [m] slot-base height
 START_POSE_AZIMUTH = math.radians(60.0)  # [rad]
@@ -102,7 +102,7 @@ START_POSES = (
     (-0.027, -0.334, -0.395, -2.318, -0.140, 2.004, -0.431),  # slot base 0.45 m, +50 deg; margin 0.76 rad
     (-0.105, -0.181, -0.348, -2.180, -0.068, 2.009, -0.680),  # slot base 0.45 m, +60 deg; margin 0.90 rad
 )
-# [rad] uniform noise on every arm joint at reset (proposal, 2026-10-15, #163)
+# [rad] uniform noise on every arm joint at reset (user, 2026-10-15, #163)
 START_JOINT_NOISE = 0.02
 # Fork vs a spawned stem (user, 2026-10-15, #163): the spawn event redraws stem positions whose axis comes closer than
 # `FORK_STEM_MIN_DISTANCE` to the fork's centre line, the slot base's x axis from `FORK_AXIS_EXTENT[0]` to
@@ -146,7 +146,7 @@ MIN_JOINT_MARGIN = 0.25  # [rad] terminate closer to any FR3 joint limit (the sw
 # this; ends the episode (user, 2026-10-15, #160)
 ARM_CONTACT_FORCE = 0.05
 # [N] fork contact for the contact point (a metric): the fork's contact force (mean over the policy step) above this;
-# the arm-contact threshold (orchestrator, 2026-10-16, pending user review; #166)
+# the arm-contact threshold (user, 2026-10-16, #166)
 FORK_CONTACT_FORCE = 0.05
 ARM_JOINTS = ["fr3_joint[1-7]"]
 # The robot's rigid bodies, by their prim paths below the robot prim (the FR3 USD nests each link under its parent;

@@ -105,7 +105,7 @@ TERM_DIMS = {
 }
 ARC_LENGTHS = (0.08, 0.16, 0.24, 0.32, 0.40)  # [m] observed stem points (2026-10-08)
 EPISODE_STEPS = 469  # 15 s / (16 x 2 ms), rounded up (user, 2026-10-09)
-JOINT_NOISE = 0.02  # [rad] uniform reset noise per arm joint (proposal, 2026-10-15, #163)
+JOINT_NOISE = 0.02  # [rad] uniform reset noise per arm joint (user, 2026-10-15, #163)
 NOISE_TOL = 1e-5  # [rad] float32 rounding of the joint angles
 # fork vs stem at reset (user, 2026-10-15, #163): fork centre line along the slot base's x axis, at least this far from
 # the stem axis

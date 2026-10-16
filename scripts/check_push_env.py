@@ -99,7 +99,7 @@ from stem_manip.utils.impedance import rotvec_between
 
 TASK = "StemManip-Push-Position-FR3-v0"
 STEM_AWAY = (-0.8, 0.8, 0.0)  # [m] stem base, out of the fork's reach behind the robot (as in sweep_action_poses.py)
-JOINT_NOISE = 0.02  # [rad] uniform reset noise per arm joint (proposal, 2026-10-15, #163)
+JOINT_NOISE = 0.02  # [rad] uniform reset noise per arm joint (user, 2026-10-15, #163)
 NOISE_TOL = 1e-5  # [rad] float32 rounding of the joint angles
 POSTURE_TOL = 1e-6  # [rad] null-space rest posture vs the measured joints at reset (a copy: rounding only)
 ORIENTATION_TOL = math.radians(1.0)
