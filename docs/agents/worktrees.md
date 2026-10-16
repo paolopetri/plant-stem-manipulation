@@ -38,10 +38,10 @@ The one rule: start it with Bash `run_in_background`, then wait with one Monitor
 
 No step switches the main checkout's branch or pulls in it: other sessions may be using it.
 
-1. Before pushing a merged head, re-run the sim checks the merge affects, each with the runner ("GPU"): `scripts/affected_checks.py "$(git merge-base HEAD^1 HEAD^2)..HEAD"` lists them (both sides' changes since they diverged; a change on one ticket can break another ticket's checks). It prints nothing for a docs-only change.
+1. A ticket branch into an integration branch: in the ticket's worktree, `scripts/merge_ticket.py <integration branch> <ticket issue>` (system python; `--dry-run` does every step without pushing or commenting). It merges the integration tip in if the branch lacks it, runs pytest and ruff, re-runs the sim checks the push affects through the runner (`scripts/affected_checks.py` on `origin/<integration branch>..HEAD`; none for a change without sim code, since a change on one ticket can break another ticket's checks), fast-forwards `<integration branch>` on the remote to HEAD (never forced, never by checking it out) and comments "Merged into ... at <sha>." on the ticket. Start it with Bash `run_in_background` when it has sim checks to run. It exits non-zero at the first failure with a `merge_ticket: FAILED (<cause>)` line (conflict, tests, sim check, non-fast-forward, ...); an agent is needed only then.
 2. Remove the worktree (`git worktree remove -f -f <path>`), unless the next ticket of a chain reuses it.
 3. A PR: `gh pr merge N --squash`, then delete the remote and local branch.
-   Without a PR (a ticket branch into an integration branch): fast-forward `<integration branch>` to `<ticket branch>` on the remote with `git push origin <ticket branch>:<integration branch>`, never by checking out `<integration branch>`.
+   Without a PR (a ticket branch into an integration branch, after step 1): delete the remote and local ticket branch.
    A reused worktree switches to the next ticket's branch before the local branch is deleted: git does not delete a branch checked out in a worktree.
 4. Update local `main` with `git fetch origin main:main`. If git refuses (a worktree has `main` checked out, or local `main` has diverged), leave it: the session working on `main` pulls when it needs to.
 
