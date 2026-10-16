@@ -55,7 +55,7 @@ EVAL_START_POSES = {
 # gap), slot-base height in `START_POSE_HEIGHTS`, azimuth about the stem axis within +-`START_POSE_AZIMUTH` of the
 # direction to the robot. Poses with a joint margin below `START_POSE_MIN_MARGIN` or an arm body (any robot body but
 # the fork) closer than `START_POSE_ARM_CLEARANCE` to the stem are rejected. With the 0.5 rad margin only azimuths of
-# about 45-60 deg remain (joint 4 folds too far towards the robot; user, 2026-10-15).
+# about 45-60 deg remain, down to 30 deg at 0.40-0.45 m (joint 4 folds too far towards the robot; user, 2026-10-15).
 START_POSE_DISTANCE = 0.205  # [m] stem axis to slot base, horizontal
 START_POSE_HEIGHTS = (0.10, 0.45)  # [m] slot-base height
 START_POSE_AZIMUTH = math.radians(60.0)  # [rad]
