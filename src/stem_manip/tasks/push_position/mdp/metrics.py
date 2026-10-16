@@ -24,9 +24,10 @@ weight-0 rewards: they cost no reward computation and do not show up as rewards 
 - `fork_contact` [share of episodes]: 1 where the episode had fork contact, else 0; the share of episodes that
   `contact_point` is taken over.
 
-The step of a reset is not counted for the compression and the contact point: its joint and contact forces are those
-of the physics steps before the reset. The policy step that ends an episode is not counted for them either (it
-reaches the metrics only after the reset).
+The step of a reset is not counted for the compression, the arm contact and the contact point: its joint and
+contact forces are those of the physics steps before the reset (the contact sensor's reset keeps its normal-force
+history). The policy step that ends an episode is not counted for them either (it reaches the metrics only after the
+reset; the arm contact takes it from the termination term).
 
 Verify: `tests/test_stem_state.py` (the compression, the segments' arc lengths), `scripts/check_push_terms.py` (arm
 contact, the contact point in the scripted fork push, its absence at rest), a short sim run
@@ -107,7 +108,7 @@ class StemMetrics(CommandTerm):
         mean = self.metrics["mean_compression"]
         peak[:] = torch.where(counted, torch.maximum(peak, compression), peak)
         mean[:] = torch.where(counted, mean + (compression - mean) / steps.clamp(min=1), mean)
-        arm = arm_contact_force(self._env, self.cfg.sensor_cfg) > self.cfg.arm_contact_force
+        arm = counted & (arm_contact_force(self._env, self.cfg.sensor_cfg) > self.cfg.arm_contact_force)
         self.metrics["arm_contact"][:] = torch.maximum(self.metrics["arm_contact"], arm.float())
         fork = fork_contact_forces(self._env, self.cfg.sensor_cfg)  # (num_envs, history, segments) [N]
         touching = counted & (fork_contact_force(self._env, self.cfg.sensor_cfg) > self.cfg.fork_contact_force)
