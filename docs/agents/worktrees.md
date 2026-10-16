@@ -7,7 +7,7 @@ Any session that works on a branch while other sessions may use the main checkou
 `git worktree add --no-track .claude/worktrees/<name> -b <branch> main`
 
 `--no-track`: a new ticket branch does not track the branch it starts from (`main` or an integration branch). A new worktree to a finished sim check takes about 5 min (`uv sync` about 1 s; measured in the #160 run). Create one per ticket that runs in parallel with others. Tickets that run one after another (a chain of blocking edges) reuse one set-up worktree: each ticket gets a new branch off the integration tip, once the previous ticket has landed there:
-- `/implement-spec`: `git -C <path> switch -c <branch> origin/<integration branch>` once the previous ticket is pushed to it. `origin/<integration branch>`, not the local branch: the merge push ("Merge", step 2) moves only the remote branch and its tracking ref.
+- `/implement-spec`: `git -C <path> switch -c <branch> origin/<integration branch>` once the previous ticket is pushed to it. `origin/<integration branch>`, not the local branch: the merge push ("Merge", step 3) moves only the remote branch and its tracking ref.
 - Tickets with their own PR into `main`: `git -C <path> fetch origin main`, then `git -C <path> switch -c <branch> origin/main` once the previous PR is merged (user, 2026-10-15). Each squash PR then holds only its own ticket.
 
 ## Setup
@@ -38,10 +38,11 @@ The one rule: start it with Bash `run_in_background`, then wait with one Monitor
 
 No step switches the main checkout's branch or pulls in it: other sessions may be using it.
 
-1. Remove the worktree (`git worktree remove -f -f <path>`), unless the next ticket of a chain reuses it.
-2. A PR: `gh pr merge N --squash`, then delete the remote and local branch.
+1. Before pushing a merged head, re-run the sim checks the merge affects, each with the runner ("GPU"): `scripts/affected_checks.py "$(git merge-base HEAD^1 HEAD^2)..HEAD"` lists them (both sides' changes since they diverged; a change on one ticket can break another ticket's checks). It prints nothing for a docs-only change.
+2. Remove the worktree (`git worktree remove -f -f <path>`), unless the next ticket of a chain reuses it.
+3. A PR: `gh pr merge N --squash`, then delete the remote and local branch.
    Without a PR (a ticket branch into an integration branch): fast-forward `<integration branch>` to `<ticket branch>` on the remote with `git push origin <ticket branch>:<integration branch>`, never by checking out `<integration branch>`.
    A reused worktree switches to the next ticket's branch before the local branch is deleted: git does not delete a branch checked out in a worktree.
-3. Update local `main` with `git fetch origin main:main`. If git refuses (a worktree has `main` checked out, or local `main` has diverged), leave it: the session working on `main` pulls when it needs to.
+4. Update local `main` with `git fetch origin main:main`. If git refuses (a worktree has `main` checked out, or local `main` has diverged), leave it: the session working on `main` pulls when it needs to.
 
 Check the main checkout's branch with `git branch --show-current` before branch operations; the session-start git snapshot can be stale.
