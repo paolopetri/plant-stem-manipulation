@@ -68,3 +68,20 @@ def test_unmapped_package_file_lists_every_check():
     checks = affected_checks.affected_checks(["src/stem_manip/utils/stem_geometry.py"])
     assert checks == sorted(affected_checks.ALL_CHECKS)
     assert len(checks) == 8
+
+
+def test_task_module_imported_by_a_non_push_check_lists_that_check():
+    # check_contact imports the env's slot-base term directly, without building the env.
+    checks = affected_checks.affected_checks(["src/stem_manip/tasks/push_position/mdp/slot_base.py"])
+    assert "scripts/check_contact.py" in checks
+    assert "scripts/check_push_env.py" in checks
+
+
+def test_helper_script_lists_the_checks_that_import_it(tmp_path, monkeypatch):
+    # No check imports a helper script today; a fake repo stands in for one that does.
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "check_a.py").write_text("import argparse\n\nfrom helper import f\n")
+    (tmp_path / "scripts" / "check_b.py").write_text("import helper_other\n")
+    monkeypatch.setattr(affected_checks, "REPO", tmp_path)
+    monkeypatch.setattr(affected_checks, "ALL_CHECKS", ["scripts/check_a.py", "scripts/check_b.py"])
+    assert affected_checks.affected_checks(["scripts/helper.py"]) == ["scripts/check_a.py"]
