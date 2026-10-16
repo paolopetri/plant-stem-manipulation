@@ -7,6 +7,8 @@ The rules for writing and reviewing code in this repo; `/code-review` checks a d
 - A decided value carries a short tag `(user, YYYY-MM-DD)` and nothing about how it got there. History lives in git, `docs/notes/` and ADRs (`docs/adr/`).
   - `# Start pose (user, 2026-10-09): ...`, not `# Start pose (user, 2026-10-09; was (0.30, 0, 0.55) m, 2026-10-06): ...`
   - Also history: "Step 2", "Implemented (M4, part 1)".
+- A value that is proposed but not decided carries `(proposal, YYYY-MM-DD, #N)`, with the issue where the decision is made. No other form (`proposal 2026-10-15`, `(orchestrator, ..., pending user review)`). `tests/test_decision_tags.py` rejects them and lists the open proposals; when the decision lands, the tag becomes `(user, YYYY-MM-DD)`.
+- cfg comments carry no measured results (ranges, rates, timings); they go in the daily note.
 - Docstrings and comments say what the code is and why, not how it got there. Where the reason is long, link it (daily note, write-up, journal, ADR).
 - Code points at open work by issue number (`#42`), never into `docs/TODO.md`.
 
