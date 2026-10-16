@@ -1,10 +1,10 @@
 name: CI
 
+# PRs into any branch; pushes to main and to feat/ branches (integration branches of /implement-spec)
 on:
   pull_request:
-    branches: [main]
   push:
-    branches: [main]
+    branches: [main, "feat/**"]
 
 jobs:
   lint:

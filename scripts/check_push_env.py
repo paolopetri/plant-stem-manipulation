@@ -14,7 +14,7 @@ The controller is tested without the stem: the spawn area is switched off and th
 behind the robot (`STEM_AWAY`); the clamp test pushes the fork into the ground instead.
 Checks:
 - shapes: observation (num_envs, 57) and action (num_envs, 6), all observations finite;
-- start pose: at the first reset the arm joints of every env within 0.02 rad (the reset noise, proposal 2026-10-15) of
+- start pose: at the first reset the arm joints of every env within 0.02 rad (the reset noise, user, 2026-10-15) of
   a pose of the start-pose table (`env_cfg.START_POSES`, checked in `tests/test_fr3_reference.py`); the slot base
   within 1 deg of its orientation at reset after the hold;
 - null-space rest posture: at every reset, the action term's null-space rest posture equals the arm joints measured
