@@ -9,7 +9,7 @@ from the cfg:
   setpoint_offset 6, stem_base 3, stem_points 30 (5 points, previous and current policy step), target_pos 3;
 - finite: observations, rewards, terminated / truncated flags;
 - slot_base_rot: both columns unit length and orthogonal (1e-4);
-- after every reset: the arm joints of every reset env within 0.02 rad (the reset noise, user, 2026-10-15) of
+- after every reset: the arm joints of every reset env within the reset noise, 0.02 rad (user, 2026-10-15), of
   one of the start poses the reset event picks from (`events.start_pose`: the start-pose table; the clamp agent the
   held-out pose a_above_tip), not all exactly on it (the noise is applied), and at least 2 different poses picked over
   the agent's resets; the fork clear of the stem: its centre line (slot-base x axis from -0.09 to 0.17 m, from the
