@@ -4,6 +4,7 @@ High-level items and discussion: current milestone, roadmap, research directions
 
 ## Current milestone: M6 Slot use
 M5 closed with the tag `v0.1-position-control` (2026-10-15). Spec #160 (ADR 0004), tickets #161–#170. Exit criterion: the first M6 run (#170) meets the success criteria the user sets before it.
+- The first M6 run (`m6-first`, 2026-10-16) missed the criteria: the stem is still pushed at the tip, not taken into the slot (`docs/experiments/2026-10-16-m6-first.md`). Next: a grilling on how the policy is brought to use the slot, before the next run; ADR 0004's top-4-segment fallback alone would not do it (user, 2026-10-16).
 - Current work: #170 (first M6 run; #161–#169 and #77 are in PR #172), #78, #79, #80, #81, #82, #84, #86, #88, #94, #95.
 - Later (closed as not planned to keep the open list to current work, 2026-10-14; the full text stays in each issue, reopen when it becomes current):
   - #75 Two targets in sequence within an episode
