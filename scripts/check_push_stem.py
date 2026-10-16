@@ -29,6 +29,13 @@ Checks (#77; decided values fixed here, not read from the cfg):
   contact-force limit (a damage limit, 5 N) is lifted for this phase so that the blocked state is reached;
 - no reset in any phase (the task's terminations stay active, except the lifted contact-force limit).
 
+Map (grep -n a marker, then read that section only; `tests/test_check_push_headers.py` keeps it in step with the
+  code):
+- normal push: `# -- normal push`
+- hard push: `# -- hard push`
+New metric: this script checks no metric; see `check_push_terms.py` (stem metrics, reward-command metrics) or
+  `check_push_obs.py` (target command metrics).
+
 Usage (from the repo root; headless unless a visualizer is requested):
     uv run --extra isaacsim python scripts/check_push_stem.py
     uv run --extra isaacsim python scripts/check_push_stem.py --num_envs 1 --viz kit --slow_motion 3

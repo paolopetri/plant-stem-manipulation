@@ -50,6 +50,14 @@ longer than `--max_minutes`; the limit is checked between policy steps, so a han
 is not caught: run it under an outer `timeout` when it runs unattended (`timeout 20m uv run ...`). Rows of an agent
 cut short by the limit print NOT RUN unless they had already failed. Takes about 5 min with 4 envs.
 
+Map (grep -n a marker, then read that section only; `tests/test_check_push_headers.py` keeps it in step with the
+  code):
+- reset draws: `# -- reset draws`
+- agents (zero, random, clamp; one loop, per-agent steps inside): `for agent in args_cli.agents`
+New metric: this script checks no metric (its checks are the value ranges of the policy-step data); a metric's
+  expected value goes in `check_push_terms.py` (the stem metrics and reward-command metrics) or `check_push_obs.py`
+  (the target command's).
+
 Usage (from the repo root; headless unless a visualizer is requested):
     uv run --extra isaacsim python scripts/check_push_agents.py
     uv run --extra isaacsim python scripts/check_push_agents.py --agents random --num_envs 16

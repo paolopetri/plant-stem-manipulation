@@ -57,6 +57,17 @@ the arm, not the controller, limits the motion; user 2026-10-08, same threshold 
 The orientation reference for translation moves is the start orientation (rotation action zero).
 Reported: per axis, travel, largest following error and overshoot.
 
+Map (grep -n a marker, then read that section only; `tests/test_check_push_headers.py` keeps it in step with the
+  code):
+- hold: `# -- hold: zero action`
+- translation +x, +y, +z: `# -- full action along +x, +y, +z`
+- rotation about +z: `# -- rotation about the vertical`
+- step limits: `# -- step limits`
+- setpoint clamp: `# -- setpoint clamp`
+- restart after contact: `# -- restart after contact`
+New metric: this script checks no metric; see `check_push_terms.py` (stem metrics, reward-command metrics) or
+  `check_push_obs.py` (target command metrics).
+
 Usage (from the repo root; headless unless a visualizer is requested):
     uv run --extra isaacsim python scripts/check_push_env.py
     uv run --extra isaacsim python scripts/check_push_env.py --num_envs 1 --viz kit --slow_motion 3

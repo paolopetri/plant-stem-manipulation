@@ -235,6 +235,8 @@ Open work is tracked in GitHub issues (`gh issue list`); this table says where i
 | Real robot deployment (stage 3) | to decide |
 | Distillation into an end-to-end vision policy (stretch goal) | to decide |
 
+**A new metric** (a value logged as `Metrics/<term>/<metric>`): add it to the term's `metrics` in `tasks/push_position/mdp/metrics.py` (`StemMetrics`; the target command's metrics are in `commands.py`); add its independent expected value to the check that owns the term, found by the `New metric:` line in the header of `scripts/check_push_terms.py` (stem and reward metrics) or `scripts/check_push_obs.py` (target command); add a kitless test in `tests/test_push_task_cfg.py` for any cfg value it reads (as `test_arm_contact_metric_reads_the_termination_threshold`).
+
 ## Open modelling questions
 
 The cable path's open questions are in #99 (parked, with #96-#98); the open questions of the current path are

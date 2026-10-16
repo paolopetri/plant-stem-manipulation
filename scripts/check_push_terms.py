@@ -58,6 +58,22 @@ since the reset with fork contact (0 before any), `fork_contact` = 1 after the f
 The push phase must reach (d < 1 cm) in every env; in the rest phase, which never
 reaches, the time-out logs `time_to_reach` = 15 s.
 
+Map (grep -n a marker, then read that section only; `tests/test_check_push_headers.py` keeps it in step with the
+  code):
+- rest: `phase == "rest"`
+- action_rate: `phase == "action_rate"`
+- push: `phase == "push"`
+- impact: `phase == "impact"`
+- arm_contact: `phase == "arm_contact"`
+- curvature: `phase == "curvature"`
+- joint_margin: `phase == "joint_margin"`
+- independent values per step (wrapper that records them): `# -- independent values, taken when`
+- checks of every step against the formulas: `# -- checks of every step`
+New metric: the expected value goes in the per-step wrapper, next to `errors["contact_point"]` /
+  `errors["time_to_reach"]` (after `kept = ~done`, where the metric is compared with a value computed here from the
+  independent quantities of that step); add its key to `errors = {`, its comparison to the row `results["every step:
+  terms = formulas"]` and its sentence to the docstring above.
+
 Usage (from the repo root; headless unless a visualizer is requested):
     uv run --extra isaacsim python scripts/check_push_terms.py
     uv run --extra isaacsim python scripts/check_push_terms.py --num_envs 4 --phases push --viz kit --slow_motion 3
