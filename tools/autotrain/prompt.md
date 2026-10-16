@@ -53,9 +53,9 @@ length, start pose; stem parameters; check or test criteria; anything on another
 3. Edit, `uv run pytest -q`, plus `timeout 20m uv run --extra isaacsim python scripts/check_push_<name>.py` if env
    code changed. Commit everything (code + journal) as `Run NN: <change>`.
 4. Launch: `tools/autotrain/launch_run.sh <NN> <short_name> "<hypothesis, one sentence>" --max_iterations <M>`.
-   Iterations take about 5.3 s at 4096 envs (1500 iterations = 2.2 h). Size runs so that the next decision comes
-   within about 3 h, and so that the run ends before the deadline; if no useful run fits before the deadline, do not
-   launch: write the Monday summary (mode final) and `touch logs/autotrain/DONE`.
+   Iterations take about 12.9 s at 4096 envs (1500 iterations = 5.4 h; 2026-10-16 benchmark, #85). Size runs so
+   that the next decision comes within about 3 h, and so that the run ends before the deadline; if no useful run
+   fits before the deadline, do not launch: write the Monday summary (mode final) and `touch logs/autotrain/DONE`.
 5. Add the run's wandb link to the journal (`grep -m1 "View run at" logs/autotrain/rNN_*.out`) and commit.
 
 ## MODE: check (a run is alive, about 20 min old)
