@@ -32,8 +32,7 @@ them. Decided by the user in the grilling session of 2026-10-16; analysis in `do
   non-prehensile as long as the opening between the hooks is wider than the stem.
 - No lever takes the stem point deeper than about 0.6 of the region below the bowl within the curvature budget; the
   deeper targets need pressing and are not sampled.
-- Until the new fork exists, experimental runs on fork_v2 use an unmerged `exp/slot-moment-fork-v2` branch: no
-  contact-force termination, penalty threshold 20 N, compression limit at 1 x the buckling load. `main` keeps the
-  damage limits.
+- No interim training runs on fork_v2: the next run waits for the new fork, with the damage limits unchanged (user,
+  2026-10-16).
 - The contact-force reading is the net force per (segment, fork) pair, so the two forces of a slot moment on one
-  20 mm segment may cancel. A simulation check measures it before the reading is changed.
+  20 mm segment may cancel. A simulation check with the new fork measures it before the reading is changed.
