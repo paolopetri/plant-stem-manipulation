@@ -87,7 +87,7 @@ from isaaclab.utils.math import subtract_frame_transforms
 
 import stem_manip.tasks  # noqa: F401  (registers the task)
 from stem_manip.assets.stem import stem_model, stem_params
-from stem_manip.tasks.push_position.env_cfg import EVAL_START_POSES, STEM_MODEL, StemPushPositionEnvCfg
+from stem_manip.tasks.push_position.env_cfg import STEM_MODEL, StemPushPositionEnvCfg, fixed_start
 from stem_manip.utils import check_report, rollout, stem_reference
 from stem_manip.utils.stem_geometry import joint_curvature, point_pose, stem_points
 
@@ -370,7 +370,7 @@ def main() -> None:
             poses = env.event_manager.get_term_cfg("start_pose").params
             if fixed:
                 params.update(x_range=(STEM_BASE[0],) * 2, y_range=(STEM_BASE[1],) * 2)
-                poses.update(poses=(EVAL_START_POSES["a_above_tip"],), joint_noise=0.0)
+                fixed_start(poses)
             else:
                 params.update(x_range=SPAWN_X, y_range=SPAWN_Y)
                 poses.update(poses=table, joint_noise=noise)
