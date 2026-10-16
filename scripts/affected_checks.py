@@ -82,9 +82,9 @@ def affected_checks(paths: Iterable[str]) -> list[str]:
 
 
 def changed_paths(commit_range: str) -> list[str]:
-    """Paths changed in `commit_range` (both sides of a rename)."""
+    """Paths changed in `commit_range` (both sides of a rename), in the repo of the current directory."""
     out = subprocess.run(
-        ["git", "-C", str(REPO), "diff", "--name-only", "--no-renames", commit_range],
+        ["git", "diff", "--name-only", "--no-renames", commit_range],
         check=True,
         capture_output=True,
         text=True,

@@ -23,7 +23,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from affected_checks import affected_checks
+from affected_checks import affected_checks, changed_paths
 
 HERE = Path(__file__).resolve().parent
 TESTS = [
@@ -80,8 +80,7 @@ def run_tests() -> None:
 
 def run_sim_checks(integration: str) -> list[str]:
     """Run the sim checks affected by `origin/<integration>..HEAD` through the runner; return them."""
-    paths = git("diff", "--name-only", "--no-renames", f"origin/{integration}..HEAD").stdout.split()
-    checks = affected_checks(paths)
+    checks = affected_checks(changed_paths(f"origin/{integration}..HEAD"))
     print(f"merge_ticket: sim checks: {', '.join(checks) or 'none'}", flush=True)
     for check in checks:
         status = subprocess.run([*SIM_CHECK, check]).returncode  # the runner prints its own filtered lines
