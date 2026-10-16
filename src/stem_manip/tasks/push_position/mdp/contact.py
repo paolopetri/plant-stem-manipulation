@@ -28,7 +28,7 @@ def contact_force_pairs(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> t
     return force.norm(dim=-1)
 
 
-def fork_contact_forces(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
+def fork_segment_force_history(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
     """Force of the fork on each stem segment at each physics step of the policy step, (num_envs, history,
     segments) [N]."""
     return contact_force_pairs(env, sensor_cfg)[..., FORK_BODY]

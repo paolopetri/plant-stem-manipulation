@@ -18,8 +18,7 @@ which the stem point first comes within `success_distance` of the target; an epi
 episode length `episode_length_s`, so the logged mean is not biased low by episodes that end early without reaching).
 Like `position_error`, a reach at an episode's last step is not counted (Isaac Lab updates the metrics after the
 reset). Metrics are logged, never observed.
-Debug markers: target (red, green
-within `success_distance`) and the stem point (blue).
+Debug markers: target (red, green within `success_distance`) and the stem point (blue).
 Verify: `scripts/check_push_obs.py`.
 """
 

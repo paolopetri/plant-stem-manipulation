@@ -45,7 +45,7 @@ import torch
 from isaaclab.managers import CommandTerm, CommandTermCfg, SceneEntityCfg
 from isaaclab.utils import configclass
 
-from .contact import arm_contact_force, fork_contact_force, fork_contact_forces
+from .contact import arm_contact_force, fork_contact_force, fork_segment_force_history
 from .stem_state import stem_state
 
 ARM_CONTACT_TERM = "arm_contact"  # the termination term whose last value covers the policy step that ends an episode
@@ -110,7 +110,7 @@ class StemMetrics(CommandTerm):
         mean[:] = torch.where(counted, mean + (compression - mean) / steps.clamp(min=1), mean)
         arm = counted & (arm_contact_force(self._env, self.cfg.sensor_cfg) > self.cfg.arm_contact_force)
         self.metrics["arm_contact"][:] = torch.maximum(self.metrics["arm_contact"], arm.float())
-        fork = fork_contact_forces(self._env, self.cfg.sensor_cfg)  # (num_envs, history, segments) [N]
+        fork = fork_segment_force_history(self._env, self.cfg.sensor_cfg)  # (num_envs, history, segments) [N]
         touching = counted & (fork_contact_force(self._env, self.cfg.sensor_cfg) > self.cfg.fork_contact_force)
         arc = stem_state(self._env).segment_arc_lengths()
         point = (fork * arc).sum(dim=(1, 2)) / fork.sum(dim=(1, 2)).clamp(min=1e-12)

@@ -11,7 +11,7 @@ __all__ = [
     "curvature_limit",
     "curvature_penalty",
     "fix_stem_base",
-    "fork_contact_forces",
+    "fork_segment_force_history",
     "joint_limit_margin",
     "joint_margin",
     "reset_arm_start_pose",
@@ -29,7 +29,7 @@ from isaaclab.envs.mdp import *
 
 from .actions_cfg import SlotBaseImpedanceActionCfg
 from .commands import StemTipTargetCommandCfg
-from .contact import arm_contact_force, fork_contact_forces, robot_contact_force
+from .contact import arm_contact_force, fork_segment_force_history, robot_contact_force
 from .events import fix_stem_base, reset_arm_start_pose, reset_stem_base_uniform
 from .metrics import StemMetricsCfg
 from .observations import applied_step, setpoint_offset, slot_base_pos, slot_base_rot6d
