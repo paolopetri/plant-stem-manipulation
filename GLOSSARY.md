@@ -46,7 +46,7 @@ The position of the stem point in the unloaded, upright stem.
 _Avoid_: neutral position
 
 **Bowl**:
-The surface the stem point traces when the stem is pushed by a force alone, without a moment from the slot.
+The surface the stem point traces when the stem is pushed sideways at the point by a horizontal force alone, without a moment from the slot.
 _Avoid_: reach surface
 
 **C/S bend**:

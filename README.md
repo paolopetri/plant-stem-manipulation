@@ -39,6 +39,7 @@ uv run --extra isaacsim python scripts/sweep_stem_solver.py --test kick   # cabl
 uv run --extra isaacsim python scripts/check_contact.py --test slot       # FR3 + fork push the chain stem: pass/fail
 uv run --extra isaacsim python scripts/sweep_impedance.py                 # impedance controller study (fork + stem)
 uv run --extra isaacsim python scripts/check_push_env.py      # push task: controller and action limits, pass/fail
+uv run --extra isaacsim python scripts/check_push_stem.py     # push task: the action pushes the stem, contact force
 uv run --extra isaacsim python scripts/sweep_action_poses.py  # push task: following over the workspace
 uv run --extra isaacsim python scripts/check_push_obs.py      # push task: target command and stem observations
 uv run --extra isaacsim python scripts/check_push_terms.py    # push task: rewards and terminations
@@ -73,6 +74,7 @@ uv run --extra isaacsim python scripts/check_stem.py --viz kit --slow_motion 5
 uv run --extra isaacsim python scripts/sweep_stem_solver.py --test kick --viz newton_gl --slow_motion 5 --steps 200
 uv run --extra isaacsim python scripts/check_contact.py --test slot_far --viz kit --slow_motion 3
 uv run --extra isaacsim python scripts/check_push_env.py --num_envs 1 --viz kit --slow_motion 3
+uv run --extra isaacsim python scripts/check_push_stem.py --num_envs 1 --viz kit --slow_motion 3
 uv run --extra isaacsim python scripts/check_push_obs.py --num_envs 4 --viz kit --slow_motion 3
 uv run --extra isaacsim python scripts/check_push_terms.py --phases push --viz kit --slow_motion 1
 uv run --extra isaacsim python scripts/check_push_agents.py --agents random --num_envs 4 --viz kit --slow_motion 2
@@ -112,9 +114,25 @@ uv run python tools/autotrain/upload_video.py logs/autotrain/<name>.out logs/rsl
 uv run --extra isaacsim isaaclab play --task StemManip-Push-Position-FR3-v0 --num_envs 4 --checkpoint <model.pt> --viz kit
 ```
 
+Play from a chosen start pose (evaluation outside the training's start-pose table): `isaaclab play` passes Hydra
+overrides to the env cfg, so the reset event's `poses` (one or more arm joint vectors, rad) and `joint_noise` can be
+set on the command line. `scripts/start_poses.py pose` prints the `poses` line: a held-out pose (`a_above_tip`,
+`b_side_90`, `c_low`) as committed, or a new pose beside the stem solved with IK (slot-base height in m, azimuth
+about the stem axis in deg; it also prints the joint margin and arm clearance, which the table requires to be at
+least 0.5 rad and 5 cm). `joint_noise=0.0` starts exactly at the pose.
+
+```bash
+uv run --extra isaacsim python scripts/start_poses.py pose --held_out b_side_90
+uv run --extra isaacsim python scripts/start_poses.py pose --height 0.25 --azimuth 30
+uv run --extra isaacsim --extra video isaaclab play --task StemManip-Push-Position-FR3-v0 --num_envs 1 \
+    --checkpoint <model.pt> --video --video_length 938 \
+    'env.events.start_pose.params.poses=[[-0.515,0.378,0.096,-1.873,-0.046,2.249,-1.183]]' \
+    env.events.start_pose.params.joint_noise=0.0
+```
+
 `upload_video.py` reads the wandb run id from the train output, so it needs the run's output saved to a file
 (`... > logs/autotrain/<name>.out 2>&1`). The output is large (about 120 harmless PhysX warnings per env at
-startup: the contact sensor's filter pattern also matches prims that are not rigid bodies).
+startup, "Failed to find rigid body": Isaac Lab's PhysX manager creates a rigid-body view over every prim, `/**`).
 
 ### Autotrain loop (weekend runs)
 

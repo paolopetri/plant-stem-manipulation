@@ -13,7 +13,7 @@ from isaaclab.managers import EventTermCfg, ObservationTermCfg, RewardTermCfg, T
 
 from stem_manip.assets.stem import stem_params
 from stem_manip.tasks.push_position import mdp
-from stem_manip.tasks.push_position.env_cfg import STEM_MODEL, StemPushPositionEnvCfg
+from stem_manip.tasks.push_position.env_cfg import START_POSES, STEM_MODEL, StemPushPositionEnvCfg
 
 DECIDED_TARGET = {
     "distance_range": (0.03, 0.10),  # [m] horizontal distance from the tip's rest position
@@ -42,10 +42,20 @@ REWARDS = {
     "curvature": (mdp.curvature_penalty, -1.0, {"curvature_budget": 0.8}),  # quadratic above 0.8 x the limit
     "contact_force": (mdp.contact_force_penalty, -1.0, {"threshold": 2.0}),  # quadratic above 2 N
     "action_rate": (mdp.action_rate_l2, -0.01, {}),
-    "terminated": (mdp.is_terminated, -10.0, {}),  # early terminations only (not the time out)
+    # early terminations only, not the time out; about -5 per termination at dt 0.032 s (user, 2026-10-15)
+    "terminated": (mdp.is_terminated, -150.0, {}),
 }
-TERMINATIONS = ["time_out", "curvature_limit", "contact_force_limit", "joint_margin"]  # no slot-base bound (user)
+POLICY_DT = 0.032  # [s] 16 physics steps of 2 ms (31.25 Hz)
+TERMINATION_PENALTY = -4.8  # in effect per termination: weight x policy dt (about -5; user, 2026-10-15)
+# no slot-base bound (user); arm contact (user, 2026-10-15, #160)
+TERMINATIONS = ["time_out", "curvature_limit", "contact_force_limit", "joint_margin", "arm_contact"]
 MIN_JOINT_MARGIN = 0.25  # [rad] distance to any FR3 joint limit (the sweeps' rule)
+ARM_CONTACT_FORCE = 0.05  # [N] non-fork contact force, mean over the policy step (user, 2026-10-15, #160)
+# the robot's rigid bodies as the FR3 USD nests them, below the robot prim: the fork first, then links 0-7 (#84)
+_LINKS = [f"fr3_link{i}" for i in range(8)]
+ROBOT_BODY_PATHS = ["Geometry/base/" + "/".join(_LINKS) + "/fr3_link8/fork_v2"] + [
+    "Geometry/base/" + "/".join(_LINKS[: i + 1]) for i in range(8)
+]
 EPISODE_LENGTH_S = 15.0  # [s] approach and push (user, 2026-10-09)
 
 
@@ -122,10 +132,44 @@ def test_stem_spawn_area_is_decided(cfg: StemPushPositionEnvCfg):
     assert spawn.params["y_range"] == pytest.approx(SPAWN_AREA["y"], abs=1e-12)
 
 
+def test_spawn_redraws_stem_positions_at_the_fork(cfg: StemPushPositionEnvCfg):
+    """Fork centre line from 0.09 m behind the slot base to the prong tips, 5 cm from the stem axis (user,
+    2026-10-15, #163)."""
+    spawn = cfg.events.spawn_stem
+    assert spawn.params["fork_extent"] == pytest.approx((-0.09, 0.17), abs=1e-12)
+    assert spawn.params["min_fork_distance"] == pytest.approx(0.05, abs=1e-12)
+
+
+def test_spawn_redraws_stem_positions_at_the_arm(cfg: StemPushPositionEnvCfg):
+    """Stem surface at least 5 cm from every arm body, as the start-pose table (user, 2026-10-15, #163)."""
+    assert cfg.events.spawn_stem.params["min_arm_clearance"] == pytest.approx(0.05, abs=1e-12)
+
+
+def test_start_pose_is_picked_from_the_table(cfg: StemPushPositionEnvCfg):
+    """The arm starts at a random table pose with uniform noise of 0.02 rad (user, 2026-10-15, #163), before the
+    stem is placed (the spawn event keeps the stem clear of the fork at its start pose)."""
+    events = [name for name, value in vars(cfg.events).items() if isinstance(value, EventTermCfg)]
+    assert events.index("reset_scene") < events.index("start_pose") < events.index("spawn_stem")
+    start_pose = cfg.events.start_pose
+    assert start_pose.func is mdp.reset_arm_start_pose
+    assert start_pose.mode == "reset"
+    assert start_pose.params["poses"] == START_POSES
+    assert start_pose.params["joint_noise"] == pytest.approx(0.02, abs=1e-12)
+    asset_cfg = start_pose.params["asset_cfg"]
+    assert asset_cfg.name == "robot"
+    assert asset_cfg.joint_names == [f"fr3_joint{i}" for i in range(1, 8)] and asset_cfg.preserve_order
+
+
 def test_robot_base_frame_is_env_frame(cfg: StemPushPositionEnvCfg):
     """The spawn area is given in the robot base frame and written in the env frame: the two must coincide."""
     assert cfg.scene.robot.init_state.pos == pytest.approx((0.0, 0.0, 0.0), abs=1e-12)
     assert cfg.scene.robot.init_state.rot == pytest.approx((0.0, 0.0, 0.0, 1.0), abs=1e-12)  # (x, y, z, w)
+
+
+def test_termination_penalty_in_effect(cfg: StemPushPositionEnvCfg):
+    """The reward manager scales a term by the policy dt: the termination penalty costs about -5 per termination."""
+    assert cfg.sim.dt * cfg.decimation == pytest.approx(POLICY_DT, rel=1e-9)
+    assert cfg.rewards.terminated.weight * cfg.sim.dt * cfg.decimation == pytest.approx(TERMINATION_PENALTY, rel=1e-9)
 
 
 def test_reward_terms_are_decided(cfg: StemPushPositionEnvCfg):
@@ -156,6 +200,9 @@ def test_termination_terms_are_decided(cfg: StemPushPositionEnvCfg):
     assert declared["contact_force_limit"].func is mdp.contact_force_limit
     assert declared["joint_margin"].func is mdp.joint_limit_margin
     assert declared["joint_margin"].params["min_margin"] == pytest.approx(MIN_JOINT_MARGIN, abs=1e-12)
+    assert declared["arm_contact"].func is mdp.arm_contact
+    assert declared["arm_contact"].params["max_force"] == pytest.approx(ARM_CONTACT_FORCE, abs=1e-12)
+    assert declared["arm_contact"].params["sensor_cfg"].name == "stem_contact"
 
 
 def test_contact_sensor_averages_over_the_policy_step(cfg: StemPushPositionEnvCfg):
@@ -166,3 +213,18 @@ def test_contact_sensor_averages_over_the_policy_step(cfg: StemPushPositionEnvCf
     assert sensor.track_friction_forces
     name = cfg.rewards.contact_force.params["sensor_cfg"].name
     assert name == "stem_contact" == cfg.terminations.contact_force_limit.params["sensor_cfg"].name
+
+
+def test_contact_sensor_filters_the_rigid_robot_bodies(cfg: StemPushPositionEnvCfg):
+    """The stem contact sensor's filter names each rigid robot body by its exact prim path, the fork first (the split
+    into fork and other robot bodies reads it in this order); no wildcard that also matches visuals, collision
+    children or joints (#84)."""
+    expected = [f"{{ENV_REGEX_NS}}/Robot/{path}" for path in ROBOT_BODY_PATHS]
+    assert cfg.scene.stem_contact.filter_prim_paths_expr == expected
+
+
+def test_arm_contact_metric_reads_the_termination_threshold(cfg: StemPushPositionEnvCfg):
+    """The arm-contact metric of the stem metrics counts the same contact as the termination."""
+    metrics = cfg.commands.stem_metrics
+    assert metrics.sensor_cfg.name == "stem_contact"
+    assert metrics.arm_contact_force == pytest.approx(ARM_CONTACT_FORCE, abs=1e-12)

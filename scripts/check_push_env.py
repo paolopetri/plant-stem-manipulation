@@ -4,7 +4,9 @@ Creates the env with a few envs, resets it and drives the slot base with constan
 hold (zero action), then full translation along +x, +y, +z, each for `--steps` policy steps and followed by a hold;
 then a full rotation about the vertical (+z) for `--steps` policy steps and a hold. Then, each after a reset to the
 start pose: a full +y translation and a full rotation about +z from rest (step limits), and a move +x followed by a
-full move down (-z) into the ground and a lift (setpoint clamp, restart after contact). The action term (6-D:
+full move down (-z) into the ground and a lift (setpoint clamp, restart after contact); the clamp test starts from
+the held-out start pose a_above_tip without joint noise (every env alike, as `check_push_terms.py`), so that the
+ground contact does not vary with the random table pose. The action term (6-D:
 translation and rotation step, robot base frame) is Franka's Cartesian impedance law with an
 integrated setpoint, speed cap, step-change limit and setpoint-offset clamp (`mdp.SlotBaseImpedanceAction`). With the
 step-change limit the setpoint ramps up at the start of a move and brakes during the hold.
@@ -12,7 +14,12 @@ The controller is tested without the stem: the spawn area is switched off and th
 behind the robot (`STEM_AWAY`); the clamp test pushes the fork into the ground instead.
 Checks:
 - shapes: observation (num_envs, 57) and action (num_envs, 6), all observations finite;
-- start pose: slot base within 5 mm of (0.40, 0, 0.50) m and within 1 deg of its orientation at reset after the hold;
+- start pose: at the first reset the arm joints of every env within 0.02 rad (the reset noise, proposal 2026-10-15) of
+  a pose of the start-pose table (`env_cfg.START_POSES`, checked in `tests/test_fr3_reference.py`); the slot base
+  within 1 deg of its orientation at reset after the hold;
+- null-space rest posture: at every reset, the action term's null-space rest posture equals the arm joints measured
+  right after the reset (the start pose picked, with its noise; user, 2026-10-15, #163, as Franka's example
+  controller), to 1e-6 rad;
 - holds still: the slot base moves less than 1 mm during the last half of the hold;
 - follows the actions: following error (largest distance to the setpoint over the move and the hold; at the end of
   a policy step the interpolated setpoint equals the step's end setpoint) <= 2 mm; the tool passes the setpoint's final
@@ -28,6 +35,10 @@ Checks:
   above stay below the caps because of the step-change limit);
 - setpoint clamp: at every physics step of the move down, the setpoint the law uses is at most 4 mm from the tool; while
   the tool is blocked by the ground (last `BLOCKED_STEPS` policy steps) exactly 4 mm;
+- contact force at the ground: a contact sensor on the fork (net force, check only; the task's sensor is on the
+  stem). While blocked (last `BLOCKED_STEPS` policy steps), its mean over each policy step is > 0 and <= 4.2 N (the
+  clamp's spring bound 4 mm x K_p 1000 = 4 N, + 5 %) and varies by at most 0.2 N (no chatter); the impact before is
+  reported, not bounded (user, 2026-10-15; #77);
 - restart after contact: lifting off the ground, the applied step changes by at most 0.08 mm per policy step;
 - applied step within the caps (3.2 mm, 1.44 deg) in every phase;
 - slot-base observations = independent kinematics, after every policy step of every phase (incl. the clamp): the
@@ -77,18 +88,20 @@ import time
 import gymnasium as gym
 import torch
 
+from isaaclab.sensors import ContactSensorCfg
 from isaaclab.utils.math import matrix_from_quat
 
 import stem_manip.tasks  # noqa: F401  (registers the task)
-from stem_manip.tasks.push_position.env_cfg import StemPushPositionEnvCfg
+from stem_manip.tasks.push_position.env_cfg import EVAL_START_POSES, START_POSES, StemPushPositionEnvCfg
 from stem_manip.utils import check_report
 from stem_manip.utils.fr3_reference import rotvec_from_matrix, slot_base_pose
 from stem_manip.utils.impedance import rotvec_between
 
 TASK = "StemManip-Push-Position-FR3-v0"
 STEM_AWAY = (-0.8, 0.8, 0.0)  # [m] stem base, out of the fork's reach behind the robot (as in sweep_action_poses.py)
-START_POS = (0.40, 0.0, 0.50)  # [m] slot base of the start pose (env_cfg.START_JOINT_POS)
-START_TOL = 5e-3  # [m]
+JOINT_NOISE = 0.02  # [rad] uniform reset noise per arm joint (user, 2026-10-15, #163)
+NOISE_TOL = 1e-5  # [rad] float32 rounding of the joint angles
+POSTURE_TOL = 1e-6  # [rad] null-space rest posture vs the measured joints at reset (a copy: rounding only)
 ORIENTATION_TOL = math.radians(1.0)
 HOLD_TOL = 1e-3  # [m]
 FOLLOW_TOL = 2e-3  # [m] following error while moving
@@ -128,6 +141,9 @@ LIMITS_ERRORS = (
 FIRST_STEP, FIRST_ROT_STEP = 8e-5, 0.000349  # [m], [rad] step-change limits 0.08 mm (2026-10-08) / 0.02 deg
 CAP_STEP, CAP_ROT_STEP = 0.0032, 0.02513  # [m], [rad] speed caps 10 cm/s (2026-10-08) / 45 deg/s (2026-10-07)
 CLAMP_OFFSET = 4e-3  # [m] setpoint clamp, 4 N at K_p 1000 (2026-10-08)
+# [N] blocked: policy-step mean <= spring bound 4 mm x K_p 1000 = 4 N, + 5 % (user, 2026-10-15)
+CLAMP_FORCE = 4.2
+CHATTER_TOL = 0.2  # [N] largest spread of the policy-step mean while blocked (user, 2026-10-15)
 CLAMP_ROT_OFFSET = 0.05236  # [rad] orientation clamp, 3 deg (2026-10-08)
 SLOT_BASE_POS_TOL, SLOT_BASE_ROT_TOL = (
     1e-5,
@@ -150,6 +166,10 @@ def main() -> None:
     env_cfg.terminations.joint_margin = None
     env_cfg.events.spawn_stem = None  # the fork must not touch the stem: no spawn area, stem out of reach
     env_cfg.scene.stem.init_state.pos = STEM_AWAY
+    # contact force of the fork at the ground (net force: the stem is out of reach), every physics step of a policy step
+    env_cfg.scene.fork_contact = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/.*fork_v2", history_length=env_cfg.decimation
+    )
     if args_cli.rot_stiffness is not None:
         env_cfg.actions.slot_base.stiffness_rot = args_cli.rot_stiffness
     if args_cli.max_step is not None:
@@ -163,7 +183,20 @@ def main() -> None:
         obs, _ = env.reset()
         sim, device, n = env.sim, env.device, env.num_envs
         term = env.action_manager.get_term("slot_base")
+        robot = env.scene[term.cfg.asset_name]
+        fk_joint_ids = robot.find_joints([f"fr3_joint{i}" for i in range(1, 8)], preserve_order=True)[0]
+        q_reset = robot.data.joint_pos.torch[:, fk_joint_ids]
+        table = torch.tensor(START_POSES, device=device)
+        start_error = float((q_reset[:, None] - table[None]).abs().amax(dim=-1).min(dim=-1).values.max())
         quat_ref = term.slot_base_pose()[1].clone()  # start orientation, held while the rotation action is zero
+        term_joint_ids = robot.find_joints(term.cfg.joint_names)[0]
+        posture_errors: list[float] = []  # null-space rest posture vs the measured arm joints, at every reset [rad]
+
+        def record_posture() -> None:
+            q = robot.data.joint_pos.torch[:, term_joint_ids]
+            posture_errors.append(float((term.nullspace_posture() - q).abs().max()))
+
+        record_posture()
 
         def angle_between(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
             """Angle between orientations a and b (n, 4) [rad] (axis-angle of a b^-1; exact also near 0)."""
@@ -176,12 +209,10 @@ def main() -> None:
         frame_start = time.perf_counter()
         finite = bool(torch.isfinite(obs["policy"]).all())
         max_angle = 0.0
-        robot = env.scene[term.cfg.asset_name]
         joint_ids = robot.find_joints(term.cfg.joint_names)[0]
         limits = robot.data.joint_pos_limits.torch[:, joint_ids]  # (n, joints, 2)
         margin = math.inf  # smallest distance to a joint limit [rad] since the last `window()`
         max_applied = [0.0, 0.0]  # largest applied translation [m] and rotation [rad] step over all phases
-        fk_joint_ids = robot.find_joints([f"fr3_joint{i}" for i in range(1, 8)], preserve_order=True)[0]
         # largest difference of each slot-base observation from its independent value [m or rad]
         obs_errors = dict.fromkeys(SLOT_BASE_ERRORS, 0.0)
         obs_checked, limits_checked = 0, 0  # policy steps compared (limits: steps where the clamp did not act)
@@ -277,7 +308,6 @@ def main() -> None:
                 pos_mid = term.slot_base_pose()[0].clone()
         pos_hold, quat_hold = (v.clone() for v in term.slot_base_pose())
         hold_move = float((pos_hold - pos_mid).norm(dim=-1).max())
-        start_error = float((pos_hold - torch.tensor(START_POS, device=device)).norm(dim=-1).max())
         hold_angle = float(angle_to_fixed(quat_hold).max())
 
         # -- full action along +x, +y, +z, each followed by a hold
@@ -336,6 +366,7 @@ def main() -> None:
         def restart() -> None:
             """Reset to the start pose and hold (zero action) until the tool settles."""
             env.reset()
+            record_posture()
             expected_step.zero_()  # the reset starts the action term from rest
             for _ in range(args_cli.steps):
                 step(zero, track_tilt=False)
@@ -367,7 +398,11 @@ def main() -> None:
         first_rot, last_rot, rot_ramp_margin, rot_ramp_follow = ramp(5, rot_ramp_steps)
 
         # -- setpoint clamp: +x, then full move down into the ground; at every physics step the setpoint the law uses
-        # may be at most CLAMP_OFFSET ahead of the tool (measured around each apply_actions call)
+        # may be at most CLAMP_OFFSET ahead of the tool (measured around each apply_actions call); from a_above_tip
+        # without joint noise (the ground contact must not vary with the random table pose)
+        env.event_manager.get_term_cfg("start_pose").params.update(
+            poses=(EVAL_START_POSES["a_above_tip"],), joint_noise=0.0
+        )
         restart()
         x_move = torch.zeros(6, device=device)
         x_move[0] = 1.0
@@ -384,18 +419,24 @@ def main() -> None:
             stretch.copy_(torch.maximum(stretch, (term.command_pose()[0] - pos).norm(dim=-1)))
 
         term.apply_actions = apply_and_measure
+        fork_contact = env.scene["fork_contact"]
         down = torch.zeros(6, device=device)
         down[2] = -1.0
-        stretches = []
+        stretches, ground_forces = [], []
         for i in range(DOWN_STEPS):
             if i == DOWN_STEPS - BLOCKED_STEPS:
                 window()
             stretch.zero_()
             step(down, track_tilt=False)
             stretches.append(stretch.clone())
+            # (n, physics steps of this policy step): fork net contact force [N]
+            ground_forces.append(fork_contact.data.net_forces_w_history.torch.norm(dim=-1).amax(dim=-1))
         term.apply_actions = apply_actions
         stretches = torch.stack(stretches)  # (DOWN_STEPS, n)
         blocked = stretches[-BLOCKED_STEPS:]
+        ground_forces = torch.stack(ground_forces)  # (DOWN_STEPS, n, decimation)
+        blocked_means = ground_forces[-BLOCKED_STEPS:].mean(dim=-1)  # (BLOCKED_STEPS, n): mean over each policy step
+        ground_spread = float((blocked_means.max(dim=0).values - blocked_means.min(dim=0).values).max())
         clamp_margin = margin
         slot_base_height = term.slot_base_pose()[0][:, 2]
         # -- restart after contact: lift; the applied step changes by at most the step-change limit
@@ -419,8 +460,8 @@ def main() -> None:
                 f"observation {obs_shape}, action {action_shape}, all finite: {finite}",
             ),
             "start pose": (
-                start_error < START_TOL and hold_angle < ORIENTATION_TOL,
-                f"slot base {start_error * 1e3:.1f} mm from {START_POS}, "
+                start_error <= JOINT_NOISE + NOISE_TOL and hold_angle < ORIENTATION_TOL,
+                f"arm joints at reset {start_error:.4f} rad from a table pose, "
                 f"orientation {math.degrees(hold_angle):.2f} deg (at reset: {[round(float(v), 3) for v in pos0[0]]} m)",
             ),
             "holds still": (
@@ -436,6 +477,11 @@ def main() -> None:
                     for a, m in enumerate(moves)
                 )
                 + f"; max orientation error {math.degrees(max_angle):.2f} deg; joint margin {moves_margin:.2f} rad",
+            ),
+            "null-space rest posture = start pose": (
+                max(posture_errors) <= POSTURE_TOL,
+                f"{len(posture_errors)} resets: largest difference from the arm joints at reset "
+                f"{max(posture_errors):.1e} rad (tol {POSTURE_TOL:.0e})",
             ),
             "step limits": (
                 bool(((first[:, :3].norm(dim=-1) - FIRST_STEP).abs() < 1e-6).all())
@@ -469,6 +515,15 @@ def main() -> None:
                 f"(bound {CLAMP_OFFSET * 1e3:.1f} mm), while blocked {float(blocked.min()) * 1e3:.4f}-"
                 f"{float(blocked.max()) * 1e3:.4f} mm, slot base at z {float(slot_base_height.min()) * 1e3:.1f}-"
                 f"{float(slot_base_height.max()) * 1e3:.1f} mm; joint margin {clamp_margin:.2f} rad",
+            ),
+            "contact force at the ground": (
+                float(blocked_means.max()) <= CLAMP_FORCE
+                and float(blocked_means.min()) > 0.0
+                and ground_spread <= CHATTER_TOL,
+                f"while blocked: mean over a policy step {float(blocked_means.min()):.3f}-"
+                f"{float(blocked_means.max()):.3f} N (bound {CLAMP_FORCE} N), largest spread in one env "
+                f"{ground_spread:.3f} N (tol {CHATTER_TOL:.2f} N); impact (not bounded): largest fork contact force "
+                f"{float(ground_forces.max()):.3f} N at a physics step",
             ),
             "restart after contact": (
                 bool((lift_change <= FIRST_STEP + 1e-6).all()),

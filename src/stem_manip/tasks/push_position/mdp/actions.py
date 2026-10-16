@@ -8,8 +8,9 @@ is kept within a bound of the measured slot base pose at every physics step (bou
 inactive in free motion); the applied step is the setpoint's actual motion after the clamp. The setpoint moves linearly
 (position) and turns at constant rate (orientation) through the policy step, and its linear and angular velocities
 enter the damping term (feedforward; while the clamp holds the setpoint, it moves with the tool and its velocity is the
-tool's). The per-physics-step part is `stem_manip.utils.impedance.substep_command`, the same function the real
-robot's torque loop is ported from.
+tool's). The null-space rest posture is the arm's joint position at each reset (the start pose, with its noise), as
+in Franka's example controller (`q_d_nullspace_ = q_initial`). The per-physics-step part is
+`stem_manip.utils.impedance.substep_command`, the same function the real robot's torque loop is ported from.
 """
 
 from __future__ import annotations
@@ -51,7 +52,7 @@ class SlotBaseImpedanceAction(ActionTerm):
         self._slot_base = slot_base(env)
 
         n, device = self.num_envs, self.device
-        self._q_ns = self._asset.data.default_joint_pos.torch[:, self._joint_ids].clone()
+        self._q_ns = self._asset.data.default_joint_pos.torch[:, self._joint_ids].clone()  # set at every reset
         self._raw_actions = torch.zeros(n, 6, device=device)
         self._step = torch.zeros(n, 6, device=device)  # processed action: translation [m] and rotation vector [rad]
         self._setpoint = torch.zeros(n, 3, device=device)  # setpoint position at the end of the policy step
@@ -96,6 +97,10 @@ class SlotBaseImpedanceAction(ActionTerm):
     def command_pose(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Setpoint position (n, 3) and orientation (n, 4) the law used at the latest physics step (base frame)."""
         return self._command_pos, self._command_quat
+
+    def nullspace_posture(self) -> torch.Tensor:
+        """Null-space rest posture (n, joints) [rad]: the arm joints the law's null-space torque pulls towards."""
+        return self._q_ns
 
     def clamp_held(self) -> torch.Tensor:
         """Whether the clamp held the setpoint in any physics step of the latest policy step (n, 2) bool: position,
@@ -174,8 +179,10 @@ class SlotBaseImpedanceAction(ActionTerm):
         self._asset.set_joint_effort_target_index(target=tau, joint_ids=self._joint_ids)
 
     def reset(self, env_ids: Sequence[int] | None = None) -> None:
-        """Start the setpoint at the slot base's current pose (link poses are up to date after the reset event)."""
+        """Start the setpoint at the slot base's current pose and the null-space rest posture at the arm's current
+        joint position (link poses and joints are up to date after the reset events)."""
         env_ids = slice(None) if env_ids is None else env_ids
+        self._q_ns[env_ids] = self._asset.data.joint_pos.torch[env_ids][:, self._joint_ids]
         pos, quat = self.slot_base_pose()
         self._setpoint[env_ids] = pos[env_ids]
         self._setpoint_start[env_ids] = pos[env_ids]

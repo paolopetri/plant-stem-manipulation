@@ -5,7 +5,10 @@ world:
 - points along a straight and an arc stem at given arc lengths; the stem base at arc length 0, the tip at the stem
   length;
 - zero curvature for a straight stem, the known curvature 2 asin(l / 2R) / l for an arc of chords;
-- the distance of points (robot base frame) to the stem's centre line.
+- the distance of points (robot base frame) to the stem's centre line;
+- the axial compression of every stem joint from fake joint wrenches of known axial load (+ = compression, - =
+  tension), the base clamp left out;
+- the arc length of every segment's centre from the stem base.
 
 Stems: segment poses as the stem models return them (segment centre + quaternion (x, y, z, w), local +z = tangent),
 float64 so that the tolerances test the math. Two envs: env 0 with a robot base at BASE_POS rotated 90 deg about z,
@@ -44,10 +47,15 @@ def _robot() -> SimpleNamespace:
     )
 
 
-def _stem_state(poses: torch.Tensor) -> StemState:
-    """Stem state over a fake model that returns `poses` (one stem, copied to both envs) and the segment length."""
-    model = SimpleNamespace(segment_poses=lambda stem: stem.poses, segment_length=lambda stem: stem.segment_length)
-    stem = SimpleNamespace(poses=poses.expand(2, -1, -1).clone(), segment_length=SEGMENT_LENGTH)
+def _stem_state(poses: torch.Tensor, wrenches: torch.Tensor | None = None) -> StemState:
+    """Stem state over a fake model that returns `poses` (one stem, copied to both envs), the segment length and the
+    joint `wrenches` (num_envs, num_segments, 6)."""
+    model = SimpleNamespace(
+        segment_poses=lambda stem: stem.poses,
+        segment_length=lambda stem: stem.segment_length,
+        joint_wrenches=lambda stem: stem.wrenches,
+    )
+    stem = SimpleNamespace(poses=poses.expand(2, -1, -1).clone(), segment_length=SEGMENT_LENGTH, wrenches=wrenches)
     return StemState(model, stem, _robot())
 
 
@@ -117,3 +125,28 @@ def test_distance_of_points_to_the_centre_line():
     torch.testing.assert_close(
         distances, torch.tensor([[0.03, 0.05, 0.07, 0.02]] * 2, dtype=DTYPE), rtol=0.0, atol=1e-12
     )
+
+
+def test_axial_compression_of_every_joint():
+    """The chain model's joint wrenches: force (x, y, z) and moment (x, y, z) in the joint frame, x along the stem
+    axis, x force > 0 = compression; entry 0 is the base clamp (no stem joint). Env 0 is pressed down (compression
+    growing towards the base), env 1 is pulled at the tip (tension 0.9 N). Shear forces and moments are set too and
+    must not enter."""
+    compression = torch.linspace(0.5, 2.4, NUM_SEGMENTS - 1, dtype=DTYPE)  # [N] joints 1 ... 19
+    wrenches = torch.zeros(2, NUM_SEGMENTS, 6, dtype=DTYPE)
+    wrenches[:, 0] = torch.tensor([7.0, 8.0, 9.0, 0.1, 0.2, 0.3], dtype=DTYPE)  # base clamp: left out
+    wrenches[0, 1:, 0] = compression
+    wrenches[1, 1:, 0] = -0.9
+    wrenches[:, 1:, 1:3] = 0.3  # shear [N]
+    wrenches[:, 1:, 3:] = 0.02  # twist and bending moments [N m]
+    result = _stem_state(_straight_stem(), wrenches).axial_compression()
+    expected = torch.stack([compression, torch.full((NUM_SEGMENTS - 1,), -0.9, dtype=DTYPE)])
+    torch.testing.assert_close(result, expected, rtol=0.0, atol=1e-12)
+
+
+def test_segment_arc_lengths_are_the_segment_centres_from_the_base():
+    """#139's convention: arc length 0 at the stem base, the stem length at the tip; segment i spans [i l, (i + 1) l],
+    so its centre is at (i + 1/2) l: 0.01 m for the base segment, 0.39 m for the tip segment (l = 0.02 m)."""
+    arc = _stem_state(_arc_stem()).segment_arc_lengths()
+    expected = torch.tensor([0.01 + 0.02 * i for i in range(NUM_SEGMENTS)], dtype=DTYPE)
+    torch.testing.assert_close(arc, expected, rtol=0.0, atol=1e-12)

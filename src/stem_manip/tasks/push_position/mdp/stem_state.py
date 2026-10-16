@@ -5,14 +5,16 @@ observes about the stem is defined here and can be changed to what the perceptio
 No contact forces in the observations (decision 2026-10-06).
 
 - `StemState`: the stem accessor of `docs/architecture.md` (Stem interface): points at given arc lengths, the
-  bending curvature of every joint and the distance of points to the centre line, all in the robot base frame. It
-  owns the stem model, the segment length (read from the stem asset) and the world-to-robot-base transform.
+  bending curvature of every joint, the distance of points to the centre line, all in the robot base frame, and the
+  axial compression of every joint, the arc length of every segment. It owns the stem model, the segment length
+  (read from the stem asset) and the world-to-robot-base transform.
 - `stem_state(env)`: the env's one instance, built from `env.cfg.stem_model` and the scene entities `STEM` and
   `ROBOT` (cached by `stem_manip.utils.per_env`).
 - Observation term `stem_points`: points at arc lengths, flattened (num_envs, 3 * len(arc_lengths)) [m]. Used for the
   stem base (arc length 0) and the 5 points along the stem (0.08 ... 0.40 m, the last one is the tip; user,
   2026-10-08). The target is observed with Isaac Lab's `generated_commands` (robot base frame, `mdp/commands.py`).
-- The curvature and the distance are for the rewards and terminations (privileged, not observed).
+- The curvature and the distance are for the rewards and terminations, the compression for the metrics (privileged,
+  not observed).
 
 Verify: `tests/test_stem_state.py` (with a fake stem model), `scripts/check_push_obs.py` (in the env).
 """
@@ -74,6 +76,23 @@ class StemState:
         [m]."""
         points_w = _base_to_world(self._robot, points_b)
         return stem_geometry.distance_to_centre_line(self._segment_poses(), points_w, self._segment_length)
+
+    def axial_compression(self) -> torch.Tensor:
+        """Axial force in every stem joint, + = compression, - = tension, shape (num_envs, num_segments - 1) [N].
+
+        Read from the model's joint wrenches (`joint_wrenches(stem)`, `chain` only; the parked `cable` has none), i.e.
+        the force each segment receives through its incoming joint along the stem axis. The base clamp is left out.
+        The force is the same in every frame, so no transform to the robot base.
+        """
+        return self._model.joint_wrenches(self._stem)[:, 1:, 0]
+
+    def segment_arc_lengths(self) -> torch.Tensor:
+        """Arc length of every segment's centre from the stem base, shape (num_segments,) [m]: (i + 1/2) x the segment
+        length (0 at the base, the stem length at the tip, as `points_b`). Places a per-segment reading, e.g. the
+        fork's contact force, on the stem (the contact point, `metrics.py`)."""
+        poses = self._segment_poses()
+        index = torch.arange(poses.shape[1], dtype=poses.dtype, device=poses.device)
+        return (index + 0.5) * self._segment_length
 
     def _segment_poses(self) -> torch.Tensor:
         """Segment poses (num_envs, num_segments, 7), world frame; read anew at every call (a reset can write the stem

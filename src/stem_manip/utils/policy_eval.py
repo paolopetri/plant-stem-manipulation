@@ -1,4 +1,5 @@
-"""Summary of a policy evaluation (no simulator imports): how the episodes end, the final errors, the fork rotation.
+"""Summary of a policy evaluation (no simulator imports): how the episodes end, the final errors, the fork rotation,
+the contact point.
 
 `scripts/evaluate_policy.py` collects the first episode of every env into `Episodes` and prints `summarize`.
 Tests: `tests/test_policy_eval.py`; the rotation angle is `quat.rotation_angle`.
@@ -27,6 +28,11 @@ class Episodes:
     """Largest rotation angle of the slot base from its orientation at the reset during the episode [rad]."""
     final_rotation: torch.Tensor
     """Rotation angle of the slot base from its orientation at the reset at the end [rad]."""
+    fork_contact: torch.Tensor
+    """Whether the fork touched the stem during the episode (bool; the stem metric `fork_contact`)."""
+    contact_point: torch.Tensor
+    """Mean contact point over the episode's policy steps with fork contact, the arc length from the stem base [m]
+    (the stem metric `contact_point`); meaningless without fork contact."""
 
 
 def summarize(episodes: Episodes, time_out: str, success_distance: float) -> dict[str, float | int]:
@@ -42,7 +48,9 @@ def summarize(episodes: Episodes, time_out: str, success_distance: float) -> dic
         `<group>/position_error/...`, `<group>/reached` (share under `success_distance`) and
         `<group>/height_error/...` for the groups `all` and `time_out` (left out without time-out episodes; an
         episode where the time-out and an early term fire at the same step is in the `time_out` group);
-        `all/max_rotation/...` and `all/final_rotation/...`.
+        `all/max_rotation/...` and `all/final_rotation/...`; `all/fork_contact` (share of the episodes with fork
+        contact) and `fork_contact/contact_point/...` over those episodes (left out without fork contact). The share
+        ended by arm contact is `ended_by/arm_contact`, where that term is active.
     """
     summary = {"episodes": len(episodes.length_s), "length_s/mean": episodes.length_s.mean().item()}
     for name, fired in episodes.ended_by.items():
@@ -58,6 +66,10 @@ def summarize(episodes: Episodes, time_out: str, success_distance: float) -> dic
         summary.update(_stats(f"{group}/height_error", height_error, (0.1, 0.5, 0.9)))
     summary.update(_stats("all/max_rotation", episodes.max_rotation, (0.5, 0.9)))
     summary.update(_stats("all/final_rotation", episodes.final_rotation, (0.5, 0.9)))
+    summary["all/fork_contact"] = episodes.fork_contact.float().mean().item()
+    if episodes.fork_contact.any():
+        contact_point = episodes.contact_point[episodes.fork_contact]
+        summary.update(_stats("fork_contact/contact_point", contact_point, (0.1, 0.5, 0.9)))
     return summary
 
 

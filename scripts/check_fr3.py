@@ -63,7 +63,7 @@ def main() -> None:
         cfg.prim_path = "/World/Robot"
         robot = Articulation(cfg)
         sim.reset()
-        # start at the start pose, as the task's reset event does (the spawned USD has all joints at 0)
+        # start at the robot's default joints, the held-out start pose a_above_tip (the spawned USD has all joints at 0)
         q0 = robot.data.default_joint_pos.torch.clone()
         robot.write_joint_position_to_sim_index(position=q0)
         robot.write_joint_velocity_to_sim_index(velocity=torch.zeros_like(q0))

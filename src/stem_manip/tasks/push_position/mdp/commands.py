@@ -4,16 +4,21 @@ The stem point is given by its arc length from the stem base (task cfg: the stem
 2026-10-08), the same quantity the observations use. The stem is read through the env's stem state
 (`mdp/stem_state.py`): the stem point at its arc length, the stem base at arc length 0.
 At reset the target is sampled around the point's rest position (`stem_manip.utils.stem_target`): horizontal
-distance and direction uniform, height on or below the "bowl" the point reaches when pushed, down to the deepest
-stem shape within `curvature_budget` x `damage.max_curvature` (user, 2026-10-09). The rest position is the
-stem base plus the point's arc length straight up (assumes an upright stem and an upright robot base; a tilted
-stem (#91) needs a change here). The base is read from the clamped segment 0, so it follows the
-spawn randomization (Isaac Lab resets the events before the command manager). The damage limit comes from the stem
-model named in the env cfg (`env.cfg.stem_model`).
+distance and direction uniform, height on or below the "bowl" the point reaches when pushed sideways, down to the
+deepest stem shape within `curvature_budget` x `damage.max_curvature` (user, 2026-10-09; planar elastica, spec
+#160; its rod table is computed once, at startup). The rest position is the stem base plus the point's arc length
+straight up (assumes an upright stem and an upright robot base; a tilted stem (#91) needs a change here). The base
+is read from the clamped segment 0, so it follows the spawn randomization (Isaac Lab resets the events before the
+command manager). The damage limit comes from the stem model named in the env cfg (`env.cfg.stem_model`).
 
 The command is the target position in the robot base frame (num_envs, 3) [m]; metrics `position_error` [m] (stem
-point to target) and `height_error` [m] (its z part, + = above the target). Debug markers: target (red, green
-within `success_distance`) and the stem point (blue).
+point to target), `height_error` [m] (its z part, + = above the target) and `target_depth` [mm] (the target below the
+bowl at its own r, from the sampler's rod table; constant in the episode) and `time_to_reach` [s] (episode time at
+which the stem point first comes within `success_distance` of the target; an episode that never reaches it logs the
+episode length `episode_length_s`, so the logged mean is not biased low by episodes that end early without reaching).
+Like `position_error`, a reach at an episode's last step is not counted (Isaac Lab updates the metrics after the
+reset). Metrics are logged, never observed.
+Debug markers: target (red, green within `success_distance`) and the stem point (blue).
 Verify: `scripts/check_push_obs.py`.
 """
 
@@ -33,7 +38,7 @@ from isaaclab.utils import configclass
 from isaaclab.utils.math import combine_frame_transforms
 
 from stem_manip.assets.stem import stem_params
-from stem_manip.utils.stem_target import sample_targets
+from stem_manip.utils.stem_target import rod_table, sample_targets
 
 from .stem_state import stem_state
 
@@ -53,12 +58,18 @@ class StemTipTargetCommand(CommandTerm):
         """Arc length of the stem point from the base [m] (for its rest position)."""
         self.max_curvature = cfg.curvature_budget * stem_params(env.cfg.stem_model)["damage"]["max_curvature"]
         """Curvature of the deepest target shape [1/m]."""
+        self.rod_table = rod_table(self.max_curvature * self.arc_length)
+        """Reachable region of the stem point (bowl and deepest shape); `sample_targets` reuses it (cached)."""
         self.target_b = torch.zeros(self.num_envs, 3, device=self.device)
         self.target_w = torch.zeros(self.num_envs, 3, device=self.device)
         self.metrics["position_error"] = torch.zeros(self.num_envs, device=self.device)
         # tip z - target z [m], + = tip above the target: a policy that pushes with a prong's side only stalls on the
         # bowl above deep targets (user, 2026-10-09)
         self.metrics["height_error"] = torch.zeros(self.num_envs, device=self.device)
+        self.metrics["target_depth"] = torch.zeros(self.num_envs, device=self.device)
+        self.metrics["time_to_reach"] = torch.zeros(self.num_envs, device=self.device)
+        self.reached = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        """Whether the stem point has come within `success_distance` of the target in this episode."""
 
     def __str__(self) -> str:
         return (
@@ -79,9 +90,15 @@ class StemTipTargetCommand(CommandTerm):
         base = stem_state(self._env).points_b((0.0,))[:, 0]
         rest = base[env_ids]  # stem base (clamped segment 0)
         rest[:, 2] += self.arc_length  # upright stem: the point's rest position straight above the base
-        self.target_b[env_ids] = sample_targets(
+        target = sample_targets(
             rest, self.arc_length, self.cfg.distance_range, self.cfg.angle_range, self.max_curvature
         )
+        self.target_b[env_ids] = target
+        distance = (target[:, :2] - rest[:, :2]).norm(dim=-1)
+        below_bowl = rest[:, 2] - self.rod_table.bowl_drop(distance, self.arc_length) - target[:, 2]  # [m]
+        self.metrics["target_depth"][env_ids] = below_bowl * 1e3
+        self.reached[env_ids] = False
+        self.metrics["time_to_reach"][env_ids] = self._env.max_episode_length_s  # not reached (yet)
         # world frame for the markers: the first render after a reset comes before the next `_update_metrics`
         self.target_w[env_ids] = self._to_world(self.target_b[env_ids], env_ids)
 
@@ -98,6 +115,9 @@ class StemTipTargetCommand(CommandTerm):
         error = self.stem_point_b() - self.target_b
         self.metrics["position_error"] = error.norm(dim=-1)
         self.metrics["height_error"] = error[:, 2]
+        first = (self.metrics["position_error"] < self.cfg.success_distance) & ~self.reached
+        self.metrics["time_to_reach"][first] = self._env.episode_length_buf[first] * self._env.step_dt
+        self.reached |= first
 
     def _set_debug_vis_impl(self, debug_vis: bool):
         if debug_vis:
@@ -146,7 +166,8 @@ class StemTipTargetCommandCfg(CommandTermCfg):
     """Horizontal direction of the target from the rest position [rad] (from +x towards +y): full circle."""
 
     success_distance: float = 0.01
-    """Debug markers only: the target turns green within this distance of the stem point [m]."""
+    """The target is reached within this distance of the stem point [m]: metric `time_to_reach`, and the debug
+    marker turns green."""
 
     target_visualizer_cfg: VisualizationMarkersCfg = VisualizationMarkersCfg(
         prim_path="/Visuals/Command/stem_target",

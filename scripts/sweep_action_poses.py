@@ -3,8 +3,8 @@
 Uses the env of `StemManip-Push-Position-FR3-v0` itself (its action term: Franka's Cartesian impedance law with an
 integrated setpoint, speed cap, step-change limit and setpoint-offset clamp), with the stem moved out of reach
 behind the robot. Each env first drives the slot base to its own start point (the 8 corners of the box below, the 8
-corners of the far box at the stem-tip height, plus the env's start pose; step-change limit and clamp switched off
-for this) and holds. Two modes:
+corners of the far box at the stem-tip height, plus the held-out start pose a_above_tip, where every env starts;
+step-change limit and clamp switched off for this) and holds. Two modes:
 - default: translation moves (`--steps` full steps along +x, -x, +y, -y, +z, -z, and reversals +x then -x etc., whose
   second segment is twice as long so that the setpoint brakes *and* reverses) and rotation moves (`--rot_steps`, about
   the same base axes), each followed by a hold, one after the other. With the step-change limit the setpoint ramps up
@@ -67,7 +67,7 @@ import gymnasium as gym
 import torch
 
 import stem_manip.tasks  # noqa: F401  (registers the task)
-from stem_manip.tasks.push_position.env_cfg import StemPushPositionEnvCfg
+from stem_manip.tasks.push_position.env_cfg import EVAL_START_POSES, StemPushPositionEnvCfg
 from stem_manip.utils.impedance import rotvec_between
 
 TASK = "StemManip-Push-Position-FR3-v0"
@@ -76,7 +76,7 @@ BOX_X, BOX_Y, BOX_Z = (0.35, 0.60), (-0.20, 0.20), (0.20, 0.45)  # [m] slot-base
 FAR_X, FAR_Y, FAR_Z = (0.60, 0.75), (-0.25, 0.25), (0.30, 0.45)  # [m] slot-base start points, robot base frame
 KNOWN_LIMIT = {(0.75, y, z) for y in FAR_Y for z in FAR_Z}  # fail without inertia feedforward (user, 2026-10-09)
 BOX_CENTER = (0.475, 0.0, 0.325)  # [m] full-speed moves in x and y head towards it (both boxes)
-START_POSE = (0.40, 0.0, 0.50)  # [m] the env's start pose
+START_POSE = (0.40, 0.0, 0.50)  # [m] slot base of the held-out start pose a_above_tip
 STEM_AWAY = (-0.8, 0.8, 0.0)  # [m] stem base, out of the fork's reach behind the robot
 FOLLOW_TOL, OVERSHOOT_TOL, END_TOL, TILT_TOL = 2e-3, 5e-3, 1e-3, math.radians(1.0)
 ROT_FOLLOW_TOL, ROT_OVERSHOOT_TOL, ROT_DRIFT_TOL = math.radians(2.0), math.radians(2.0), 2e-3  # user, 2026-10-07
@@ -103,6 +103,7 @@ def main() -> None:
     env_cfg.scene.num_envs = len(starts)
     env_cfg.sim.device = args_cli.device or env_cfg.sim.device
     env_cfg.events.spawn_stem = None  # no spawn area: the stem stays at STEM_AWAY
+    env_cfg.events.start_pose.params.update(poses=(EVAL_START_POSES["a_above_tip"],), joint_noise=0.0)
     env_cfg.scene.stem.init_state.pos = STEM_AWAY
     env_cfg.episode_length_s = 1e4  # no time-out during the sweep
     # no joint-margin reset: the sweep reports moves near a joint limit itself (a reset start point would never reach
