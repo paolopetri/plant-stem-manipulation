@@ -13,7 +13,12 @@ from isaaclab.managers import EventTermCfg, ObservationTermCfg, RewardTermCfg, T
 
 from stem_manip.assets.stem import stem_params
 from stem_manip.tasks.push_position import mdp
-from stem_manip.tasks.push_position.env_cfg import START_POSES, STEM_MODEL, StemPushPositionEnvCfg
+from stem_manip.tasks.push_position.env_cfg import (
+    START_POSES,
+    STEM_MODEL,
+    StemPushPositionEnvCfg,
+    use_held_out_start_pose,
+)
 
 DECIDED_TARGET = {
     "distance_range": (0.03, 0.10),  # [m] horizontal distance from the tip's rest position
@@ -158,6 +163,21 @@ def test_start_pose_is_picked_from_the_table(cfg: StemPushPositionEnvCfg):
     asset_cfg = start_pose.params["asset_cfg"]
     assert asset_cfg.name == "robot"
     assert asset_cfg.joint_names == [f"fr3_joint{i}" for i in range(1, 8)] and asset_cfg.preserve_order
+
+
+def test_held_out_start_pose_replaces_the_table():
+    """Evaluation from a held-out start pose (#170): only that pose, exactly (no joint noise); the held-out
+    b_side_90 is the pose committed in #163 (slot base 0.30 m, +90 deg)."""
+    cfg = StemPushPositionEnvCfg()
+    use_held_out_start_pose(cfg, "b_side_90")
+    params = cfg.events.start_pose.params
+    assert [tuple(p) for p in params["poses"]] == [(-0.515, 0.378, 0.096, -1.873, -0.046, 2.249, -1.183)]
+    assert params["joint_noise"] == 0.0
+
+
+def test_unknown_held_out_start_pose_is_an_error():
+    with pytest.raises(KeyError):
+        use_held_out_start_pose(StemPushPositionEnvCfg(), "d_nowhere")
 
 
 def test_robot_base_frame_is_env_frame(cfg: StemPushPositionEnvCfg):

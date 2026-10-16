@@ -8,13 +8,17 @@ fork rotation (slot-base orientation vs. its orientation at the reset, largest a
 episodes with fork contact, from the stem metrics) and the share ended by arm contact, and saves the per-episode values
 and the summary as JSON to `<run dir>/eval/<checkpoint>.json`.
 
+`--start_pose NAME` starts every episode exactly at the held-out start pose `NAME` (`env_cfg.EVAL_START_POSES`, no
+joint noise) instead of the training's start-pose table, and saves to `<run dir>/eval/<checkpoint>_<NAME>.json`.
+
 Final values are those of the last step before the episode ends (user, 2026-10-15): the env resets inside the step
 and recomputes the command metrics afterwards, so they are read before each step, the same values training logs as
 `Metrics/...`. The contact point and fork contact are thus those of the episode without its last policy step, as
 training logs them (`mdp/metrics.py`).
 
 Usage:
-    uv run --extra isaacsim python scripts/evaluate_policy.py <run dir>/model_<iteration>.pt [--num_envs 1024]
+    uv run --extra isaacsim python scripts/evaluate_policy.py <run dir>/model_<iteration>.pt [--num_envs 1024] \
+        [--start_pose a_above_tip|b_side_90|c_low]
 Summary: `stem_manip.utils.policy_eval` (tests: `tests/test_policy_eval.py`).
 """
 
@@ -34,6 +38,9 @@ METRICS = "stem_metrics"
 parser = argparse.ArgumentParser(description="Evaluate a checkpoint of the push task with the mean action.")
 parser.add_argument("checkpoint", type=Path, help="Checkpoint, e.g. logs/rsl_rl/stem_push_position/<run>/model_749.pt.")
 parser.add_argument("--num_envs", type=int, default=1024, help="Number of envs = number of evaluated episodes.")
+parser.add_argument(
+    "--start_pose", default=None, help="Held-out start pose (env_cfg.EVAL_START_POSES) instead of the table."
+)
 add_launcher_args(parser)
 args_cli = parser.parse_args()
 
@@ -56,7 +63,7 @@ def evaluate() -> None:
 
     import stem_manip.tasks  # noqa: F401  (registers the task)
     from stem_manip.tasks.push_position.agents.rsl_rl_ppo_cfg import StemPushPositionPPORunnerCfg
-    from stem_manip.tasks.push_position.env_cfg import StemPushPositionEnvCfg
+    from stem_manip.tasks.push_position.env_cfg import StemPushPositionEnvCfg, use_held_out_start_pose
     from stem_manip.tasks.push_position.mdp.slot_base import slot_base
 
     env_cfg = StemPushPositionEnvCfg()
@@ -65,6 +72,8 @@ def evaluate() -> None:
     env_cfg.sim.device = args_cli.device or env_cfg.sim.device
     agent_cfg.device = env_cfg.sim.device
     env_cfg.seed = agent_cfg.seed  # as play
+    if args_cli.start_pose is not None:
+        use_held_out_start_pose(env_cfg, args_cli.start_pose)
     t_start = time.perf_counter()
     with launch_simulation(env_cfg, args_cli):
         env = RslRlVecEnvWrapper(gym.make(TASK, cfg=env_cfg), clip_actions=agent_cfg.clip_actions)
@@ -125,11 +134,14 @@ def evaluate() -> None:
             "git_commit": env_cfg.git_commit,
             "num_envs": n,
             "seed": env_cfg.seed,
+            "start_pose": args_cli.start_pose or "table",
             "success_distance": command.cfg.success_distance,
         }
         print(f"[INFO] {TASK}, {meta['checkpoint']}, commit {meta['git_commit']}, seed {meta['seed']}")
+        print(f"[INFO] start pose: {meta['start_pose']}")
         print(format_summary(summary))
-        out = args_cli.checkpoint.resolve().parent / "eval" / f"{args_cli.checkpoint.stem}.json"
+        suffix = f"_{args_cli.start_pose}" if args_cli.start_pose else ""
+        out = args_cli.checkpoint.resolve().parent / "eval" / f"{args_cli.checkpoint.stem}{suffix}.json"
         out.parent.mkdir(parents=True, exist_ok=True)
         result = {"meta": meta, "summary": summary, "episodes": dataclasses.asdict(episodes)}
         out.write_text(json.dumps(result, indent=1, default=torch.Tensor.tolist))
