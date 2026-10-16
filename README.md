@@ -96,9 +96,10 @@ What each scene shows (markers, phases): the script's docstring.
 RSL-RL PPO (`agents/rsl_rl_ppo_cfg.py`), logged to wandb (project `stem-manip`; once: `uv run wandb login` in a
 terminal) and to local tensorboard files under `logs/rsl_rl/stem_push_position/<date>_<run name>/`. Every run logs
 this repo's commit (`git_commit` in `params/env.yaml` and the wandb config; `-dirty` = uncommitted changes).
-Iteration count and PPO settings: `agents/rsl_rl_ppo_cfg.py`. Speed (2026-10-10 benchmark): about 5.3 s per iteration
-with 4096 envs (6 GB GPU memory), 2.8 / 2.9 / 3.4 s with 512 / 1024 / 2048 envs. Recording videos during training (`--video`) doubles the iteration time, so videos are
-recorded afterwards with `play`.
+Iteration count and PPO settings: `agents/rsl_rl_ppo_cfg.py`. Speed (2026-10-16 benchmark, M6 env, 48 steps per env,
+#85): 8.9 / 12.9 / 20.3 s per iteration with 2048 / 4096 / 8192 envs, 11.1k / 15.2k / 19.4k env steps/s,
+5.1 / 7.3 / 11.8 GB GPU memory (of 48 GB). Recording videos during training (`--video`) doubles the iteration
+time, so videos are recorded afterwards with `play`.
 
 ```bash
 uv run --extra isaacsim isaaclab train --task StemManip-Push-Position-FR3-v0 --num_envs 4096 --run_name <name>
