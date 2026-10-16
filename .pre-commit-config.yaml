@@ -5,3 +5,12 @@ repos:
     hooks:
       - id: ruff-check
       - id: ruff-format
+  # About 2 s; catches an avoided glossary term before a sim run or a PR
+  - repo: local
+    hooks:
+      - id: glossary-terms
+        name: glossary terms
+        entry: uv run pytest -q tests/test_glossary_terms.py
+        language: system
+        pass_filenames: false
+        always_run: true

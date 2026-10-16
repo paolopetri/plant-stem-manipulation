@@ -26,6 +26,16 @@ Checks:
 Visual check: the target (command marker: red sphere, green within 1 cm of the tip), the tip and the 5 observed
 points (blue spheres, the points drawn by this script); with 4 or more envs the stems stand at different places.
 
+Map (grep -n a marker, then read that section only; `tests/test_check_push_headers.py` keeps it in step with the
+  code):
+- rest: `# -- rest`
+- push, release: `# -- push the tip segment`
+- target: `# -- target:`
+- second reset: `# -- second reset`
+New metric: metrics of the target command: read the term's `command.metrics[...]` right after the resets and compare
+  it with an independent value, as `depth_metric` / `depth_error` (`command.metrics["target_depth"]`, `depth_error`,
+  the `target depth` row); add the bullet to the docstring Checks.
+
 Usage (from the repo root; headless unless a visualizer is requested):
     uv run --extra isaacsim python scripts/check_push_obs.py
     uv run --extra isaacsim python scripts/check_push_obs.py --num_envs 4 --viz kit --slow_motion 3

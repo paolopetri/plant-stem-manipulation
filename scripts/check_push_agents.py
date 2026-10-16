@@ -9,7 +9,7 @@ from the cfg:
   setpoint_offset 6, stem_base 3, stem_points 30 (5 points, previous and current policy step), target_pos 3;
 - finite: observations, rewards, terminated / truncated flags;
 - slot_base_rot: both columns unit length and orthogonal (1e-4);
-- after every reset: the arm joints of every reset env within 0.02 rad (the reset noise, proposal 2026-10-15) of
+- after every reset: the arm joints of every reset env within the reset noise, 0.02 rad (user, 2026-10-15), of
   one of the start poses the reset event picks from (`events.start_pose`: the start-pose table; the clamp agent the
   held-out pose a_above_tip), not all exactly on it (the noise is applied), and at least 2 different poses picked over
   the agent's resets; the fork clear of the stem: its centre line (slot-base x axis from -0.09 to 0.17 m, from the
@@ -49,6 +49,14 @@ Every loop has a fixed number of steps and a progress line is printed every 100 
 longer than `--max_minutes`; the limit is checked between policy steps, so a hang inside `env.step` (or at startup)
 is not caught: run it under an outer `timeout` when it runs unattended (`timeout 20m uv run ...`). Rows of an agent
 cut short by the limit print NOT RUN unless they had already failed. Takes about 5 min with 4 envs.
+
+Map (grep -n a marker, then read that section only; `tests/test_check_push_headers.py` keeps it in step with the
+  code):
+- reset draws: `# -- reset draws`
+- agents (zero, random, clamp; one loop, per-agent steps inside): `for agent in args_cli.agents`
+New metric: this script checks no metric (its checks are the value ranges of the policy-step data); a metric's
+  expected value goes in `check_push_terms.py` (the stem metrics and reward-command metrics) or `check_push_obs.py`
+  (the target command's).
 
 Usage (from the repo root; headless unless a visualizer is requested):
     uv run --extra isaacsim python scripts/check_push_agents.py
