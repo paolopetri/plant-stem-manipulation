@@ -15,7 +15,7 @@ import torch
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils.math import quat_apply, sample_uniform
 
-from stem_manip.assets.fr3 import ARM_LINKS, arm_surface_points
+from stem_manip.assets.fr3 import ARM_LINKS, ARM_MESH_POINTS, arm_surface_points
 from stem_manip.assets.stem import stem_model, stem_params
 from stem_manip.utils.stem_geometry import distance_to_centre_line
 
@@ -24,7 +24,6 @@ from .stem_state import STEM
 
 MAX_STEM_DRAWS = 100  # draws of a stem position clear of the fork and the arm before the reset gives up
 FORK_POINT_SPACING = 0.01  # [m] points along the fork's centre line
-ARM_MESH_POINTS = 4000  # surface points per arm collision mesh (as the start-pose table's arm clearance)
 ARM_ENV_CHUNK = 256  # envs per batch of the arm clearance (bounds its memory: 256 x 32000 points)
 
 if TYPE_CHECKING:

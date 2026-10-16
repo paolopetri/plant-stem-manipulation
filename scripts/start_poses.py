@@ -52,7 +52,7 @@ import torch
 import isaaclab.sim as sim_utils
 from isaaclab.utils.math import quat_apply, quat_from_matrix
 
-from stem_manip.assets.fr3 import ARM_LINKS, arm_surface_points, fr3_cfg, slot_base_offset
+from stem_manip.assets.fr3 import ARM_LINKS, ARM_MESH_POINTS, arm_surface_points, fr3_cfg, slot_base_offset
 from stem_manip.assets.stem import stem_model, stem_params
 from stem_manip.tasks.push_position import env_cfg as task
 from stem_manip.tasks.push_position.mdp.slot_base import SlotBaseKinematics
@@ -68,7 +68,6 @@ MAX_ITERS = 800
 MAX_JOINT_STEP = 0.02  # [rad] per IK iteration
 DAMPING = 0.01  # damped least squares
 NULLSPACE_GAIN = 0.1  # per iteration, towards the seed
-MESH_POINTS = 4000  # surface points per FR3 collision mesh for the arm clearance
 
 
 def goal_pose(height: float, azimuth: float) -> tuple[tuple[float, float, float], torch.Tensor]:
@@ -149,7 +148,7 @@ def main() -> None:
         limits = robot.data.joint_pos_limits.torch[:, arm]
         link_ids = [robot.body_names.index(name) for name in ARM_LINKS]
         # surface points of each link's collision mesh, in the link frame
-        link_points = [p.to(device) for p in arm_surface_points(MESH_POINTS)]
+        link_points = [p.to(device) for p in arm_surface_points(ARM_MESH_POINTS)]
         origins = scene.env_origins
 
         def write(q: torch.Tensor) -> None:

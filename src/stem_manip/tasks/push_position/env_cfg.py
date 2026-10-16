@@ -30,7 +30,7 @@ from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors import ContactSensorCfg
 from isaaclab.utils import configclass
 
-from stem_manip.assets.fr3 import fr3_cfg, slot_base_offset
+from stem_manip.assets.fr3 import ARM_LINKS, fr3_cfg, slot_base_offset
 from stem_manip.assets.stem import stem_model, stem_params
 
 from . import mdp
@@ -153,9 +153,8 @@ ARM_JOINTS = ["fr3_joint[1-7]"]
 # the end-effector body under the frame fr3_link8): the fork first, then the arm links, the order the contact terms
 # split the stem contact sensor's robot-body axis by (`mdp/contact.py`). Exact paths, no wildcard: `.*<link>` also
 # matched visuals, collision children and joints (#84).
-_ARM_LINKS = [f"fr3_link{i}" for i in range(8)]
-ROBOT_BODY_PATHS = [f"Geometry/base/{'/'.join(_ARM_LINKS)}/fr3_link8/{END_EFFECTOR}"] + [
-    "Geometry/base/" + "/".join(_ARM_LINKS[: i + 1]) for i in range(len(_ARM_LINKS))
+ROBOT_BODY_PATHS = [f"Geometry/base/{'/'.join(ARM_LINKS)}/fr3_link8/{END_EFFECTOR}"] + [
+    "Geometry/base/" + "/".join(ARM_LINKS[: i + 1]) for i in range(len(ARM_LINKS))
 ]
 
 

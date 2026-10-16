@@ -149,6 +149,9 @@ def fr3_cfg(ee: str, control: str = "position") -> ArticulationCfg:
     )
 
 
+ARM_MESH_POINTS = 4000  # surface points per arm collision mesh for the arm clearance (start-pose table, stem spawn)
+
+
 @functools.cache
 def arm_surface_points(num_points: int) -> tuple[torch.Tensor, ...]:
     """Surface points of the collision mesh of each body in `ARM_LINKS`, in that body's frame [m] (CPU): about
