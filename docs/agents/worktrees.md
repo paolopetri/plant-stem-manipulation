@@ -4,9 +4,9 @@ Any session that works on a branch while other sessions may use the main checkou
 
 ## Create
 
-`git worktree add .claude/worktrees/<name> -b <branch> main`
+`git worktree add --no-track .claude/worktrees/<name> -b <branch> main`
 
-A new worktree costs about 35 min (`uv sync` with Isaac Sim, first Kit start). Create one per ticket that runs in parallel with others. Tickets that run one after another (a chain of blocking edges) reuse one set-up worktree: each ticket gets a new branch off the integration tip, once the previous ticket has landed there:
+`--no-track`: a new ticket branch does not track the branch it starts from (`main` or an integration branch). A new worktree to a finished sim check takes about 5 min (`uv sync` about 1 s; measured in the #160 run). Create one per ticket that runs in parallel with others. Tickets that run one after another (a chain of blocking edges) reuse one set-up worktree: each ticket gets a new branch off the integration tip, once the previous ticket has landed there:
 - `/implement-spec`: `git -C <path> switch -c <branch> origin/<integration branch>` once the previous ticket is pushed to it. `origin/<integration branch>`, not the local branch: the merge push ("Merge", step 2) moves only the remote branch and its tracking ref.
 - Tickets with their own PR into `main`: `git -C <path> fetch origin main`, then `git -C <path> switch -c <branch> origin/main` once the previous PR is merged (user, 2026-10-15). Each squash PR then holds only its own ticket.
 
@@ -24,11 +24,13 @@ Before any `uv run` in the worktree:
 
 ## GPU
 
-Simulator runs (checks, recordings; not training runs) go through `scripts/gpu_slot.py`, with the system python:
+Simulator runs (checks, recordings; not training runs) go through `scripts/sim_check.py`, with the system python:
 
-`scripts/gpu_slot.py uv run --extra isaacsim python scripts/check_fr3.py`
+`scripts/sim_check.py uv run --extra isaacsim python scripts/check_fr3.py`
 
-It runs the command once a GPU slot is free (`flock` lock files shared by all worktrees; slot count and lock dir in the script), waits without polling, frees the slot when the command ends (also on a crash or kill) and returns the command's exit status. Never wait for a slot with a `pgrep` loop. Stagger launches by about a minute (shared shader cache).
+It takes a GPU slot (`scripts/gpu_slot.py`: `flock` lock files shared by all worktrees, slot count and lock dir in the script), sets `OMNI_KIT_ACCEPT_EULA=YES`, staggers launches itself and writes the full output to a log file (`logs/sim_check/`, path in its first line). It prints only the slot lines, the PASS/FAIL lines, any traceback and a final `exit N` line, and returns the command's exit status.
+
+The one rule: start it with Bash `run_in_background`, then wait with one Monitor on its `exit` line. Never a foreground poll loop, never a `pgrep` loop. Read the log only by `grep` or `tail`.
 
 ## Merge
 
