@@ -111,8 +111,7 @@ START_JOINT_NOISE = 0.02
 FORK_AXIS_EXTENT = (-0.09, 0.17)  # [m] along the slot base's x axis
 FORK_STEM_MIN_DISTANCE = 0.05  # [m]
 # Arm vs a spawned stem (user, 2026-10-15, #163): the spawn event also redraws stem positions whose surface comes closer
-# than this to an arm body (any robot body but the fork), the start-pose table's clearance. Wherever the fork is clear,
-# the table poses and a_above_tip / c_low keep the arm at least 68 mm away; only b_side_90 needs it (2026-10-15).
+# than this to an arm body (any robot body but the fork), the start-pose table's clearance.
 STEM_MIN_ARM_CLEARANCE = START_POSE_ARM_CLEARANCE  # [m]
 
 # Stem spawn area (user, 2026-10-09): the stem base is reset uniformly within this rectangle on the lab's plate in front
@@ -147,7 +146,7 @@ MIN_JOINT_MARGIN = 0.25  # [rad] terminate closer to any FR3 joint limit (the sw
 # this; ends the episode (user, 2026-10-15, #160)
 ARM_CONTACT_FORCE = 0.05
 # [N] fork contact for the contact point (a metric): the fork's contact force (mean over the policy step) above this;
-# the arm-contact threshold (#166)
+# the arm-contact threshold (orchestrator, 2026-10-16, pending user review; #166)
 FORK_CONTACT_FORCE = 0.05
 ARM_JOINTS = ["fr3_joint[1-7]"]
 # The robot's rigid bodies, by their prim paths below the robot prim (the FR3 USD nests each link under its parent;
@@ -289,7 +288,7 @@ class EventCfg:
 @configclass
 class RewardsCfg:
     """Task (stem tip to target), approach (fork to stem), damage penalties below the limits, smooth motion, early
-    terminations. Weights: a first guess for the baseline (user, 2026-10-09); termination penalty 2026-10-15."""
+    terminations. Weights: a first guess for the baseline (user, 2026-10-09); termination penalty (user, 2026-10-15)."""
 
     distance_coarse = RewTerm(func=mdp.stem_point_distance_tanh, weight=1.0, params={"std": DISTANCE_STD[0]})
     # ellipsoid (user, 2026-10-10): height error scaled to std HEIGHT_STD (3 mm), so that a side push stalling on the
