@@ -1,4 +1,4 @@
-"""`scripts/sim_check.py` runs a sim check through a GPU slot and prints only what an agent needs (#174).
+"""`scripts/sim_check.py` runs a sim check through a GPU slot and prints only what an agent needs.
 
 Fake check commands (no Kit) on a private lock dir. The tests check:
 

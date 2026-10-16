@@ -2,7 +2,7 @@
 """List the sim checks a commit range affects (no simulator, standard library only).
 
 Before a merged head is pushed, its affected checks are re-run with `scripts/sim_check.py` (`docs/agents/worktrees.md`
--> Merge): a change on one ticket can break the checks of another (#179).
+-> Merge): a change on one ticket can break the checks of another.
 
 The mapping is a path table, first match wins. It is coarse on purpose: every push check builds the whole env, so a
 change to any env term can break any of them. A path under `src/`, `assets/` or the dependencies with no finer rule

@@ -1,4 +1,4 @@
-"""`scripts/read_issue.py` prints an issue, or one chosen comment of it, from the `gh issue view --json` data (#176)."""
+"""`scripts/read_issue.py` prints an issue, or one chosen comment of it, from the `gh issue view --json` data."""
 
 import importlib.util
 from pathlib import Path

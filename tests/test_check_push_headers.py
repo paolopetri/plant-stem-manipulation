@@ -1,4 +1,4 @@
-"""Every `scripts/check_push_*.py` opens with a map of its phases (#178), so that an agent reads one section.
+"""Every `scripts/check_push_*.py` opens with a map of its phases, so that an agent reads one section.
 
 The map is the docstring block that starts with `Map (grep -n a marker`: one bullet `- <name>: `<marker>`` per phase
 and a `New metric:` line. The tests check:

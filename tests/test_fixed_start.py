@@ -1,4 +1,4 @@
-"""Scripted check phases start from the fixed start through one helper (#177; no simulator).
+"""Scripted check phases start from the fixed start through one helper (no simulator).
 The tests check:
 
 - `fixed_start` sets the start-pose event's params to the held-out pose a_above_tip alone, without joint noise, and

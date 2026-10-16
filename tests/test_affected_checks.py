@@ -1,4 +1,4 @@
-"""`scripts/affected_checks.py` maps changed paths to the sim checks that must be re-run on a merged head (#179)."""
+"""`scripts/affected_checks.py` maps changed paths to the sim checks that must be re-run on a merged head."""
 
 import importlib.util
 from pathlib import Path

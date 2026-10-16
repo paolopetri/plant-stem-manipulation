@@ -167,7 +167,7 @@ def git_commit() -> str:
 
 
 def fixed_start(start_pose_params: dict) -> None:
-    """Fixed start of a scripted check phase (#177): the held-out start pose a_above_tip, without joint noise, the
+    """Fixed start of a scripted check phase: the held-out start pose a_above_tip, without joint noise, the
     same in every env (the scripted paths start there). Updates the `start_pose` event's params in place, in the cfg
     (`env_cfg.events.start_pose.params`) or at run time (`env.event_manager.get_term_cfg("start_pose").params`); takes
     effect at the next reset."""

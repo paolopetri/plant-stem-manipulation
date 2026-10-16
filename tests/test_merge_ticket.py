@@ -1,4 +1,4 @@
-"""`scripts/merge_ticket.py` merges a ticket branch into an integration branch in one command (#180).
+"""`scripts/merge_ticket.py` merges a ticket branch into an integration branch in one command.
 
 Each test builds a throwaway repo with a bare `origin`: integration branch `integ`, ticket branch `ticket`. The test
 commands and the sim check runner are fake (python snippets), so no Kit and no GPU. The tests check:
