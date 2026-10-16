@@ -92,7 +92,7 @@ from isaaclab.sensors import ContactSensorCfg
 from isaaclab.utils.math import matrix_from_quat
 
 import stem_manip.tasks  # noqa: F401  (registers the task)
-from stem_manip.tasks.push_position.env_cfg import EVAL_START_POSES, START_POSES, StemPushPositionEnvCfg
+from stem_manip.tasks.push_position.env_cfg import START_POSES, StemPushPositionEnvCfg, fixed_start
 from stem_manip.utils import check_report
 from stem_manip.utils.fr3_reference import rotvec_from_matrix, slot_base_pose
 from stem_manip.utils.impedance import rotvec_between
@@ -400,9 +400,7 @@ def main() -> None:
         # -- setpoint clamp: +x, then full move down into the ground; at every physics step the setpoint the law uses
         # may be at most CLAMP_OFFSET ahead of the tool (measured around each apply_actions call); from a_above_tip
         # without joint noise (the ground contact must not vary with the random table pose)
-        env.event_manager.get_term_cfg("start_pose").params.update(
-            poses=(EVAL_START_POSES["a_above_tip"],), joint_noise=0.0
-        )
+        fixed_start(env.event_manager.get_term_cfg("start_pose").params)
         restart()
         x_move = torch.zeros(6, device=device)
         x_move[0] = 1.0

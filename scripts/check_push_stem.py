@@ -53,7 +53,7 @@ import torch
 
 import stem_manip.tasks  # noqa: F401  (registers the task)
 from stem_manip.assets.stem import stem_model, stem_params
-from stem_manip.tasks.push_position.env_cfg import EVAL_START_POSES, STEM_MODEL, StemPushPositionEnvCfg
+from stem_manip.tasks.push_position.env_cfg import STEM_MODEL, StemPushPositionEnvCfg, fixed_start
 from stem_manip.utils import check_report, rollout
 from stem_manip.utils.stem_geometry import point_pose
 
@@ -88,7 +88,7 @@ def main() -> None:
     env_cfg.sim.device = args_cli.device or env_cfg.sim.device
     env_cfg.episode_length_s = 1e4  # the scripted phases run without a time out
     env_cfg.events.spawn_stem.params.update(x_range=(STEM_BASE[0],) * 2, y_range=(STEM_BASE[1],) * 2)
-    env_cfg.events.start_pose.params.update(poses=(EVAL_START_POSES["a_above_tip"],), joint_noise=0.0)
+    fixed_start(env_cfg.events.start_pose.params)
     with launch_simulation(env_cfg, args_cli):
         env = gym.make(TASK, cfg=env_cfg).unwrapped
         env.reset()
