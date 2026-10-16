@@ -10,7 +10,7 @@ STATE=logs/autotrain
 TASK=StemManip-Push-Position-FR3-v0
 VIDEO_STEPS=938  # 2 episodes of 469 steps (15 s at 31.25 Hz)
 
-uv run --extra isaacsim isaaclab train --task $TASK --num_envs 4096 --run_name "$RUN" "$@" > "$STATE/$RUN.out" 2>&1
+uv run --extra isaacsim isaaclab train --task $TASK --num_envs 8192 --run_name "$RUN" "$@" > "$STATE/$RUN.out" 2>&1
 echo "train exit $?" >> "$STATE/$RUN.out"
 
 RUN_DIR=$(ls -d logs/rsl_rl/stem_push_position/*_"$RUN" 2>/dev/null | tail -n 1)

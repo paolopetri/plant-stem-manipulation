@@ -96,6 +96,24 @@ _Avoid_: tool tip, TCP, fork tip, reference point
 Where the fork touches the stem, given as the arc length from the stem base.
 _Avoid_: attach point, attachment
 
+**Fork contact**:
+Contact of the fork with the stem above a small force; the contact point is taken over the policy steps with fork
+contact.
+_Avoid_: touching, tool contact
+
+**Slot contact**:
+Fork contact in which the stem passes through the slot, between the prongs, and touches a slot wall or the slot base.
+
+**Prong contact**:
+Fork contact other than slot contact: on a prong's outer side, tip or flat face, or with the stem lying along the slot
+and its end pressed against the slot base.
+_Avoid_: side push (for the contact)
+
+**Slot moment**:
+The bending moment the fork applies to the stem passing through the slot when it turns about the slot's axis, so that
+one prong presses on the stem from one side and the other prong from the opposite side, some distance apart along it.
+_Avoid_: twist (that is the stem's torsion)
+
 **Arm contact**:
 Contact of any robot body other than the fork with the stem; it ends the episode. A contact rule, not a damage limit.
 _Avoid_: robot contact

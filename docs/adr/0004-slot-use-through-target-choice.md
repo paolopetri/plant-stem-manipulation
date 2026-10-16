@@ -12,7 +12,8 @@ the tip and contact near it may be right. Decided by the user in the grilling se
 ## Considered options
 
 - **Penalty on contact with the top k segments:** rejected as the first step, it hard-codes where to push. Kept as
-  the fallback if the contact-point metric and the play videos still show tip-only pushing.
+  the fallback if the contact-point metric and the play videos still show tip-only pushing. Superseded by ADR 0005
+  (2026-10-16): not run, it moves the contact but does not make the policy use the slot.
 - **Linear (small-deflection) target formulas with wider ranges:** wrong at the depths needed.
 
 ## Consequences

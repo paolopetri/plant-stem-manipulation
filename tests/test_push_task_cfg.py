@@ -160,6 +160,21 @@ def test_start_pose_is_picked_from_the_table(cfg: StemPushPositionEnvCfg):
     assert asset_cfg.joint_names == [f"fr3_joint{i}" for i in range(1, 8)] and asset_cfg.preserve_order
 
 
+def test_held_out_start_pose_replaces_the_table():
+    """Evaluation from a held-out start pose (#170): only that pose, exactly (no joint noise). b_side_90: slot base
+    0.30 m, +90 deg (#163)."""
+    cfg = StemPushPositionEnvCfg()
+    cfg.use_held_out_start_pose("b_side_90")
+    params = cfg.events.start_pose.params
+    assert [tuple(p) for p in params["poses"]] == [(-0.515, 0.378, 0.096, -1.873, -0.046, 2.249, -1.183)]
+    assert params["joint_noise"] == 0.0
+
+
+def test_unknown_held_out_start_pose_is_an_error():
+    with pytest.raises(KeyError):
+        StemPushPositionEnvCfg().use_held_out_start_pose("d_nowhere")
+
+
 def test_robot_base_frame_is_env_frame(cfg: StemPushPositionEnvCfg):
     """The spawn area is given in the robot base frame and written in the env frame: the two must coincide."""
     assert cfg.scene.robot.init_state.pos == pytest.approx((0.0, 0.0, 0.0), abs=1e-12)

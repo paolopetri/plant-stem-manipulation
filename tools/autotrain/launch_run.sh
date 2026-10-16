@@ -5,7 +5,7 @@
 #   e.g. tools/autotrain/launch_run.sh 02 noise15 "Init std 1.5 explores more" --max_iterations 1500
 #
 # Refuses unless the tree is clean and on the autotrain branch, so every run is an exact commit, and unless no run
-# is alive (one run at a time on the GPU). The job (run_job.sh: train with 4096 envs unless overridden, then a play
+# is alive (one run at a time on the GPU). The job (run_job.sh: train with 8192 envs unless overridden, then a play
 # video uploaded to wandb) gets its own process group (stop it with stop_run.sh) and is killed after
 # AUTOTRAIN_MAX_HOURS. Writes logs/autotrain/current.pid and a line in logs/autotrain/runs.log.
 set -euo pipefail

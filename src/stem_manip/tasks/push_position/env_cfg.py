@@ -374,3 +374,9 @@ class StemPushPositionEnvCfg(ManagerBasedRLEnvCfg):
         self.viewer.env_index = 0
         self.viewer.eye = (1.6, 1.4, 1.0)
         self.viewer.lookat = (0.35, 0.0, 0.3)
+
+    def use_held_out_start_pose(self, name: str) -> None:
+        """Start every episode exactly at the held-out pose `name` of `EVAL_START_POSES` instead of the table (no
+        joint noise), for evaluation (`scripts/evaluate_policy.py --start_pose`, #170)."""
+        self.events.start_pose.params["poses"] = (EVAL_START_POSES[name],)
+        self.events.start_pose.params["joint_noise"] = 0.0
