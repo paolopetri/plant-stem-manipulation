@@ -9,7 +9,8 @@ from stem_manip.utils import fr3_reference
 from stem_manip.utils.fr3_reference import flange_pose, rotvec_from_matrix, rpy_matrix, slot_base_pose
 
 DTYPE = torch.float64
-# start pose of the push task (env_cfg.START_JOINT_POS) and its slot base (0.40, 0, 0.50) m (user, 2026-10-09)
+# held-out start pose of the push task (env_cfg.EVAL_START_POSES["a_above_tip"]) and its slot base (0.40, 0, 0.50) m
+# (user, 2026-10-09)
 START_Q = (-0.013, -0.689, 0.011, -2.496, 0.007, 1.808, 0.779)
 START_TIP = (0.40, 0.0, 0.50)
 
